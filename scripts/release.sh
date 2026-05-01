@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# MacGet release script.
+# Macget release script.
 #
 # One-time setup:
 #   1. Enroll in the Apple Developer Program ($99/yr).
@@ -15,6 +15,7 @@
 #
 # Per release:
 #   - Bump version in Xcode (Marketing Version + Current Project Version).
+#   - Update CHANGELOG.md.
 #   - Run this script from the repo root: ./scripts/release.sh
 #   - Upload the DMG in dist/ to the GitHub Release.
 #   - Run `Sparkle/bin/generate_appcast site/` to update the appcast.
@@ -22,8 +23,8 @@
 set -euo pipefail
 
 # ---- configurable ----
-SCHEME="MacGet"
-PROJECT="MacGet.xcodeproj"
+SCHEME="Macget"
+PROJECT="Macget.xcodeproj"
 NOTARY_PROFILE="macget-notary"
 DIST_DIR="dist"
 # ----------------------
@@ -33,9 +34,17 @@ cd "$ROOT"
 
 if [[ ! -d "$PROJECT" ]]; then
   echo "ERROR: $PROJECT not found in $ROOT."
-  echo "Open Xcode, create the project per README.md, then re-run this script."
   exit 1
 fi
+
+# Pre-flight: tests must pass before we ship.
+echo "==> Running unit tests…"
+xcodebuild test \
+  -project "$PROJECT" \
+  -scheme "$SCHEME" \
+  -destination 'platform=macOS' \
+  -only-testing:MacgetTests \
+  -quiet
 
 mkdir -p "$DIST_DIR"
 rm -rf "$DIST_DIR"/*

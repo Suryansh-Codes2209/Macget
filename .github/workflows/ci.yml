@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    # Note: Macget targets macOS 26.4 (Tahoe). If `macos-latest` doesn't yet ship
+    # an Xcode that supports that SDK, pin to a specific image (e.g. `macos-26`)
+    # once GitHub publishes one — or temporarily lower the deployment target.
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          sw_vers
+
+      - name: Build (Debug)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project Macget.xcodeproj \
+            -scheme Macget \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            build
+
+      - name: Run unit tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Macget.xcodeproj \
+            -scheme Macget \
+            -destination 'platform=macOS' \
+            -only-testing:MacgetTests \
+            -resultBundlePath tests.xcresult
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: tests.xcresult
+          retention-days: 7

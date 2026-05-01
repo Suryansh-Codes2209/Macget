@@ -1,0 +1,75 @@
+<svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MacGet app icon">
+  <defs>
+    <!-- Vivid Mac-blue background gradient (top: bright sky → mid: system blue → bottom: deep cobalt) -->
+    <linearGradient id="bgGrad" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5AC8FA"/>
+      <stop offset="0.5" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#0033B0"/>
+    </linearGradient>
+
+    <!-- Soft top gloss for the macOS Tahoe glass feel -->
+    <radialGradient id="gloss" cx="512" cy="-100" r="780" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.45"/>
+      <stop offset="0.6" stop-color="#FFFFFF" stop-opacity="0.06"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Subtle bottom inner glow (gives the dome/spherical depth Apple icons have) -->
+    <radialGradient id="bottomGlow" cx="512" cy="1100" r="600" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#001F7A" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#001F7A" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- White elements: pure white at top, hint of blue at bottom (echoes the bg) -->
+    <linearGradient id="whiteGrad" x1="512" y1="220" x2="512" y2="860" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#D8E8FF"/>
+    </linearGradient>
+
+    <!-- Soft drop shadow under the arrow -->
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
+      <feOffset dx="0" dy="8"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.25"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <!-- Squircle clip (macOS-style rounded square) -->
+    <clipPath id="squircleClip">
+      <rect width="1024" height="1024" rx="230" ry="230"/>
+    </clipPath>
+  </defs>
+
+  <!-- Everything inside the squircle -->
+  <g clip-path="url(#squircleClip)">
+    <!-- Base color -->
+    <rect width="1024" height="1024" fill="url(#bgGrad)"/>
+    <!-- Bottom inner glow -->
+    <rect width="1024" height="1024" fill="url(#bottomGlow)"/>
+    <!-- Top glass highlight -->
+    <rect width="1024" height="1024" fill="url(#gloss)"/>
+
+    <!-- The icon: 3 parallel download "chunks" merging into a single arrowhead.
+         Heights are deliberately unequal — telling the multi-thread story:
+         each thread is fetching its own range, at its own pace. -->
+    <g filter="url(#softShadow)">
+      <!-- Left chunk (~70% complete) -->
+      <rect x="320" y="280" width="96" height="340" rx="48" ry="48" fill="url(#whiteGrad)"/>
+      <!-- Center chunk (leading, ~90%) -->
+      <rect x="464" y="230" width="96" height="390" rx="48" ry="48" fill="url(#whiteGrad)"/>
+      <!-- Right chunk (~60%) -->
+      <rect x="608" y="310" width="96" height="310" rx="48" ry="48" fill="url(#whiteGrad)"/>
+
+      <!-- Unified arrowhead (the chunks merge into one file) -->
+      <path d="M 220 570
+               L 804 570
+               L 540 848
+               Q 512 876 484 848 Z"
+            fill="url(#whiteGrad)"/>
+    </g>
+  </g>
+
+  <!-- Crisp 1px rim for definition on light backgrounds -->
+  <rect x="0.5" y="0.5" width="1023" height="1023" rx="229.5" ry="229.5"
+        fill="none" stroke="rgba(0,0,0,0.10)" stroke-width="1"/>
+</svg>

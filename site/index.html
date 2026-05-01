@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MacGet — Free Multi-threaded Download Manager for macOS</title>
+<meta name="description" content="MacGet is a free, open-source download manager for macOS with up to 20 parallel HTTP-Range threads, pause/resume, and a native SwiftUI interface.">
+<style>
+  :root {
+    --bg: #0b0d10;
+    --surface: #14181d;
+    --text: #e6ecf2;
+    --muted: #8a96a3;
+    --accent: #4f9cff;
+    --accent-hover: #6cadff;
+    --border: #232a32;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f8fa;
+      --surface: #ffffff;
+      --text: #0d1117;
+      --muted: #57606a;
+      --accent: #0969da;
+      --accent-hover: #0a7bff;
+      --border: #d0d7de;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 64px 24px 96px; }
+  h1 {
+    font-size: 56px;
+    margin: 0 0 8px;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+  }
+  .tagline { font-size: 22px; color: var(--muted); margin: 0 0 32px; }
+  .cta {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--accent); color: white;
+    padding: 14px 28px; border-radius: 10px;
+    text-decoration: none; font-weight: 600; font-size: 17px;
+    transition: background 120ms;
+  }
+  .cta:hover { background: var(--accent-hover); }
+  .meta {
+    margin-top: 12px; font-size: 13px; color: var(--muted);
+  }
+  .features {
+    list-style: none; padding: 0; margin: 56px 0 0;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  }
+  @media (max-width: 600px) {
+    .features { grid-template-columns: 1fr; }
+    h1 { font-size: 40px; }
+  }
+  .features li {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 16px;
+    border-radius: 8px;
+  }
+  .features b { display: block; margin-bottom: 4px; }
+  .features span { color: var(--muted); font-size: 14px; }
+  .footer {
+    margin-top: 64px; padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 14px;
+  }
+  .footer a { color: var(--accent); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+  .disclaimer {
+    margin-top: 16px; font-size: 12px; color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>MacGet</h1>
+  <p class="tagline">A free, open-source download manager for macOS. Up to 20 parallel threads per file.</p>
+
+  <a class="cta" href="https://github.com/YOUR-GITHUB-USERNAME/macget/releases/latest" rel="noopener">
+    Download for macOS
+  </a>
+  <div class="meta">Requires macOS 26 Tahoe or later · Free forever · MIT licensed</div>
+
+  <ul class="features">
+    <li><b>Multi-threaded</b><span>HTTP Range requests across up to 20 parallel connections per file.</span></li>
+    <li><b>Pause / Resume</b><span>State survives quit-and-relaunch. Restart your Mac, pick up where you left off.</span></li>
+    <li><b>Native</b><span>Built in SwiftUI. Looks and behaves like a Mac app should.</span></li>
+    <li><b>Free</b><span>No ads, no telemetry, no in-app purchases. Open source on GitHub.</span></li>
+  </ul>
+
+  <div class="footer">
+    <a href="https://github.com/YOUR-GITHUB-USERNAME/macget">Source on GitHub</a>
+    &middot; <a href="https://github.com/YOUR-GITHUB-USERNAME/macget/issues">Report a bug</a>
+    &middot; <a href="https://www.buymeacoffee.com/YOUR-USERNAME">Support development</a>
+
+    <p class="disclaimer">MacGet is an independent project, not affiliated with or endorsed by Tonec Inc. or Internet Download Manager (IDM).</p>
+  </div>
+</main>
+</body>
+</html>

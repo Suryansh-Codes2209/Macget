@@ -1,0 +1,59 @@
+# Xcode
+build/
+DerivedData/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Packages/
+.swiftpm/
+# Commit Package.resolved for app projects (reproducible builds)
+# Uncomment the next line for libraries:
+# Package.resolved
+
+# Sparkle private signing key — DO NOT COMMIT
+sparkle_eddsa_priv.key
+*.eddsa
+
+# Notarization secrets
+.notarize.env
+*.p12
+*.cer
+
+# Build output
+dist/
+*.dmg
+*.zip
+*.pkg
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~

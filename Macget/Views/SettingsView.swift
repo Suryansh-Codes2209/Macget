@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var vm: SettingsViewModel
+    @State private var mediaToolStatus: String?
 
     var body: some View {
         TabView {
@@ -30,13 +31,16 @@ struct SettingsView: View {
                 Toggle("Resume in-progress downloads on launch", isOn: $vm.settings.resumeOnLaunch)
             }
             Section {
+                Toggle("Auto-capture downloads from the browser extension",
+                       isOn: $vm.settings.browserCaptureEnabled)
                 Toggle("Auto-add http(s) URLs copied to the clipboard",
                        isOn: $vm.settings.clipboardWatchEnabled)
             } header: {
                 Text("Browser integration")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Macget can pick up downloads from any browser without an extension:")
+                    Text("With the Macget browser extension installed, turning on auto-capture lets downloads you start in Chrome, Edge, Brave, or Firefox be handed straight to Macget (cookies included, so logged-in downloads work). Install the extension from the `BrowserExtension/` folder.")
+                    Text("No extension? Macget still picks up downloads several ways:")
                     Text("• Right-click a link → **Services → Download with Macget** (enable once in System Settings → Keyboard → Keyboard Shortcuts → Services).")
                     Text("• Drag a URL from the address bar onto the Macget window.")
                     Text("• Use the URL scheme: `macget://download?url=<encoded-link>` works in any browser via a bookmarklet.")
@@ -45,8 +49,41 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+
+            Section {
+                Toggle("Download videos (YouTube & other sites)",
+                       isOn: $vm.settings.mediaExtractionEnabled)
+                if vm.settings.mediaExtractionEnabled {
+                    HStack(spacing: 6) {
+                        Text("Media tools:")
+                        Text(mediaToolStatus ?? "Checking…")
+                            .foregroundStyle(mediaToolStatus?.hasPrefix("yt-dlp not found") == true ? .red : .secondary)
+                    }
+                    .font(.caption)
+                }
+            } header: {
+                Text("Video downloads")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Uses **yt-dlp** (and **ffmpeg** for merging), bundled with Macget, to download video from the page you're watching via the extension's in-page button. A system copy on your PATH is used instead when present.")
+                    Text("Only download content you're authorized to — e.g. your own uploads, Creative Commons, or where the site permits. Downloading from many sites (including YouTube) may violate their Terms of Service; you are responsible for your use.")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding(20)
+        .task(id: vm.settings.mediaExtractionEnabled) {
+            guard vm.settings.mediaExtractionEnabled else { return }
+            mediaToolStatus = nil
+            let tools = await Task.detached { MediaToolLocator.locate(force: true) }.value
+            if let tools {
+                let ff = tools.ffmpegDir == nil ? " — ffmpeg missing (merging unavailable)" : ""
+                mediaToolStatus = "found (\(tools.source.rawValue))\(ff)"
+            } else {
+                mediaToolStatus = "yt-dlp not found — run `brew install yt-dlp ffmpeg`"
+            }
+        }
     }
 
     private var downloadsTab: some View {

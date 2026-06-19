@@ -57,3 +57,11 @@ Icon
 .vscode/
 *.swp
 *~
+
+# Browser extension signing key (do not commit)
+BrowserExtension/.keys/
+BrowserExtension/dist/
+
+# Bundled media tools — large binaries fetched by scripts/fetch-media-tools.sh,
+# embedded into the app at build time. Not committed; run the script to populate.
+Vendor/bin/

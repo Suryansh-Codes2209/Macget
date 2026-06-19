@@ -5,6 +5,12 @@ struct RangeProbeResult: Sendable {
     let acceptsRanges: Bool
     let etag: String?
     let lastModified: String?
+    /// Filename parsed *only* from the `Content-Disposition` header. `nil` when
+    /// the header is absent — distinguishes "the server told us a name" from a
+    /// name guessed off the URL path (which is junk for signed/CDN links).
+    let contentDispositionFilename: String?
+    /// Best-effort filename: `contentDispositionFilename` if present, else the
+    /// (possibly redirected) URL's last path component.
     let suggestedFilename: String?
     let mimeType: String?
 }
@@ -25,25 +31,31 @@ enum RangeProbe {
     /// Performs a HEAD request to learn `Content-Length`, `Accept-Ranges`,
     /// and validators. Falls back to a tiny `GET Range: bytes=0-0` if HEAD
     /// is rejected (some servers return 405 on HEAD).
-    static func probe(url: URL, session: URLSession = URLSessionFactory.shared) async throws -> RangeProbeResult {
+    static func probe(
+        url: URL,
+        headers: [String: String]? = nil,
+        session: URLSession = URLSessionFactory.shared
+    ) async throws -> RangeProbeResult {
         // Try HEAD first.
-        if let result = try? await probeHead(url: url, session: session) {
+        if let result = try? await probeHead(url: url, headers: headers, session: session) {
             return result
         }
         // Fallback: tiny ranged GET.
-        return try await probeRangedGet(url: url, session: session)
+        return try await probeRangedGet(url: url, headers: headers, session: session)
     }
 
-    private static func probeHead(url: URL, session: URLSession) async throws -> RangeProbeResult {
+    private static func probeHead(url: URL, headers: [String: String]?, session: URLSession) async throws -> RangeProbeResult {
         var req = URLRequest(url: url)
         req.httpMethod = "HEAD"
+        apply(headers, to: &req)
         let (_, response) = try await session.data(for: req)
         return try parse(response: response)
     }
 
-    private static func probeRangedGet(url: URL, session: URLSession) async throws -> RangeProbeResult {
+    private static func probeRangedGet(url: URL, headers: [String: String]?, session: URLSession) async throws -> RangeProbeResult {
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
+        apply(headers, to: &req)
         req.setValue("bytes=0-0", forHTTPHeaderField: "Range")
         let (_, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw RangeProbeError.noResponse }
@@ -67,12 +79,14 @@ enum RangeProbe {
             throw RangeProbeError.httpStatus(http.statusCode)
         }
 
+        let cd = parseContentDispositionFilename(http.value(forHTTPHeaderField: "Content-Disposition"))
         return RangeProbeResult(
             totalBytes: totalBytes,
             acceptsRanges: acceptsRanges,
             etag: http.value(forHTTPHeaderField: "ETag"),
             lastModified: http.value(forHTTPHeaderField: "Last-Modified"),
-            suggestedFilename: filename(from: http, fallbackURL: url),
+            contentDispositionFilename: cd,
+            suggestedFilename: cd ?? urlFilename(url),
             mimeType: http.value(forHTTPHeaderField: "Content-Type")
         )
     }
@@ -84,31 +98,44 @@ enum RangeProbe {
         let totalBytes: Int64? = http.expectedContentLength >= 0 ? http.expectedContentLength : nil
         let acceptsRanges = (http.value(forHTTPHeaderField: "Accept-Ranges")?.lowercased() == "bytes")
 
+        let cd = parseContentDispositionFilename(http.value(forHTTPHeaderField: "Content-Disposition"))
         return RangeProbeResult(
             totalBytes: totalBytes,
             acceptsRanges: acceptsRanges,
             etag: http.value(forHTTPHeaderField: "ETag"),
             lastModified: http.value(forHTTPHeaderField: "Last-Modified"),
-            suggestedFilename: filename(from: http, fallbackURL: http.url ?? URL(fileURLWithPath: "/")),
+            contentDispositionFilename: cd,
+            suggestedFilename: cd ?? urlFilename(http.url ?? URL(fileURLWithPath: "/")),
             mimeType: http.value(forHTTPHeaderField: "Content-Type")
         )
     }
 
-    /// Extract a filename from `Content-Disposition` if present, otherwise the URL's last path component.
-    private static func filename(from response: HTTPURLResponse, fallbackURL: URL) -> String? {
-        if let cd = response.value(forHTTPHeaderField: "Content-Disposition") {
-            // Naive parse of `filename="..."` or `filename=...`.
-            let lower = cd.lowercased()
-            if let range = lower.range(of: "filename=") {
-                let after = cd[range.upperBound...]
-                let trimmed = after.trimmingCharacters(in: .whitespaces)
-                let cleaned = trimmed
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                    .components(separatedBy: ";").first ?? ""
-                if !cleaned.isEmpty { return cleaned }
-            }
-        }
-        let last = fallbackURL.lastPathComponent
+    /// Apply caller-supplied headers (e.g. Cookie/Referer/User-Agent from a
+    /// captured browser download) to a request. Callers set `Range` afterward so
+    /// the probe's own range always wins.
+    private static func apply(_ headers: [String: String]?, to req: inout URLRequest) {
+        guard let headers else { return }
+        for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+    }
+
+    /// Parse a filename out of a `Content-Disposition` header value. Pure and
+    /// header-only (no URL fallback) so the result distinguishes a
+    /// server-provided name from a URL guess. Returns `nil` when absent/empty.
+    static func parseContentDispositionFilename(_ headerValue: String?) -> String? {
+        guard let cd = headerValue else { return nil }
+        // Naive parse of `filename="..."` or `filename=...`.
+        let lower = cd.lowercased()
+        guard let range = lower.range(of: "filename=") else { return nil }
+        let after = cd[range.upperBound...]
+        let trimmed = after.trimmingCharacters(in: .whitespaces)
+        let cleaned = trimmed
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            .components(separatedBy: ";").first ?? ""
+        return cleaned.isEmpty ? nil : cleaned
+    }
+
+    private static func urlFilename(_ url: URL) -> String? {
+        let last = url.lastPathComponent
         return last.isEmpty ? nil : last
     }
 }

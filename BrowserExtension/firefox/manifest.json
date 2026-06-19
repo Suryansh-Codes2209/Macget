@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Macget Download Capture",
+  "version": "1.0",
+  "description": "Sends downloads started in Firefox to the Macget download manager.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "macget@suryansh",
+      "strict_min_version": "121.0"
+    }
+  },
+  "background": { "scripts": ["background.js"] },
+  "permissions": ["downloads", "cookies", "nativeMessaging", "storage", "webRequest", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "options_ui": { "page": "options.html", "open_in_tab": false },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Macget Capture",
+    "default_popup": "options.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    }
+  }
+}

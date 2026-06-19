@@ -45,4 +45,26 @@ final class FilenameResolverTests: XCTestCase {
         XCTAssertEqual(FilenameResolver.sanitize("foo/bar:baz?.zip"), "foo_bar_baz_.zip")
         XCTAssertEqual(FilenameResolver.sanitize(""), "download")
     }
+
+    // MARK: - ensuringExtension
+
+    func test_ensuringExtension_addsFromMimeWhenMissing() {
+        XCTAssertEqual(FilenameResolver.ensuringExtension("uc_id=1ABC", mimeType: "application/pdf"), "uc_id=1ABC.pdf")
+    }
+
+    func test_ensuringExtension_ignoresMimeParameters() {
+        XCTAssertEqual(FilenameResolver.ensuringExtension("notes", mimeType: "text/plain; charset=utf-8"), "notes.txt")
+    }
+
+    func test_ensuringExtension_leavesExistingExtension() {
+        XCTAssertEqual(FilenameResolver.ensuringExtension("file.zip", mimeType: "application/pdf"), "file.zip")
+    }
+
+    func test_ensuringExtension_unchangedWhenNoMime() {
+        XCTAssertEqual(FilenameResolver.ensuringExtension("blob", mimeType: nil), "blob")
+    }
+
+    func test_ensuringExtension_unchangedForUnknownMime() {
+        XCTAssertEqual(FilenameResolver.ensuringExtension("blob", mimeType: "application/x-totally-made-up"), "blob")
+    }
 }

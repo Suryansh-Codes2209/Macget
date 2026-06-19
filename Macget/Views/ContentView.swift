@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @Bindable var listVM: DownloadListViewModel
     let appEnvironment: AppEnvironment
+    @Bindable var mediaPick: MediaPickModel
 
     @State private var showingAddSheet = false
 
@@ -46,6 +47,12 @@ struct ContentView: View {
                 vm: AddDownloadViewModel(engine: appEnvironment.engine, settings: appEnvironment.settings),
                 isPresented: $showingAddSheet
             )
+        }
+        .sheet(isPresented: Binding(
+            get: { mediaPick.isPresented },
+            set: { if !$0 { mediaPick.cancel() } }
+        )) {
+            MediaPickSheet(model: mediaPick)
         }
         .searchable(text: $listVM.searchText, prompt: "Search downloads")
         .onChange(of: listVM.searchText) { _, _ in listVM.filterRefreshed() }

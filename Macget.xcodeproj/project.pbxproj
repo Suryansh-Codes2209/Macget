@@ -115,6 +115,8 @@
 				7E5DF5672FA368DF00032E7D /* Sources */,
 				7E5DF5682FA368DF00032E7D /* Frameworks */,
 				7E5DF5692FA368DF00032E7D /* Resources */,
+				7E10C0DE2FB0000000000001 /* Compile MacgetCaptureHost */,
+				7E10C0DE2FB0000000000002 /* Embed Media Tools */,
 			);
 			buildRules = (
 			);
@@ -243,6 +245,48 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		7E10C0DE2FB0000000000001 /* Compile MacgetCaptureHost */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/MacgetCaptureHost/main.swift",
+			);
+			name = "Compile MacgetCaptureHost";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/MacgetCaptureHost",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${ENABLE_PREVIEWS}\" = \"YES\" ]; then echo \"Skipping host compile for previews\"; exit 0; fi\nset -e\nOUT=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}/MacgetCaptureHost\"\nmkdir -p \"$(dirname \"${OUT}\")\"\nWORK=\"${TMPDIR}/macgethost\"\nrm -rf \"${WORK}\"\nmkdir -p \"${WORK}\"\nSLICES=\"\"\nfor ARCH in ${ARCHS}; do\n  xcrun swiftc -O -sdk \"${SDKROOT}\" -target \"${ARCH}-apple-macos${MACOSX_DEPLOYMENT_TARGET}\" \"${SRCROOT}/MacgetCaptureHost/main.swift\" -o \"${WORK}/host-${ARCH}\"\n  SLICES=\"${SLICES} ${WORK}/host-${ARCH}\"\ndone\nlipo -create ${SLICES} -output \"${WORK}/host\"\nIDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\ncodesign --force --options runtime --timestamp=none --sign \"${IDENTITY}\" \"${WORK}/host\"\ncp \"${WORK}/host\" \"${OUT}\"\n";
+		};
+		7E10C0DE2FB0000000000002 /* Embed Media Tools */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Vendor/bin/yt-dlp",
+				"$(SRCROOT)/Vendor/bin/ffmpeg",
+				"$(SRCROOT)/Vendor/bin/ffprobe",
+				"$(SRCROOT)/scripts/media-tool.entitlements",
+			);
+			name = "Embed Media Tools";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/yt-dlp",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/ffmpeg",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/ffprobe",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${ENABLE_PREVIEWS}\" = \"YES\" ]; then echo \"Skipping media tools embed for previews\"; exit 0; fi\nset -e\nSRC=\"${SRCROOT}/Vendor/bin\"\nif [ ! -d \"${SRC}\" ]; then echo \"note: ${SRC} not found — skipping media tools embed (run scripts/fetch-media-tools.sh to bundle yt-dlp/ffmpeg)\"; exit 0; fi\nDEST=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin\"\nmkdir -p \"${DEST}\"\nWORK=\"${TMPDIR}/macget-mediatools\"\nrm -rf \"${WORK}\"\nmkdir -p \"${WORK}\"\nIDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\nEMBEDDED=0\nfor T in yt-dlp ffmpeg ffprobe; do\n  if [ -f \"${SRC}/${T}\" ]; then\n    cp -f \"${SRC}/${T}\" \"${WORK}/${T}\"\n    chmod +x \"${WORK}/${T}\"\n    codesign --force --options runtime --timestamp=none --entitlements \"${SRCROOT}/scripts/media-tool.entitlements\" --sign \"${IDENTITY}\" \"${WORK}/${T}\"\n    cp -f \"${WORK}/${T}\" \"${DEST}/${T}\"\n    EMBEDDED=$((EMBEDDED+1))\n  fi\ndone\necho \"Embedded ${EMBEDDED} media tool(s) into ${DEST}\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		7E5DF5672FA368DF00032E7D /* Sources */ = {

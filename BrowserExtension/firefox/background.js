@@ -1,24 +1,28 @@
 // Macget Download Capture — background service worker / event page.
 //
-// On a new browser download we collect the URL plus the context Macget needs to
-// re-fetch it (cookies, referrer, user-agent), hand it to the native-messaging
-// host, and ONLY cancel the browser's own download once the host acknowledges.
-// That ordering means a missing/disabled host never makes a download vanish.
+// Three responsibilities:
+//   1. Capture browser file downloads (downloads.onCreated) and hand them to the
+//      native-messaging host, cancelling the browser copy only after the host acks.
+//   2. Capture media (video) on user request from the content script's in-page
+//      button — sent to the host as a `kind:"media"` payload for yt-dlp.
+//   3. Filter movie-proxy "jumplinks": popunder/redirect/shortener downloads that
+//      fire without a real user gesture are dropped instead of captured.
 //
-// Two safeguards prevent feedback storms: download pages that auto-retry after a
-// cancellation can otherwise fire onCreated in a tight loop, spawning a host
-// process each time and crashing the browser.
-//   1. Per-URL dedupe — the same URL is handed off at most once per DEDUPE_MS.
-//   2. Circuit breaker — if too many captures happen in BREAKER_WINDOW_MS, we
-//      turn capture OFF and stop, so a runaway can never fork-bomb the machine.
+// Storm safeguards on the file path: per-URL dedupe + a circuit breaker.
 //
-// Uses the promise-based API root (`browser` on Firefox, `chrome` on Chrome MV3)
-// so a single file works across Chrome, Edge, Brave, and Firefox.
+// Promise-based API root (`browser`/`chrome`) so one file works across
+// Chrome, Edge, Brave, and Firefox.
 
 const api = globalThis.browser || globalThis.chrome;
 const HOST = "com.suryansh.macget";
 
-const DEFAULTS = { enabled: true, denylist: [], minSizeBytes: 0 };
+const DEFAULTS = {
+  enabled: true,
+  denylist: [],
+  minSizeBytes: 0,
+  jumplinkFilterEnabled: true,
+  gestureWindowMs: 2000,
+};
 
 // Dedupe: url -> last-handoff timestamp.
 const recentByUrl = new Map();
@@ -30,6 +34,68 @@ const BREAKER_MAX = 25;
 let windowStart = Date.now();
 let windowCount = 0;
 
+// Live, in-memory signals (lost when an MV3 worker sleeps; refilled by events).
+const lastGestureByTab = new Map();   // tabId -> timestamp of last trusted gesture
+const sniffedByTab = new Map();       // tabId -> Set of HLS/DASH manifest URLs
+
+// ---- jumplink heuristics ---------------------------------------------------
+const SHORTENER_HOSTS = [
+  "bit.ly", "t.co", "tinyurl.com", "cutt.ly", "ow.ly", "is.gd", "buff.ly",
+  "rb.gy", "shorturl.at", "rebrand.ly", "linktr.ee", "adf.ly", "shrtfly.com",
+  "ouo.io", "exe.io", "gplinks.in", "za.gl", "clk.sh",
+];
+// Common ad/redirect networks movie-proxy sites bounce downloads through.
+const PROXY_AD_HOSTS = [
+  "doubleclick.net", "popads.net", "popcash.net", "propellerads.com",
+  "adsterra.com", "hilltopads.net", "clickadu.com", "juicyads.com",
+  "exoclick.com", "trafficjunky.net", "mgid.com", "revcontent.com",
+];
+const REDIRECT_RE = /([?&](url|u|go|to|dest|destination|redirect|out|target|link)=)|\/(redirect|out|away|goto|jump|click|linkout)(\/|\?|$)/i;
+
+function matchesHost(host, list) {
+  return list.some((h) => host === h || host.endsWith("." + h));
+}
+
+function looksLikeJumplink(url, referrer) {
+  const host = hostnameOf(url);
+  if (!host) return false;
+  if (matchesHost(host, SHORTENER_HOSTS)) return true;
+  if (matchesHost(host, PROXY_AD_HOSTS)) return true;
+  if (REDIRECT_RE.test(url)) return true;
+  return false;
+}
+
+// True when this auto-started download looks like a drive-by / popunder jumplink.
+async function shouldDropAsJumplink(item, cfg) {
+  if (cfg.jumplinkFilterEnabled === false) return false;
+  const url = item.finalUrl || item.url;
+
+  // High-confidence: shortener / ad-redirect host or redirect-shaped URL.
+  if (looksLikeJumplink(url, item.referrer)) {
+    console.debug("Macget: dropped jumplink (denylist/redirect):", url);
+    return true;
+  }
+
+  const tabId = item.tabId;
+  if (tabId == null || tabId < 0) return false;
+
+  const window = cfg.gestureWindowMs || 2000;
+  const last = lastGestureByTab.get(tabId) || 0;
+  if (Date.now() - last <= window) return false; // a real click preceded it
+
+  // No recent gesture. If the tab was spawned by another (popunder) or isn't the
+  // foreground tab, treat the download as an unsolicited jumplink.
+  try {
+    const tab = await api.tabs.get(tabId);
+    if (tab && (tab.openerTabId != null || tab.active === false)) {
+      console.debug("Macget: dropped drive-by/popunder download:", url);
+      return true;
+    }
+  } catch (_) {}
+  return false;
+}
+
+// ---- shared helpers --------------------------------------------------------
 async function getConfig() {
   try {
     return await api.storage.local.get(DEFAULTS);
@@ -47,14 +113,12 @@ function isCapturable(url) {
 }
 
 function seenRecently(url, now) {
-  // prune stale entries so the map can't grow unbounded
   for (const [u, t] of recentByUrl) {
     if (now - t > DEDUPE_MS) recentByUrl.delete(u);
   }
   return recentByUrl.has(url);
 }
 
-// Returns false (and disables capture) if we're in a runaway burst.
 async function breakerAllows(now) {
   if (now - windowStart > BREAKER_WINDOW_MS) {
     windowStart = now;
@@ -82,6 +146,7 @@ async function cookieHeaderFor(url) {
   }
 }
 
+// ---- file downloads --------------------------------------------------------
 api.downloads.onCreated.addListener(async (item) => {
   const cfg = await getConfig();
   if (!cfg.enabled) return;
@@ -91,6 +156,8 @@ api.downloads.onCreated.addListener(async (item) => {
 
   const host = hostnameOf(url);
   if (Array.isArray(cfg.denylist) && cfg.denylist.some((d) => d && host.endsWith(d))) return;
+
+  if (await shouldDropAsJumplink(item, cfg)) return;
 
   const size = item.totalBytes && item.totalBytes > 0 ? item.totalBytes : (item.fileSize || 0);
   if (cfg.minSizeBytes > 0 && size > 0 && size < cfg.minSizeBytes) return;
@@ -102,6 +169,7 @@ api.downloads.onCreated.addListener(async (item) => {
 
   const cookie = await cookieHeaderFor(url);
   const payload = {
+    kind: "file",
     url,
     filename: item.filename ? item.filename.split(/[\\/]/).pop() : undefined,
     referer: item.referrer || undefined,
@@ -124,4 +192,73 @@ api.downloads.onCreated.addListener(async (item) => {
     try { await api.downloads.cancel(item.id); } catch (_) { /* may have finished */ }
     try { await api.downloads.erase({ id: item.id }); } catch (_) { /* best-effort cleanup */ }
   }
+});
+
+// ---- media (video) downloads ----------------------------------------------
+async function handleMediaRequest(msg, sender) {
+  const pageUrl = msg.pageUrl;
+  if (!isCapturable(pageUrl)) return;
+
+  const tabId = sender && sender.tab ? sender.tab.id : undefined;
+  const manifests = (tabId != null && sniffedByTab.has(tabId))
+    ? Array.from(sniffedByTab.get(tabId)) : [];
+  const cookie = await cookieHeaderFor(pageUrl);
+
+  const payload = {
+    kind: "media",
+    url: pageUrl,                 // the app validates this as the page URL
+    pageURL: pageUrl,
+    title: msg.title || undefined,
+    manifestURLs: manifests.length ? manifests : undefined,
+    referer: pageUrl,
+    userAgent: navigator.userAgent,
+    cookie: cookie || undefined,
+    origin: hostnameOf(pageUrl) || undefined,
+  };
+
+  try {
+    await api.runtime.sendNativeMessage(HOST, payload);
+  } catch (e) {
+    console.warn("Macget media host unavailable:", e && e.message);
+  }
+}
+
+api.runtime.onMessage.addListener((msg, sender) => {
+  if (!msg || !msg.type) return;
+  if (msg.type === "macget-gesture") {
+    if (sender && sender.tab && sender.tab.id != null) {
+      lastGestureByTab.set(sender.tab.id, Date.now());
+    }
+    return;
+  }
+  if (msg.type === "macget-media") {
+    handleMediaRequest(msg, sender);
+  }
+});
+
+// ---- HLS/DASH sniffing -----------------------------------------------------
+const MANIFEST_RE = /\.(m3u8|mpd)(\?|$)/i;
+try {
+  api.webRequest.onBeforeRequest.addListener(
+    (details) => {
+      if (details.type === "main_frame") {
+        // New page load in this tab — reset its sniffed manifests.
+        if (details.tabId >= 0) sniffedByTab.delete(details.tabId);
+        return;
+      }
+      if (details.tabId < 0 || !MANIFEST_RE.test(details.url)) return;
+      let set = sniffedByTab.get(details.tabId);
+      if (!set) { set = new Set(); sniffedByTab.set(details.tabId, set); }
+      set.add(details.url);
+      if (set.size > 20) set.delete(set.values().next().value); // cap memory
+    },
+    { urls: ["<all_urls>"] }
+  );
+} catch (e) {
+  console.warn("Macget: webRequest sniffing unavailable:", e && e.message);
+}
+
+api.tabs.onRemoved.addListener((tabId) => {
+  sniffedByTab.delete(tabId);
+  lastGestureByTab.delete(tabId);
 });

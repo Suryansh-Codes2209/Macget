@@ -8,7 +8,7 @@
 set -e
 cd "$(dirname "$0")"
 
-SHARED="background.js options.html options.js"
+SHARED="background.js content.js options.html options.js"
 
 echo "Syncing shared files into firefox/ ..."
 for f in $SHARED; do

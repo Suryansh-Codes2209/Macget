@@ -3,7 +3,7 @@
 // file works on Chrome, Edge, Brave, and Firefox.
 
 const api = globalThis.browser || globalThis.chrome;
-const DEFAULTS = { enabled: true, denylist: [], minSizeBytes: 0 };
+const DEFAULTS = { enabled: true, denylist: [], minSizeBytes: 0, jumplinkFilterEnabled: true };
 
 const $ = (id) => document.getElementById(id);
 
@@ -26,6 +26,7 @@ async function load() {
   $("enabled").checked = !!cfg.enabled;
   $("minSize").value = cfg.minSizeBytes > 0 ? Math.round(cfg.minSizeBytes / (1024 * 1024)) : 0;
   $("denylist").value = (cfg.denylist || []).join("\n");
+  $("jumplinkFilter").checked = cfg.jumplinkFilterEnabled !== false;
   reflectStatus(!!cfg.enabled);
 }
 
@@ -39,6 +40,7 @@ async function save() {
     enabled: $("enabled").checked,
     minSizeBytes: Number.isFinite(mb) && mb > 0 ? mb * 1024 * 1024 : 0,
     denylist,
+    jumplinkFilterEnabled: $("jumplinkFilter").checked,
   });
   reflectStatus($("enabled").checked);
   flashSaved();
@@ -53,6 +55,6 @@ api.storage.onChanged.addListener((changes, area) => {
 });
 
 document.addEventListener("DOMContentLoaded", load);
-["enabled", "minSize", "denylist"].forEach((id) => {
+["enabled", "minSize", "denylist", "jumplinkFilter"].forEach((id) => {
   document.getElementById(id).addEventListener("change", save);
 });

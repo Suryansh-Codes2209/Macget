@@ -26,6 +26,13 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
     /// Authorization) are kept in memory for the active session but redacted on
     /// persistence — see `RequestHeaderPolicy.strippingSensitive`.
     var requestHeaders: [String: String]?
+    /// Plain HTTP file vs. media extraction. Routes scheduling in `DownloadEngine`.
+    var kind: DownloadKind
+    /// For `.media`: the watch/page URL handed to yt-dlp (distinct from `url`,
+    /// which may be a direct stream/manifest hint).
+    var pageURL: URL?
+    /// For `.media`: an optional yt-dlp `-f` selector chosen by the user.
+    var formatSelector: String?
 
     init(
         id: UUID = UUID(),
@@ -43,7 +50,10 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         chunks: [Chunk] = [],
         createdAt: Date = Date(),
         completedAt: Date? = nil,
-        requestHeaders: [String: String]? = nil
+        requestHeaders: [String: String]? = nil,
+        kind: DownloadKind = .httpFile,
+        pageURL: URL? = nil,
+        formatSelector: String? = nil
     ) {
         self.id = id
         self.url = url
@@ -61,6 +71,9 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         self.createdAt = createdAt
         self.completedAt = completedAt
         self.requestHeaders = requestHeaders
+        self.kind = kind
+        self.pageURL = pageURL
+        self.formatSelector = formatSelector
     }
 
     // Explicit Codable so new fields can be added with `decodeIfPresent`
@@ -71,6 +84,7 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         case id, url, destinationFolder, filename, totalBytes, status, error
         case threadCount, userSpecifiedFilename, etag, lastModified, supportsRange
         case chunks, createdAt, completedAt, requestHeaders
+        case kind, pageURL, formatSelector
     }
 
     init(from decoder: Decoder) throws {
@@ -91,6 +105,9 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
         requestHeaders = try c.decodeIfPresent([String: String].self, forKey: .requestHeaders)
+        kind = try c.decodeIfPresent(DownloadKind.self, forKey: .kind) ?? .httpFile
+        pageURL = try c.decodeIfPresent(URL.self, forKey: .pageURL)
+        formatSelector = try c.decodeIfPresent(String.self, forKey: .formatSelector)
     }
 
     // Custom encode so secret-bearing headers (Cookie/Authorization) are redacted
@@ -113,6 +130,9 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         try c.encode(createdAt, forKey: .createdAt)
         try c.encodeIfPresent(completedAt, forKey: .completedAt)
         try c.encodeIfPresent(RequestHeaderPolicy.strippingSensitive(requestHeaders), forKey: .requestHeaders)
+        try c.encode(kind, forKey: .kind)
+        try c.encodeIfPresent(pageURL, forKey: .pageURL)
+        try c.encodeIfPresent(formatSelector, forKey: .formatSelector)
     }
 
     var bytesDownloaded: Int64 {

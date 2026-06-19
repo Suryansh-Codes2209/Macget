@@ -10,8 +10,16 @@
     }
   },
   "background": { "scripts": ["background.js"] },
-  "permissions": ["downloads", "cookies", "nativeMessaging", "storage"],
+  "permissions": ["downloads", "cookies", "nativeMessaging", "storage", "webRequest", "tabs"],
   "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
   "options_ui": { "page": "options.html", "open_in_tab": false },
   "icons": {
     "16": "icons/icon-16.png",

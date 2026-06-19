@@ -100,11 +100,15 @@ actor DownloadCoordinator {
             guard let self else { return }
             do {
                 try await self.runDownload()
+                // A no-size (unbounded) stream can't distinguish a user stop from a
+                // real EOF, so a pause/cancel may surface as a normal return. Bail
+                // here if we were cancelled rather than falsely marking it complete.
+                try Task.checkCancellation()
                 await self.complete()
             } catch is CancellationError {
                 // Pause or cancel from outside; status already updated by caller.
             } catch {
-                await self.fail(with: error)
+                await self.handleRunError(error)
             }
         }
     }
@@ -168,7 +172,10 @@ actor DownloadCoordinator {
         }
 
         guard let total = download.totalBytes else {
-            throw CoordinatorError.unknownContentLength
+            // Server never reported a size (no Content-Length / chunked transfer /
+            // HEAD-blocked). Don't refuse — pull the whole body in one connection.
+            try await runUnknownSizeStream()
+            return
         }
 
         // 2. Disk space pre-check.
@@ -225,6 +232,50 @@ actor DownloadCoordinator {
             }
             try await waitForAllChunks()
         }
+    }
+
+    /// Download a resource whose size the server never reported. Streams a single
+    /// connection with no `Range` header straight to EOF, appending sequentially.
+    /// Not resumable — these servers don't support Range, so a re-run restarts
+    /// from byte 0. `start()` calls `complete()` after this returns to finalize.
+    private func runUnknownSizeStream() async throws {
+        // Start clean: a leftover partial can't be range-resumed here.
+        try? FileManager.default.removeItem(at: download.partialFileURL)
+
+        // One synthetic chunk carries `bytesWritten` so progress/snapshots work.
+        let chunk = Chunk(startByte: 0, endByte: -1)
+        download.chunks = [chunk]
+        download.supportsRange = false
+
+        try FileManager.default.createDirectory(
+            at: download.destinationFolder, withIntermediateDirectories: true
+        )
+        let writer = try FileWriter(url: download.partialFileURL, totalBytes: 0)
+        self.writer = writer
+
+        download.status = .downloading
+        download.error = nil
+        await onStateChange(download)
+        startPublishLoop()
+
+        let worker = ChunkWorker(
+            chunk: chunk,
+            url: download.url,
+            etag: nil,
+            lastModified: nil,
+            writer: writer,
+            session: session,
+            headers: download.requestHeaders,
+            unbounded: true,
+            report: { [weak self] id, bytes in
+                await self?.reportBytes(chunkID: id, bytes: bytes)
+            }
+        )
+        try await worker.run()
+
+        // Clean EOF — what we wrote is the whole file. Record the now-known size
+        // so finalize/snapshot show it and `fractionComplete` reads 100%.
+        download.totalBytes = download.bytesDownloaded
     }
 
     /// User's `threadCount`, clamped by anything tighter we've learned (this
@@ -439,6 +490,16 @@ actor DownloadCoordinator {
         download.error = nil
         await publishSnapshot()
         await onStateChange(download)
+    }
+
+    /// Distinguish a user-initiated stop (which surfaces as `URLError.cancelled`
+    /// once the URLSession task is cancelled) from a genuine failure. On a stop,
+    /// the caller has already set `.paused`/`.cancelled`, so we leave it alone.
+    private func handleRunError(_ error: Error) async {
+        if Task.isCancelled || (error as? URLError)?.code == .cancelled {
+            return
+        }
+        await fail(with: error)
     }
 
     private func fail(with error: Error) async {

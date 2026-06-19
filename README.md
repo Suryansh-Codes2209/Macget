@@ -57,9 +57,27 @@ Macget's engine **discovers each host's true capacity at runtime** and adapts:
 
 1. Download `Macget-x.y.z.dmg` from the [Releases page](https://github.com/YOUR-GITHUB-USERNAME/macget/releases/latest).
 2. Open the DMG, drag Macget to Applications.
-3. Launch from Applications. The app is signed with a Developer ID and notarized — no Gatekeeper warning.
+3. Launch from Applications.
 
 **Minimum macOS:** 26.4 Tahoe.
+
+#### First launch on macOS
+
+Macget is currently distributed **free and un-notarized** (no paid Apple Developer
+account). On first launch macOS Gatekeeper will say *"Macget can't be opened because
+Apple cannot check it for malicious software."* This is expected — to open it:
+
+1. Click **Done** on the warning.
+2. Open **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to Macget.
+3. Confirm once more — Macget opens normally from then on.
+
+Power-user one-liner instead of the steps above:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Macget.app
+```
+
+Auto-updates (via Sparkle) install smoothly after this one-time step.
 
 ### From source
 
@@ -147,9 +165,16 @@ xcodebuild test -project Macget.xcodeproj -scheme Macget -destination 'platform=
     -only-testing:MacgetTests/ChunkPlannerTests
 ```
 
-### Release a notarized DMG (`scripts/release.sh`)
+### Release a DMG (`scripts/release.sh`)
 
-One-time setup:
+**Free, no Apple account:** run `./scripts/release.sh --no-notarize`. It builds an
+ad-hoc-signed DMG (bundling yt-dlp + ffmpeg), skipping the Developer ID and
+notarization steps. Sparkle auto-updates still work; users do the one-time
+Gatekeeper "Open Anyway" from [First launch on macOS](#first-launch-on-macos).
+This needs only `brew install create-dmg` and the Sparkle key (step 4 below).
+
+**Notarized (frictionless install)** requires a paid Apple Developer account —
+one-time setup:
 
 1. Enroll in the [Apple Developer Program](https://developer.apple.com/programs/) ($99/yr) and install a **Developer ID Application** certificate in your Keychain.
 2. Save notarization credentials:

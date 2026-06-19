@@ -32,6 +32,10 @@ struct ChunkWorker {
     /// Optional caller-supplied headers (Cookie/Referer/User-Agent) for captured
     /// browser downloads. Applied before Range/If-Range so the worker's range wins.
     var headers: [String: String]? = nil
+    /// When true, issue a plain `GET` (no `Range`/`If-Range`) and stream the whole
+    /// body to EOF. Used for servers that never report a size (no `Content-Length`,
+    /// chunked transfer, HEAD-blocked) where ranged chunking isn't possible.
+    var unbounded: Bool = false
     /// Called periodically with bytes flushed to disk for this chunk.
     let report: @Sendable (UUID, Int) async -> Void
 
@@ -40,17 +44,24 @@ struct ChunkWorker {
     static let writeBufferBytes = 64 * 1024
 
     func run() async throws {
-        if chunk.isComplete { return }
+        if chunk.isComplete && !unbounded { return }
 
         let requestStart = chunk.nextWriteOffset
-        let requestEnd = chunk.endByte
-        guard requestStart <= requestEnd else { return }
 
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
         if let headers {
             for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         }
+
+        if unbounded {
+            // No Range: pull the entire body in one connection and append to EOF.
+            try await stream(request: req, expectedStart: requestStart, expectedEnd: .max, startingOffset: requestStart, unbounded: true)
+            return
+        }
+
+        let requestEnd = chunk.endByte
+        guard requestStart <= requestEnd else { return }
         req.setValue("bytes=\(requestStart)-\(requestEnd)", forHTTPHeaderField: "Range")
         if let etag {
             req.setValue(etag, forHTTPHeaderField: "If-Range")
@@ -58,13 +69,13 @@ struct ChunkWorker {
             req.setValue(lastModified, forHTTPHeaderField: "If-Range")
         }
 
-        try await stream(request: req, expectedStart: requestStart, expectedEnd: requestEnd, startingOffset: requestStart)
+        try await stream(request: req, expectedStart: requestStart, expectedEnd: requestEnd, startingOffset: requestStart, unbounded: false)
     }
 
-    private func stream(request: URLRequest, expectedStart: Int64, expectedEnd: Int64, startingOffset: Int64) async throws {
+    private func stream(request: URLRequest, expectedStart: Int64, expectedEnd: Int64, startingOffset: Int64, unbounded: Bool) async throws {
         let delegate = StreamingDelegate()
         let stream = AsyncThrowingStream<Data, Error> { continuation in
-            delegate.attach(continuation: continuation, expectedRangeStart: expectedStart, expectedRangeEnd: expectedEnd)
+            delegate.attach(continuation: continuation, expectedRangeStart: expectedStart, expectedRangeEnd: expectedEnd, unbounded: unbounded)
             let task = session.dataTask(with: request)
             task.delegate = delegate
             // Tell URLSession's scheduler this task matters more than the default,
@@ -78,17 +89,24 @@ struct ChunkWorker {
         var offset = startingOffset
         var buffer = Data()
         buffer.reserveCapacity(Self.writeBufferBytes)
-        let chunkEndExclusive = expectedEnd + 1
+        // Guard against `expectedEnd + 1` overflowing for the unbounded sentinel.
+        let chunkEndExclusive = (expectedEnd == .max) ? Int64.max : expectedEnd + 1
 
         for try await piece in stream {
             try Task.checkCancellation()
 
-            // Don't write past the chunk end if server over-reads.
-            let allowedRemaining = chunkEndExclusive - (offset + Int64(buffer.count))
-            if allowedRemaining <= 0 { break }
-            let usable: Data = (Int64(piece.count) > allowedRemaining)
-                ? piece.prefix(Int(allowedRemaining))
-                : piece
+            let usable: Data
+            if unbounded {
+                // Unknown total size — take everything the server sends.
+                usable = piece
+            } else {
+                // Don't write past the chunk end if server over-reads.
+                let allowedRemaining = chunkEndExclusive - (offset + Int64(buffer.count))
+                if allowedRemaining <= 0 { break }
+                usable = (Int64(piece.count) > allowedRemaining)
+                    ? piece.prefix(Int(allowedRemaining))
+                    : piece
+            }
             buffer.append(usable)
 
             if buffer.count >= Self.writeBufferBytes {
@@ -115,15 +133,18 @@ private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchec
     private var continuation: AsyncThrowingStream<Data, Error>.Continuation?
     private var expectedStart: Int64 = 0
     private var expectedEnd: Int64 = 0
+    private var unbounded = false
 
     func attach(
         continuation: AsyncThrowingStream<Data, Error>.Continuation,
         expectedRangeStart: Int64,
-        expectedRangeEnd: Int64
+        expectedRangeEnd: Int64,
+        unbounded: Bool = false
     ) {
         self.continuation = continuation
         self.expectedStart = expectedRangeStart
         self.expectedEnd = expectedRangeEnd
+        self.unbounded = unbounded
     }
 
     func urlSession(
@@ -135,6 +156,16 @@ private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchec
         guard let http = response as? HTTPURLResponse else {
             continuation?.finish(throwing: ChunkError.noHttpResponse)
             completionHandler(.cancel)
+            return
+        }
+        if unbounded {
+            // No Range was sent — any 2xx is the full body. 200 is expected here.
+            guard (200..<300).contains(http.statusCode) else {
+                continuation?.finish(throwing: ChunkError.unexpectedStatus(http.statusCode))
+                completionHandler(.cancel)
+                return
+            }
+            completionHandler(.allow)
             return
         }
         if http.statusCode == 200 {

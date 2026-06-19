@@ -206,11 +206,24 @@
     </div>
 
     <div class="card">
+      <div class="row">
+        <div>
+          <div class="row-title">Block movie-proxy jumplinks</div>
+          <div class="row-desc">Drop popunder / redirect / shortener downloads that fire without a real click.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="jumplinkFilter" />
+          <span class="track"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="card">
       <div class="field-label">Never capture these domains</div>
       <textarea id="denylist" placeholder="one per line, e.g.&#10;mail.google.com&#10;intranet.example.com"></textarea>
     </div>
 
-    <p class="footnote">Also turn on <b>Auto-capture</b> in Macget → Settings → Browser integration.</p>
+    <p class="footnote">Also turn on <b>Auto-capture</b> in Macget → Settings → Browser integration. To download a video, click the <b>⬇ Macget</b> button that appears on the player (enable <b>Download videos</b> in Macget settings first).</p>
   </main>
 
   <div class="toast" id="saved">Saved</div>

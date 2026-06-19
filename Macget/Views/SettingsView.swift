@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var vm: SettingsViewModel
+    @State private var mediaToolStatus: String?
 
     var body: some View {
         TabView {
@@ -48,8 +49,41 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
+
+            Section {
+                Toggle("Download videos (YouTube & other sites)",
+                       isOn: $vm.settings.mediaExtractionEnabled)
+                if vm.settings.mediaExtractionEnabled {
+                    HStack(spacing: 6) {
+                        Text("Media tools:")
+                        Text(mediaToolStatus ?? "Checking…")
+                            .foregroundStyle(mediaToolStatus?.hasPrefix("yt-dlp not found") == true ? .red : .secondary)
+                    }
+                    .font(.caption)
+                }
+            } header: {
+                Text("Video downloads")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Uses **yt-dlp** (and **ffmpeg** for merging), bundled with Macget, to download video from the page you're watching via the extension's in-page button. A system copy on your PATH is used instead when present.")
+                    Text("Only download content you're authorized to — e.g. your own uploads, Creative Commons, or where the site permits. Downloading from many sites (including YouTube) may violate their Terms of Service; you are responsible for your use.")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding(20)
+        .task(id: vm.settings.mediaExtractionEnabled) {
+            guard vm.settings.mediaExtractionEnabled else { return }
+            mediaToolStatus = nil
+            let tools = await Task.detached { MediaToolLocator.locate(force: true) }.value
+            if let tools {
+                let ff = tools.ffmpegDir == nil ? " — ffmpeg missing (merging unavailable)" : ""
+                mediaToolStatus = "found (\(tools.source.rawValue))\(ff)"
+            } else {
+                mediaToolStatus = "yt-dlp not found — run `brew install yt-dlp ffmpeg`"
+            }
+        }
     }
 
     private var downloadsTab: some View {

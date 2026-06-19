@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the bundled media tools (yt-dlp / ffmpeg / ffprobe), applied
+  when the "Embed Media Tools" build phase re-signs them with hardened runtime.
+
+  yt-dlp_macos is a PyInstaller one-file bundle: its bootloader extracts an
+  embedded Python.framework to $TMPDIR and dlopen()s it. Re-signing the outer
+  binary with our identity makes hardened-runtime library validation reject that
+  framework ("different Team IDs"). disable-library-validation lifts that check;
+  the dyld/exec-memory entitlements cover PyInstaller's loader + CPython.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+</dict>
+</plist>

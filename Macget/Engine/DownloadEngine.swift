@@ -15,6 +15,9 @@ enum EngineEvent: Sendable {
 actor DownloadEngine {
     private var downloads: [UUID: Download] = [:]
     private var coordinators: [UUID: DownloadCoordinator] = [:]
+    /// Media (`kind == .media`) downloads run via yt-dlp instead of the chunked
+    /// coordinator. Tracked separately but surfaced through the same events.
+    private var extractors: [UUID: MediaExtractionJob] = [:]
     private var insertionOrder: [UUID] = []
     private var settings: AppSettings
 
@@ -105,10 +108,48 @@ actor DownloadEngine {
         return download.id
     }
 
+    /// Add a media download (YouTube / video page) to be resolved by yt-dlp.
+    /// `pageURL` is the watch page; `filename`/`totalBytes` are provisional until
+    /// the extractor reports the real values.
+    @discardableResult
+    func addMedia(
+        pageURL: URL,
+        mediaURL: URL? = nil,
+        destinationFolder: URL,
+        title: String? = nil,
+        formatSelector: String? = nil,
+        requestHeaders: [String: String]? = nil,
+        startImmediately: Bool? = nil
+    ) async -> UUID {
+        let provisionalName = title.map(FilenameResolver.sanitize)
+            ?? (pageURL.host.map { "\($0) video" } ?? "video")
+        let download = Download(
+            url: mediaURL ?? pageURL,
+            destinationFolder: destinationFolder,
+            filename: provisionalName,
+            requestHeaders: RequestHeaderPolicy.sanitizeInbound(requestHeaders),
+            kind: .media,
+            pageURL: pageURL,
+            formatSelector: formatSelector
+        )
+        downloads[download.id] = download
+        insertionOrder.append(download.id)
+        await store.upsert(download)
+        eventsContinuation.yield(.added(download))
+
+        let auto = startImmediately ?? settings.startDownloadsAutomatically
+        if auto {
+            await scheduleNextDownloads()
+        }
+        return download.id
+    }
+
     func pause(_ id: UUID) async {
         if let coord = coordinators[id] {
             await coord.pause()
             // Coordinator's onStateChange will sync `downloads[id]`.
+        } else if let job = extractors[id] {
+            await job.pause()
         } else if var d = downloads[id], d.status == .queued {
             d.status = .paused
             downloads[id] = d
@@ -136,6 +177,8 @@ actor DownloadEngine {
     func cancel(_ id: UUID) async {
         if let coord = coordinators[id] {
             await coord.cancelAndDiscard()
+        } else if let job = extractors[id] {
+            await job.cancelAndDiscard()
         } else if var d = downloads[id] {
             d.status = .cancelled
             downloads[id] = d
@@ -144,13 +187,14 @@ actor DownloadEngine {
             eventsContinuation.yield(.stateChanged(d))
         }
         coordinators.removeValue(forKey: id)
+        extractors.removeValue(forKey: id)
         updateActivityState()
         await scheduleNextDownloads()
     }
 
     /// Removes a download from the queue. If active, cancels first. Optionally deletes the file on disk.
     func remove(_ id: UUID, deleteFile: Bool = false) async {
-        if coordinators[id] != nil {
+        if coordinators[id] != nil || extractors[id] != nil {
             await cancel(id)
         }
         if let d = downloads[id] {
@@ -162,6 +206,7 @@ actor DownloadEngine {
         downloads.removeValue(forKey: id)
         insertionOrder.removeAll { $0 == id }
         coordinators.removeValue(forKey: id)
+        extractors.removeValue(forKey: id)
         updateActivityState()
         await store.delete(id)
         eventsContinuation.yield(.removed(id))
@@ -171,6 +216,9 @@ actor DownloadEngine {
     func pauseAll() async {
         for id in coordinators.keys {
             await coordinators[id]?.pause()
+        }
+        for id in extractors.keys {
+            await extractors[id]?.pause()
         }
         for (id, var d) in downloads where d.status == .queued {
             d.status = .paused
@@ -204,6 +252,9 @@ actor DownloadEngine {
         for id in coordinators.keys {
             await coordinators[id]?.suspend()
         }
+        for id in extractors.keys {
+            await extractors[id]?.suspend()
+        }
         if let token = activityToken {
             ProcessInfo.processInfo.endActivity(token)
             activityToken = nil
@@ -232,7 +283,7 @@ actor DownloadEngine {
     // MARK: - Scheduling
 
     private func scheduleNextDownloads() async {
-        let activeCount = coordinators.count
+        let activeCount = coordinators.count + extractors.count
         let slots = max(0, settings.maxConcurrentDownloads - activeCount)
         guard slots > 0 else { return }
 
@@ -241,7 +292,40 @@ actor DownloadEngine {
             return d
         }
         for d in queued.prefix(slots) {
-            startCoordinator(for: d)
+            switch d.kind {
+            case .httpFile: startCoordinator(for: d)
+            case .media:    startExtraction(for: d)
+            }
+        }
+    }
+
+    /// Route a media download to the yt-dlp extractor. Fails fast with a helpful
+    /// message if the tools aren't installed.
+    private func startExtraction(for download: Download) {
+        let id = download.id
+        guard let tools = MediaToolLocator.locate() else {
+            var d = download
+            d.status = .failed
+            d.error = MediaError.toolsUnavailable.localizedDescription
+            downloads[id] = d
+            Task { await store.upsert(d) }
+            eventsContinuation.yield(.stateChanged(d))
+            return
+        }
+        let job = MediaExtractionJob(
+            download: download,
+            tools: tools,
+            onStateChange: { [weak self] updated in
+                await self?.handleStateChange(updated)
+            },
+            onSnapshot: { [weak self] snap in
+                await self?.handleSnapshot(snap)
+            }
+        )
+        extractors[id] = job
+        updateActivityState()
+        Task {
+            await job.start()
         }
     }
 
@@ -270,6 +354,7 @@ actor DownloadEngine {
         eventsContinuation.yield(.stateChanged(updated))
         if updated.status.isTerminal || updated.status == .paused {
             coordinators.removeValue(forKey: updated.id)
+            extractors.removeValue(forKey: updated.id)
             updateActivityState()
             await scheduleNextDownloads()
         }
@@ -280,12 +365,13 @@ actor DownloadEngine {
     /// when the app loses focus or is minimized). Release the token when
     /// no downloads are active so the system can save power normally.
     private func updateActivityState() {
-        if !coordinators.isEmpty && activityToken == nil {
+        let active = !coordinators.isEmpty || !extractors.isEmpty
+        if active && activityToken == nil {
             activityToken = ProcessInfo.processInfo.beginActivity(
                 options: [.userInitiated, .automaticTerminationDisabled],
                 reason: "Active download"
             )
-        } else if coordinators.isEmpty, let token = activityToken {
+        } else if !active, let token = activityToken {
             ProcessInfo.processInfo.endActivity(token)
             activityToken = nil
         }

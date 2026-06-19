@@ -17,7 +17,7 @@ struct MacgetApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(listVM: listVM, appEnvironment: environment)
+            ContentView(listVM: listVM, appEnvironment: environment, mediaPick: environment.mediaPick)
                 .frame(minWidth: 720, minHeight: 420)
                 .task {
                     appDelegate.environment = environment

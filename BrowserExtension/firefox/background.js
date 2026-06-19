@@ -5,6 +5,13 @@
 // host, and ONLY cancel the browser's own download once the host acknowledges.
 // That ordering means a missing/disabled host never makes a download vanish.
 //
+// Two safeguards prevent feedback storms: download pages that auto-retry after a
+// cancellation can otherwise fire onCreated in a tight loop, spawning a host
+// process each time and crashing the browser.
+//   1. Per-URL dedupe — the same URL is handed off at most once per DEDUPE_MS.
+//   2. Circuit breaker — if too many captures happen in BREAKER_WINDOW_MS, we
+//      turn capture OFF and stop, so a runaway can never fork-bomb the machine.
+//
 // Uses the promise-based API root (`browser` on Firefox, `chrome` on Chrome MV3)
 // so a single file works across Chrome, Edge, Brave, and Firefox.
 
@@ -12,6 +19,16 @@ const api = globalThis.browser || globalThis.chrome;
 const HOST = "com.suryansh.macget";
 
 const DEFAULTS = { enabled: true, denylist: [], minSizeBytes: 0 };
+
+// Dedupe: url -> last-handoff timestamp.
+const recentByUrl = new Map();
+const DEDUPE_MS = 15000;
+
+// Circuit breaker: cap handoffs per rolling window.
+const BREAKER_WINDOW_MS = 10000;
+const BREAKER_MAX = 25;
+let windowStart = Date.now();
+let windowCount = 0;
 
 async function getConfig() {
   try {
@@ -27,6 +44,33 @@ function hostnameOf(url) {
 
 function isCapturable(url) {
   return /^https?:\/\//i.test(url || "");
+}
+
+function seenRecently(url, now) {
+  // prune stale entries so the map can't grow unbounded
+  for (const [u, t] of recentByUrl) {
+    if (now - t > DEDUPE_MS) recentByUrl.delete(u);
+  }
+  return recentByUrl.has(url);
+}
+
+// Returns false (and disables capture) if we're in a runaway burst.
+async function breakerAllows(now) {
+  if (now - windowStart > BREAKER_WINDOW_MS) {
+    windowStart = now;
+    windowCount = 0;
+  }
+  windowCount += 1;
+  if (windowCount > BREAKER_MAX) {
+    console.error(
+      `Macget capture: ${windowCount} downloads in ${BREAKER_WINDOW_MS / 1000}s — ` +
+      "looks like a retry loop. Turning capture OFF. Re-enable it in the extension " +
+      "options once the source page has stopped re-downloading."
+    );
+    try { await api.storage.local.set({ enabled: false }); } catch (_) {}
+    return false;
+  }
+  return true;
 }
 
 async function cookieHeaderFor(url) {
@@ -50,6 +94,11 @@ api.downloads.onCreated.addListener(async (item) => {
 
   const size = item.totalBytes && item.totalBytes > 0 ? item.totalBytes : (item.fileSize || 0);
   if (cfg.minSizeBytes > 0 && size > 0 && size < cfg.minSizeBytes) return;
+
+  const now = Date.now();
+  if (seenRecently(url, now)) return;          // same URL already handed off — ignore the retry
+  if (!(await breakerAllows(now))) return;      // runaway burst — capture disabled
+  recentByUrl.set(url, now);                     // mark before the async gap so concurrent events dedupe
 
   const cookie = await cookieHeaderFor(url);
   const payload = {

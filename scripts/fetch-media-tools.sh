@@ -11,6 +11,13 @@ set -e
 cd "$(dirname "$0")/.."
 BIN="Vendor/bin"
 mkdir -p "$BIN"
+
+# Already fetched? Skip the ~270MB re-download (set FORCE=1 to refresh).
+if [ -x "$BIN/yt-dlp" ] && [ -x "$BIN/ffmpeg" ] && [ -x "$BIN/ffprobe" ] && [ -z "${FORCE:-}" ]; then
+  echo "Media tools already present in $BIN (set FORCE=1 to re-fetch). Skipping."
+  exit 0
+fi
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

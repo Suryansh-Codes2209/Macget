@@ -48,6 +48,20 @@ done
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# xcodebuild needs a full Xcode, not Command Line Tools. Auto-point at Xcode.app
+# if the active developer dir is CLT.
+if ! xcodebuild -version >/dev/null 2>&1; then
+  if [[ -d "/Applications/Xcode.app/Contents/Developer" ]]; then
+    export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+  fi
+fi
+if ! xcodebuild -version >/dev/null 2>&1; then
+  echo "ERROR: xcodebuild requires full Xcode. Either:"
+  echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer   (permanent)"
+  echo "  or run: DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer $0 $*"
+  exit 1
+fi
+
 if [[ ! -d "$PROJECT" ]]; then
   echo "ERROR: $PROJECT not found in $ROOT."
   exit 1
@@ -102,13 +116,15 @@ else
 fi
 
 echo "==> Building DMG…"
-if ! command -v create-dmg >/dev/null; then
-  echo "ERROR: create-dmg not installed. Run: brew install create-dmg"
-  exit 1
-fi
-( cd "$DIST_DIR" && create-dmg "$APP_BUILD_PATH" . )
-
-DMG_PATH="$(ls "$DIST_DIR"/*.dmg | head -n1)"
+# Use hdiutil (built into macOS) — no extra dependency, and unambiguous CLI.
+VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_BUILD_PATH/Contents/Info.plist" 2>/dev/null || echo "0.0.0")"
+DMG_PATH="$DIST_DIR/Macget-$VERSION.dmg"
+STAGE="$(mktemp -d)"
+cp -R "$APP_BUILD_PATH" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"   # drag-to-install target
+rm -f "$DMG_PATH"
+hdiutil create -volname "Macget" -srcfolder "$STAGE" -ov -format UDZO "$DMG_PATH"
+rm -rf "$STAGE"
 echo "==> Built DMG: $DMG_PATH"
 
 if [[ "$NOTARIZE" == "1" ]]; then

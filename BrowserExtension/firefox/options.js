@@ -7,9 +7,18 @@ const DEFAULTS = { enabled: true, denylist: [], minSizeBytes: 0 };
 
 const $ = (id) => document.getElementById(id);
 
+let toastTimer;
 function flashSaved() {
-  $("saved").textContent = "Saved";
-  setTimeout(() => { $("saved").textContent = ""; }, 1000);
+  const t = $("saved");
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 1100);
+}
+
+function reflectStatus(enabled) {
+  const pill = $("statusPill");
+  pill.textContent = enabled ? "Active" : "Off";
+  pill.classList.toggle("off", !enabled);
 }
 
 async function load() {
@@ -17,6 +26,7 @@ async function load() {
   $("enabled").checked = !!cfg.enabled;
   $("minSize").value = cfg.minSizeBytes > 0 ? Math.round(cfg.minSizeBytes / (1024 * 1024)) : 0;
   $("denylist").value = (cfg.denylist || []).join("\n");
+  reflectStatus(!!cfg.enabled);
 }
 
 async function save() {
@@ -30,8 +40,17 @@ async function save() {
     minSizeBytes: Number.isFinite(mb) && mb > 0 ? mb * 1024 * 1024 : 0,
     denylist,
   });
+  reflectStatus($("enabled").checked);
   flashSaved();
 }
+
+// Keep the pill live if the background circuit-breaker flips `enabled` off.
+api.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.enabled) {
+    $("enabled").checked = !!changes.enabled.newValue;
+    reflectStatus(!!changes.enabled.newValue);
+  }
+});
 
 document.addEventListener("DOMContentLoaded", load);
 ["enabled", "minSize", "denylist"].forEach((id) => {

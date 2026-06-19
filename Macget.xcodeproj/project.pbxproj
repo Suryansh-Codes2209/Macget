@@ -115,6 +115,7 @@
 				7E5DF5672FA368DF00032E7D /* Sources */,
 				7E5DF5682FA368DF00032E7D /* Frameworks */,
 				7E5DF5692FA368DF00032E7D /* Resources */,
+				7E10C0DE2FB0000000000001 /* Compile MacgetCaptureHost */,
 			);
 			buildRules = (
 			);
@@ -243,6 +244,26 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		7E10C0DE2FB0000000000001 /* Compile MacgetCaptureHost */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/MacgetCaptureHost/main.swift",
+			);
+			name = "Compile MacgetCaptureHost";
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/MacgetCaptureHost",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ \"${ENABLE_PREVIEWS}\" = \"YES\" ]; then echo \"Skipping host compile for previews\"; exit 0; fi\nset -e\nOUT=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}/MacgetCaptureHost\"\nmkdir -p \"$(dirname \"${OUT}\")\"\nWORK=\"${TMPDIR}/macgethost\"\nrm -rf \"${WORK}\"\nmkdir -p \"${WORK}\"\nSLICES=\"\"\nfor ARCH in ${ARCHS}; do\n  xcrun swiftc -O -sdk \"${SDKROOT}\" -target \"${ARCH}-apple-macos${MACOSX_DEPLOYMENT_TARGET}\" \"${SRCROOT}/MacgetCaptureHost/main.swift\" -o \"${WORK}/host-${ARCH}\"\n  SLICES=\"${SLICES} ${WORK}/host-${ARCH}\"\ndone\nlipo -create ${SLICES} -output \"${WORK}/host\"\nIDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\ncodesign --force --options runtime --timestamp=none --sign \"${IDENTITY}\" \"${WORK}/host\"\ncp \"${WORK}/host\" \"${OUT}\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		7E5DF5672FA368DF00032E7D /* Sources */ = {

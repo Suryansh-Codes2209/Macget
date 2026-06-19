@@ -77,8 +77,10 @@ actor DownloadEngine {
         url: URL,
         destinationFolder: URL,
         filename: String? = nil,
+        userSpecifiedFilename: Bool = false,
         threadCount: Int? = nil,
-        startImmediately: Bool? = nil
+        startImmediately: Bool? = nil,
+        requestHeaders: [String: String]? = nil
     ) async -> UUID {
         let resolvedThreads = threadCount ?? settings.defaultThreadCount
         let dest = destinationFolder
@@ -87,7 +89,9 @@ actor DownloadEngine {
             url: url,
             destinationFolder: dest,
             filename: resolvedName,
-            threadCount: resolvedThreads
+            threadCount: resolvedThreads,
+            userSpecifiedFilename: userSpecifiedFilename,
+            requestHeaders: RequestHeaderPolicy.sanitizeInbound(requestHeaders)
         )
         downloads[download.id] = download
         insertionOrder.append(download.id)

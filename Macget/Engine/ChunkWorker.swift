@@ -29,6 +29,9 @@ struct ChunkWorker {
     let lastModified: String?
     let writer: FileWriter
     let session: URLSession
+    /// Optional caller-supplied headers (Cookie/Referer/User-Agent) for captured
+    /// browser downloads. Applied before Range/If-Range so the worker's range wins.
+    var headers: [String: String]? = nil
     /// Called periodically with bytes flushed to disk for this chunk.
     let report: @Sendable (UUID, Int) async -> Void
 
@@ -45,6 +48,9 @@ struct ChunkWorker {
 
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
+        if let headers {
+            for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+        }
         req.setValue("bytes=\(requestStart)-\(requestEnd)", forHTTPHeaderField: "Range")
         if let etag {
             req.setValue(etag, forHTTPHeaderField: "If-Range")

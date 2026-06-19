@@ -30,13 +30,16 @@ struct SettingsView: View {
                 Toggle("Resume in-progress downloads on launch", isOn: $vm.settings.resumeOnLaunch)
             }
             Section {
+                Toggle("Auto-capture downloads from the browser extension",
+                       isOn: $vm.settings.browserCaptureEnabled)
                 Toggle("Auto-add http(s) URLs copied to the clipboard",
                        isOn: $vm.settings.clipboardWatchEnabled)
             } header: {
                 Text("Browser integration")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Macget can pick up downloads from any browser without an extension:")
+                    Text("With the Macget browser extension installed, turning on auto-capture lets downloads you start in Chrome, Edge, Brave, or Firefox be handed straight to Macget (cookies included, so logged-in downloads work). Install the extension from the `BrowserExtension/` folder.")
+                    Text("No extension? Macget still picks up downloads several ways:")
                     Text("• Right-click a link → **Services → Download with Macget** (enable once in System Settings → Keyboard → Keyboard Shortcuts → Services).")
                     Text("• Drag a URL from the address bar onto the Macget window.")
                     Text("• Use the URL scheme: `macget://download?url=<encoded-link>` works in any browser via a bookmarklet.")

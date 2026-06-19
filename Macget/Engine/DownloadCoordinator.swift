@@ -151,11 +151,20 @@ actor DownloadCoordinator {
     private func runDownload() async throws {
         // 1. Probe (only if we don't already have totalBytes from a prior session).
         if download.totalBytes == nil || download.chunks.isEmpty {
-            let probe = try await RangeProbe.probe(url: download.url, session: session)
+            let probe = try await RangeProbe.probe(url: download.url, headers: download.requestHeaders, session: session)
             download.totalBytes = probe.totalBytes
             download.supportsRange = probe.acceptsRanges
             download.etag = probe.etag
             download.lastModified = probe.lastModified
+
+            // Prefer the server's filename over the URL guess (signed/CDN links
+            // have junk paths), unless the user explicitly named the file. Then
+            // backfill a missing extension from the MIME type. Must happen before
+            // the writer opens — `partialFileURL` derives from `filename`.
+            if !download.userSpecifiedFilename, let cd = probe.contentDispositionFilename {
+                download.filename = FilenameResolver.sanitize(cd)
+            }
+            download.filename = FilenameResolver.ensuringExtension(download.filename, mimeType: probe.mimeType)
         }
 
         guard let total = download.totalBytes else {
@@ -351,6 +360,7 @@ actor DownloadCoordinator {
             lastModified: download.lastModified,
             writer: writer,
             session: session,
+            headers: download.requestHeaders,
             report: { [weak self] id, bytes in
                 await self?.reportBytes(chunkID: id, bytes: bytes)
             }

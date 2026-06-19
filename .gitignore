@@ -57,3 +57,7 @@ Icon
 .vscode/
 *.swp
 *~
+
+# Browser extension signing key (do not commit)
+BrowserExtension/.keys/
+BrowserExtension/dist/

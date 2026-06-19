@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Macget Download Capture",
+  "version": "1.0",
+  "description": "Sends downloads started in Chrome / Edge / Brave to the Macget download manager.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1GIsKA4jt8BUkHmicfP0h+17m4kbOi2usUacV4jWOrNRLoM1aUaJfK2u8zfYwar8KUi78v/N1h9K36uLk9TRovoZRmGXwWnYGx1u5IYheA/4A6PdIRnk6QzIMf0u6PSAbVTBCUiZkinqvzGpeYMG2p7nqm4XmsxodQzjLd6U0RLnat7e6s+LOqpPr+8lqFpL0akIOBslwrNqw2+/ZX5JN42UqPfKGz4bUjWUYXEL5mbCM42HnAIP+U9kowup4beOTnyEmdm8eSjLVIelA78V2rplumP2JwSdRRWqmNWCOG+j0LjWSBJfO7RPUnbwcCMJMiJbTJMMwuXDMF/0BmpVSwIDAQAB",
+  "background": { "service_worker": "background.js" },
+  "permissions": ["downloads", "cookies", "nativeMessaging", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "options_page": "options.html",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "action": {
+    "default_title": "Macget Capture",
+    "default_popup": "options.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    }
+  }
+}

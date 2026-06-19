@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 enum FilenameResolver {
     /// If `<folder>/<preferredName>` is free, returns it. Otherwise appends
@@ -26,6 +27,22 @@ enum FilenameResolver {
             n += 1
             if n > 9999 { return candidate }     // give up looping
         }
+    }
+
+    /// If `name` has no extension, infers one from `mimeType` (e.g.
+    /// `application/pdf` → `.pdf`). Returns `name` unchanged when it already has
+    /// an extension or no MIME mapping exists. Used after the probe so files
+    /// from signed/CDN URLs (no extension in the path) still get a sensible one.
+    static func ensuringExtension(_ name: String, mimeType: String?) -> String {
+        guard (name as NSString).pathExtension.isEmpty else { return name }
+        guard let mimeType else { return name }
+        // Strip any parameters: "text/plain; charset=utf-8" → "text/plain".
+        let bare = mimeType.components(separatedBy: ";").first?
+            .trimmingCharacters(in: .whitespaces) ?? mimeType
+        guard let ext = UTType(mimeType: bare)?.preferredFilenameExtension, !ext.isEmpty else {
+            return name
+        }
+        return "\(name).\(ext)"
     }
 
     /// Strips path separators and unsafe chars from a candidate name.

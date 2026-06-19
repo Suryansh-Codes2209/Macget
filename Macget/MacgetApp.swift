@@ -12,7 +12,7 @@ struct MacgetApp: App {
         let env = AppEnvironment()
         _environment = State(initialValue: env)
         _listVM = State(initialValue: DownloadListViewModel(engine: env.engine))
-        _settingsVM = State(initialValue: SettingsViewModel(engine: env.engine, initial: env.settings))
+        _settingsVM = State(initialValue: SettingsViewModel(environment: env, initial: env.settings))
     }
 
     var body: some Scene {

@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/YOUR-GITHUB-USERNAME/macget/actions/workflows/ci.yml"><img src="https://github.com/YOUR-GITHUB-USERNAME/macget/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
+  <a href="https://github.com/Suryansh-Codes2209/Macget/actions/workflows/ci.yml"><img src="https://github.com/Suryansh-Codes2209/Macget/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"/></a>
   <img src="https://img.shields.io/badge/macOS-26.4%2B-black?logo=apple" alt="macOS 26.4+"/>
   <img src="https://img.shields.io/badge/swift-5.9-orange?logo=swift" alt="Swift 5.9"/>
@@ -55,7 +55,7 @@ Macget's engine **discovers each host's true capacity at runtime** and adapts:
 
 ### From a release DMG (when v1 ships)
 
-1. Download `Macget-x.y.z.dmg` from the [Releases page](https://github.com/YOUR-GITHUB-USERNAME/macget/releases/latest).
+1. Download `Macget.dmg` from the [Releases page](https://github.com/Suryansh-Codes2209/Macget/releases/latest).
 2. Open the DMG, drag Macget to Applications.
 3. Launch from Applications.
 
@@ -82,8 +82,8 @@ Auto-updates (via Sparkle) install smoothly after this one-time step.
 ### From source
 
 ```bash
-git clone https://github.com/YOUR-GITHUB-USERNAME/macget.git
-cd macget
+git clone https://github.com/Suryansh-Codes2209/Macget.git
+cd Macget
 open Macget.xcodeproj
 ```
 

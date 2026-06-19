@@ -33,4 +33,4 @@ First public release.
 - Per-host caps only ratchet downward. If a host loosens its limits, you'll need to delete `~/Library/Application Support/Macget/host_caps.json` to rediscover. A "Forget host limits" UI action is on the roadmap.
 - Bandwidth competition with other apps is fundamental TCP fairness — Macget signals high QoS but cannot override the OS / network layer.
 
-[1.0.0]: https://github.com/YOUR-GITHUB-USERNAME/macget/releases/tag/v1.0.0
+[1.0.0]: https://github.com/Suryansh-Codes2209/Macget/releases/tag/v1.0.0

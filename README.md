@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="Macget/Resources/Branding/macget-icon.svg" width="160" alt="Macget"/>
+  <img src="Macget/Resources/Branding/macget-icon.svg" width="160" alt="MacGet"/>
 </p>
 
-<h1 align="center">Macget</h1>
+<h1 align="center">MacGet</h1>
 
 <p align="center">
   <strong>A native macOS download manager that doesn't fight your network.</strong>
@@ -20,7 +20,7 @@
   <img src="https://img.shields.io/badge/UI-SwiftUI-blueviolet" alt="SwiftUI"/>
 </p>
 
-> **Note:** Macget is **not affiliated with or endorsed by** Tonec Inc. or Internet Download Manager. It's an independent free alternative.
+> **Note:** MacGet is **not affiliated with or endorsed by** Tonec Inc. or Internet Download Manager. It's an independent free alternative.
 
 ---
 
@@ -28,7 +28,7 @@
 
 Most "multi-threaded" download managers naively open as many TCP connections as you let them. Modern CDNs treat that as leech behavior — they TCP-RST connections after a few bytes, throttle your IP, or 403 your requests. The result: more threads = slower downloads, sometimes failures.
 
-Macget's engine **discovers each host's true capacity at runtime** and adapts:
+MacGet's engine **discovers each host's true capacity at runtime** and adapts:
 
 - **Adaptive demotion.** When ≥4 chunk attempts fail without progress in a 10-second window (i.e., the host is rejecting parallelism), the engine halves its worker count, cancels the lowest-progress chunks, and continues. Repeats until stable.
 - **Per-host parallelism memory.** The learned cap is persisted to `~/Library/Application Support/Macget/host_caps.json`. Future downloads from that host start at the right level — no rediscovery cost.
@@ -118,7 +118,7 @@ Key types (under `Macget/Engine/`):
 | `HostCapStore` | Persistent per-host parallelism memory. Caps ratchet downward only. |
 | `URLSessionFactory.shared` | Single process-wide `URLSession` — `responsiveData` QoS, extended background idle mode, `httpMaximumConnectionsPerHost = 16`. |
 
-For deeper detail, read [`CLAUDE.md`](CLAUDE.md) — it's the project's living architecture doc.
+For deeper detail, read [`docs/architecture.md`](docs/architecture.md) — the full engine walkthrough, object graph, and resume semantics. [`CLAUDE.md`](CLAUDE.md) holds the day-to-day conventions for contributors.
 
 ---
 

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import OSLog
+import AppKit
 
 enum StatusFilter: String, CaseIterable, Identifiable {
     case all
@@ -38,6 +39,7 @@ struct DownloadRowItem: Identifiable, Equatable {
     let createdAt: Date
     let threadCount: Int           // current active thread count (live, persisted)
     let supportsRange: Bool        // false → multi-thread is a no-op
+    let priority: DownloadPriority
 
     var fractionComplete: Double {
         guard let total = totalBytes, total > 0 else { return 0 }
@@ -123,7 +125,8 @@ final class DownloadListViewModel {
                 error: d.error,
                 createdAt: d.createdAt,
                 threadCount: d.threadCount,
-                supportsRange: d.supportsRange
+                supportsRange: d.supportsRange,
+                priority: d.priority
             )
         }
         rows = filtered(items)
@@ -187,5 +190,19 @@ final class DownloadListViewModel {
 
     func setThreads(_ id: UUID, _ count: Int) {
         Task { await engine.adjustThreads(id: id, newThreads: count) }
+    }
+
+    func setPriority(_ id: UUID, _ priority: DownloadPriority) {
+        Task { await engine.setPriority(id: id, priority: priority) }
+    }
+
+    /// Copies a per-download diagnostics report (chunks, attempts, errors, live
+    /// concurrency state) to the clipboard for troubleshooting.
+    func copyDiagnostics(_ id: UUID) {
+        Task { [weak self] in
+            guard let self, let report = await self.engine.diagnostics(for: id) else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(report, forType: .string)
+        }
     }
 }

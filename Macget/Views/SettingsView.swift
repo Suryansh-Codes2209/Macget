@@ -10,6 +10,8 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
             downloadsTab
                 .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
+            networkTab
+                .tabItem { Label("Network", systemImage: "network") }
             aboutTab
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
@@ -29,6 +31,7 @@ struct SettingsView: View {
                     Button("Choose…") { vm.chooseDefaultFolder() }
                 }
                 Toggle("Resume in-progress downloads on launch", isOn: $vm.settings.resumeOnLaunch)
+                Toggle("Notify when a download completes", isOn: $vm.settings.completionNotificationsEnabled)
             }
             Section {
                 Toggle("Auto-capture downloads from the browser extension",
@@ -101,7 +104,102 @@ struct SettingsView: View {
                 )
                 Toggle("Start downloads automatically when added", isOn: $vm.settings.startDownloadsAutomatically)
             } footer: {
-                Text("Each download splits the file into N parallel HTTP-Range requests when the server supports it. More threads = faster on cooperative servers, but some servers throttle if you open too many connections.")
+                Text("Each download splits the file into N parallel HTTP-Range requests when the server supports it. Macget starts conservatively and adds connections only while they speed the download up. More threads = faster on cooperative servers, but some servers throttle if you open too many connections.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Limit total download speed", isOn: Binding(
+                    get: { vm.settings.globalSpeedLimitBytesPerSec != nil },
+                    set: { on in
+                        vm.settings.globalSpeedLimitBytesPerSec = on
+                            ? (vm.settings.globalSpeedLimitBytesPerSec ?? 1024 * 1024)
+                            : nil
+                    }
+                ))
+                if vm.settings.globalSpeedLimitBytesPerSec != nil {
+                    HStack {
+                        Text("Max speed")
+                        Spacer()
+                        TextField("KB/s", value: Binding(
+                            get: { Double(vm.settings.globalSpeedLimitBytesPerSec ?? 0) / 1024.0 },
+                            set: { vm.settings.globalSpeedLimitBytesPerSec = $0 > 0 ? Int($0 * 1024) : nil }
+                        ), format: .number)
+                        .frame(width: 90)
+                        .multilineTextAlignment(.trailing)
+                        Text("KB/s").foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                Text("Bandwidth")
+            } footer: {
+                Text("Caps the combined speed of all active downloads. Leave off for full speed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(20)
+    }
+
+    private var networkTab: some View {
+        Form {
+            Section {
+                Stepper(
+                    "Request timeout: \(vm.settings.requestTimeoutSeconds)s",
+                    value: $vm.settings.requestTimeoutSeconds,
+                    in: 5...300,
+                    step: 5
+                )
+                Stepper(
+                    "Retry attempts per chunk: \(vm.settings.maxRetriesPerChunk)",
+                    value: $vm.settings.maxRetriesPerChunk,
+                    in: 1...10
+                )
+            } header: {
+                Text("Timeouts & retries")
+            } footer: {
+                Text("Request timeout is how long a stalled connection waits before it's retried. Retry attempts are per chunk before Macget backs off the connection count.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Use an HTTP proxy", isOn: Binding(
+                    get: { vm.settings.proxyHost != nil },
+                    set: { on in
+                        if on {
+                            vm.settings.proxyHost = vm.settings.proxyHost ?? "127.0.0.1"
+                            vm.settings.proxyPort = vm.settings.proxyPort ?? 8080
+                        } else {
+                            vm.settings.proxyHost = nil
+                            vm.settings.proxyPort = nil
+                        }
+                    }
+                ))
+                if vm.settings.proxyHost != nil {
+                    HStack {
+                        Text("Host")
+                        TextField("127.0.0.1", text: Binding(
+                            get: { vm.settings.proxyHost ?? "" },
+                            set: { vm.settings.proxyHost = $0.isEmpty ? nil : $0 }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                    }
+                    HStack {
+                        Text("Port")
+                        TextField("8080", value: Binding(
+                            get: { vm.settings.proxyPort ?? 0 },
+                            set: { vm.settings.proxyPort = (1...65535).contains($0) ? $0 : nil }
+                        ), format: .number.grouping(.never))
+                        .frame(width: 90)
+                        .textFieldStyle(.roundedBorder)
+                    }
+                }
+            } header: {
+                Text("Proxy")
+            } footer: {
+                Text("Routes HTTP and HTTPS downloads through the proxy. Changes apply to downloads started afterward.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

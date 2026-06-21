@@ -67,4 +67,33 @@ final class FilenameResolverTests: XCTestCase {
     func test_ensuringExtension_unchangedForUnknownMime() {
         XCTAssertEqual(FilenameResolver.ensuringExtension("blob", mimeType: "application/x-totally-made-up"), "blob")
     }
+
+    // MARK: - truncatedToByteLimit
+
+    func test_truncate_leavesShortNamesUnchanged() {
+        XCTAssertEqual(FilenameResolver.truncatedToByteLimit("file.zip"), "file.zip")
+    }
+
+    func test_truncate_preservesExtensionAndStaysWithinLimit() {
+        let long = String(repeating: "a", count: 300) + ".pdf"
+        let result = FilenameResolver.truncatedToByteLimit(long)
+        XCTAssertLessThanOrEqual(result.utf8.count, 255)
+        XCTAssertEqual((result as NSString).pathExtension, "pdf")
+    }
+
+    func test_truncate_neverSplitsMultibyteGrapheme() {
+        // 200 emoji (4 bytes each in UTF-8) → must trim on a character boundary.
+        let long = String(repeating: "😀", count: 200) + ".txt"
+        let result = FilenameResolver.truncatedToByteLimit(long)
+        XCTAssertLessThanOrEqual(result.utf8.count, 255)
+        // Round-trips as valid UTF-8 with no replacement characters.
+        XCTAssertFalse(result.contains("\u{FFFD}"))
+        XCTAssertTrue(result.hasSuffix(".txt"))
+    }
+
+    func test_truncate_appliedByUniqueURL() {
+        let long = String(repeating: "z", count: 400) + ".bin"
+        let url = FilenameResolver.uniqueURL(in: tmpDir, preferredName: long)
+        XCTAssertLessThanOrEqual(url.lastPathComponent.utf8.count, 255)
+    }
 }

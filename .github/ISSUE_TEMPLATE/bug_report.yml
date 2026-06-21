@@ -1,0 +1,82 @@
+name: 🐛 Bug report
+description: Something in MacGet isn't working as expected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill in as much as you can — it makes fixes much faster.
+        For **security** issues, do **not** file here — see [SECURITY.md](https://github.com/Suryansh-Codes2209/Macget/blob/main/SECURITY.md).
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and this isn't a duplicate
+          required: true
+        - label: I'm on the latest release (or latest `main`)
+          required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected instead.
+      placeholder: When I download from X, the progress freezes at ~50% and never resumes…
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps. Include a sample URL if the bug is host-specific (redact anything private).
+      placeholder: |
+        1. Click + and paste https://…
+        2. Set threads to 16
+        3. Watch it stall after a few seconds
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "e.g. 26.4 (Tahoe)"
+    validations:
+      required: true
+  - type: input
+    id: macget-version
+    attributes:
+      label: MacGet version
+      description: See MacGet → About, or the DMG filename.
+      placeholder: "e.g. 1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: install-source
+    attributes:
+      label: How did you install it?
+      options:
+        - Release DMG
+        - Built from source (Xcode)
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Console output
+      description: |
+        Relevant log lines. MacGet logs to the unified log under subsystem `com.macget` — grab them with:
+        `log show --predicate 'subsystem == "com.macget"' --last 10m --info`
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: kind
+    attributes:
+      label: Area (optional)
+      options:
+        - label: Download engine (speed, stalls, resume, corruption)
+        - label: Video / media downloads (yt-dlp, ffmpeg)
+        - label: UI / SwiftUI
+        - label: Browser extension / capture
+        - label: Updates (Sparkle)

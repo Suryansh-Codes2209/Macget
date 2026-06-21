@@ -12,9 +12,14 @@ enum NativeMessagingInstaller {
     /// Native-messaging host name the extensions connect to.
     static let hostName = "com.suryansh.macget"
 
-    /// Pinned Chromium extension ID (fixed by the `key` in the extension's
-    /// manifest.json). Chromium requires explicit origins — no wildcards.
-    static let chromiumExtensionID = "knccbiljmilfmhfellkfbdmilpbdkgni"
+    /// Chromium extension IDs allowed to launch the host. Chromium requires
+    /// explicit origins — no wildcards — so we list both:
+    ///   • the unpacked-dev ID, pinned by the `key` in manifest.json, and
+    ///   • the Chrome Web Store ID assigned to the published extension.
+    static let chromiumExtensionIDs = [
+        "knccbiljmilfmhfellkfbdmilpbdkgni",  // unpacked dev (manifest `key`)
+        "ldmhmgglgemkoogpokfcgplbpfokcejl",  // Chrome Web Store (published)
+    ]
 
     /// Firefox add-on id (from `browser_specific_settings.gecko.id`).
     static let firefoxExtensionID = "macget@suryansh"
@@ -77,7 +82,7 @@ enum NativeMessagingInstaller {
             "description": "Macget download capture host",
             "path": path,
             "type": "stdio",
-            "allowed_origins": ["chrome-extension://\(chromiumExtensionID)/"],
+            "allowed_origins": chromiumExtensionIDs.map { "chrome-extension://\($0)/" },
         ]
     }
 

@@ -35,9 +35,9 @@
         <true/>
     </dict>
 
-    <!-- Sparkle auto-updates: replace YOUR-GITHUB-USERNAME and SUPublicEDKey -->
+    <!-- Sparkle auto-updates: set SUPublicEDKey (from generate_keys) before shipping updates -->
     <key>SUFeedURL</key>
-    <string>https://YOUR-GITHUB-USERNAME.github.io/macget/appcast.xml</string>
+    <string>https://suryansh-codes2209.github.io/Macget/appcast.xml</string>
     <key>SUEnableInstallerLauncherService</key>
     <true/>
     <key>SUPublicEDKey</key>

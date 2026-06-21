@@ -18,10 +18,19 @@ rm -rf firefox/icons
 cp -R chromium/icons firefox/icons
 
 mkdir -p dist
-echo "Packaging chromium -> dist/macget-chromium.zip"
-( cd chromium && zip -q -r -FS "../dist/macget-chromium.zip" . -x ".*" )
+DIST="$(pwd)/dist"
+
+# The Chrome Web Store REJECTS a manifest that contains a `key` field — it only
+# pins the unpacked dev ID. Strip it from the store package (chromium/ keeps it
+# so local "Load unpacked" still resolves to the same dev ID for native messaging).
+echo "Packaging chromium -> dist/macget-chromium.zip (key field stripped for the Web Store)"
+STORE_TMP="$(mktemp -d)"
+cp -R chromium/. "$STORE_TMP/"
+sed '/^[[:space:]]*"key"[[:space:]]*:/d' chromium/manifest.json > "$STORE_TMP/manifest.json"
+( cd "$STORE_TMP" && zip -q -r -FS "$DIST/macget-chromium.zip" . -x ".*" )
+rm -rf "$STORE_TMP"
 
 echo "Packaging firefox -> dist/macget-firefox.zip"
-( cd firefox && zip -q -r -FS "../dist/macget-firefox.zip" . -x ".*" )
+( cd firefox && zip -q -r -FS "$DIST/macget-firefox.zip" . -x ".*" )
 
-echo "Done. Load unpacked from chromium/ or firefox/, or distribute dist/*.zip."
+echo "Done. Upload dist/macget-chromium.zip to the Web Store; load unpacked from chromium/ for dev."

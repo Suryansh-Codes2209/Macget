@@ -12,6 +12,8 @@ xcuserdata/
 *.moved-aside
 *.hmap
 *.ipa
+*.bak
+project.pbxproj.bak
 *.dSYM.zip
 *.dSYM
 
@@ -51,6 +53,9 @@ Icon
 .Trashes
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
+
+# Launch / marketing drafts (personal, not part of the project)
+launch/
 
 # Editors
 .idea/

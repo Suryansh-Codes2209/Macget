@@ -114,6 +114,7 @@ enum RangeProbe {
     /// captured browser download) to a request. Callers set `Range` afterward so
     /// the probe's own range always wins.
     private static func apply(_ headers: [String: String]?, to req: inout URLRequest) {
+        URLSessionFactory.applyTransportPreferences(to: &req)
         guard let headers else { return }
         for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
     }
@@ -121,8 +122,13 @@ enum RangeProbe {
     /// Parse a filename out of a `Content-Disposition` header value. Pure and
     /// header-only (no URL fallback) so the result distinguishes a
     /// server-provided name from a URL guess. Returns `nil` when absent/empty.
+    ///
+    /// The RFC 5987 extended form (`filename*=UTF-8''…`) takes precedence over
+    /// the plain `filename=` form when both are present, because it can carry
+    /// non-ASCII names that the plain form mangles.
     static func parseContentDispositionFilename(_ headerValue: String?) -> String? {
         guard let cd = headerValue else { return nil }
+        if let ext = parseExtendedFilename(cd) { return ext }
         // Naive parse of `filename="..."` or `filename=...`.
         let lower = cd.lowercased()
         guard let range = lower.range(of: "filename=") else { return nil }
@@ -132,6 +138,23 @@ enum RangeProbe {
             .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
             .components(separatedBy: ";").first ?? ""
         return cleaned.isEmpty ? nil : cleaned
+    }
+
+    /// Parses the RFC 5987 `filename*=charset'lang'pct-encoded` extended form.
+    /// Percent-decoding interprets the bytes as UTF-8 (the only charset in real
+    /// use); other charsets fall back to the same decode. Returns `nil` when the
+    /// header has no extended form.
+    private static func parseExtendedFilename(_ cd: String) -> String? {
+        let lower = cd.lowercased()
+        guard let r = lower.range(of: "filename*=") else { return nil }
+        let after = cd[r.upperBound...]
+        let value = (after.components(separatedBy: ";").first ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        // Strip the optional `charset'lang'` prefix, keeping the encoded name.
+        let parts = value.components(separatedBy: "'")
+        let encoded = parts.count >= 3 ? parts[2...].joined(separator: "'") : value
+        guard let decoded = encoded.removingPercentEncoding, !decoded.isEmpty else { return nil }
+        return decoded
     }
 
     private static func urlFilename(_ url: URL) -> String? {

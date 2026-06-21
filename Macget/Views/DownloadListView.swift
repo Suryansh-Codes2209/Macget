@@ -15,9 +15,7 @@ struct DownloadListView: View {
                 Table(vm.rows.sorted(using: sortOrder), selection: $selection, sortOrder: $sortOrder) {
                     TableColumn("Filename", value: \.filename) { row in
                         HStack(spacing: 6) {
-                            Image(systemName: statusIcon(row.status))
-                                .foregroundStyle(statusColor(row.status))
-                                .frame(width: 14)
+                            fileIcon(for: row)
                             Text(row.filename).lineLimit(1).truncationMode(.middle)
                         }
                     }
@@ -84,6 +82,53 @@ struct DownloadListView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, 80)
+    }
+
+    /// Smart file-type icon (video/audio/zip/doc/…) tinted by category, with a
+    /// small status badge in the corner so state stays glanceable.
+    @ViewBuilder
+    private func fileIcon(for row: DownloadRowItem) -> some View {
+        Image(systemName: FileTypeIcon.symbolName(for: row.filename))
+            .foregroundStyle(typeColor(for: row.filename))
+            .frame(width: 16)
+            .overlay(alignment: .bottomTrailing) {
+                if let badge = statusBadge(row.status) {
+                    Image(systemName: badge.symbol)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(1)
+                        .background(badge.color, in: Circle())
+                        .offset(x: 3, y: 2)
+                }
+            }
+            .help(row.filename)
+    }
+
+    private func typeColor(for filename: String) -> Color {
+        switch FileTypeIcon.category(for: filename) {
+        case .video:    return .pink
+        case .audio:    return .purple
+        case .image:    return .teal
+        case .archive:  return .brown
+        case .pdf:      return .red
+        case .document: return .blue
+        case .code:     return .green
+        case .app:      return .indigo
+        case .disk:     return .gray
+        case .generic:  return .secondary
+        }
+    }
+
+    /// Corner badge for terminal/paused states. Active states (downloading,
+    /// queued) return nil — their progress is shown in the Status column.
+    private func statusBadge(_ status: DownloadStatus) -> (symbol: String, color: Color)? {
+        switch status {
+        case .completed: return ("checkmark", .green)
+        case .failed:    return ("exclamationmark", .red)
+        case .paused:    return ("pause.fill", .orange)
+        case .cancelled: return ("xmark", .gray)
+        case .downloading, .queued: return nil
+        }
     }
 
     @ViewBuilder
@@ -167,6 +212,22 @@ struct DownloadListView: View {
                 rows.forEach { vm.cancel($0.id) }
             }
         }
+        let adjustable = rows.filter { $0.status == .queued || $0.status == .paused }
+        if !adjustable.isEmpty {
+            Menu("Priority") {
+                ForEach(DownloadPriority.allCases, id: \.self) { p in
+                    Button {
+                        adjustable.forEach { vm.setPriority($0.id, p) }
+                    } label: {
+                        if adjustable.count == 1, adjustable[0].priority == p {
+                            Label(p.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(p.displayName)
+                        }
+                    }
+                }
+            }
+        }
         Divider()
         if rows.count == 1, let row = rows.first {
             Button("Copy URL") {
@@ -177,6 +238,9 @@ struct DownloadListView: View {
                 Button("Show in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([row.destinationURL])
                 }
+            }
+            Button("Copy Diagnostics") {
+                vm.copyDiagnostics(row.id)
             }
         }
         Divider()
@@ -209,27 +273,5 @@ struct DownloadListView: View {
 
     private func percentString(_ frac: Double) -> String {
         String(format: "%.0f%%", frac * 100)
-    }
-
-    private func statusIcon(_ status: DownloadStatus) -> String {
-        switch status {
-        case .queued:      return "clock"
-        case .downloading: return "arrow.down.circle.fill"
-        case .paused:      return "pause.circle"
-        case .completed:   return "checkmark.circle.fill"
-        case .failed:      return "exclamationmark.triangle.fill"
-        case .cancelled:   return "xmark.circle"
-        }
-    }
-
-    private func statusColor(_ status: DownloadStatus) -> Color {
-        switch status {
-        case .queued:      return .secondary
-        case .downloading: return .blue
-        case .paused:      return .orange
-        case .completed:   return .green
-        case .failed:      return .red
-        case .cancelled:   return .gray
-        }
     }
 }

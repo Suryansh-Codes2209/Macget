@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import Network
 
 /// Events emitted to the UI ViewModel.
 enum EngineEvent: Sendable {
@@ -22,8 +23,20 @@ actor DownloadEngine {
     private var settings: AppSettings
 
     private let store: DownloadStore
-    private let session: URLSession
+    /// Rebuilt when the proxy / request-timeout setting changes (only when the
+    /// engine owns it — an injected session, e.g. in tests, is left alone).
+    private var session: URLSession
+    private let ownsSession: Bool
+    /// Shared bandwidth limiter handed to every coordinator/worker.
+    private let rateLimiter: RateLimiter
     private let log = Logger(subsystem: "com.macget", category: "Engine")
+
+    /// Watches network reachability so a dropped connection pauses active
+    /// downloads into a holding state and auto-resumes them when the network
+    /// returns — instead of burning retries through an outage.
+    private var pathMonitor: NWPathMonitor?
+    private var networkPausedIDs: Set<UUID> = []
+    private var lastPathSatisfied = true
 
     /// Held while at least one download is active. Prevents macOS App Nap from
     /// throttling CPU/network when the user switches focus or minimizes the
@@ -33,10 +46,21 @@ actor DownloadEngine {
     private let eventsContinuation: AsyncStream<EngineEvent>.Continuation
     nonisolated let events: AsyncStream<EngineEvent>
 
-    init(store: DownloadStore, settings: AppSettings, session: URLSession = URLSessionFactory.shared) {
+    init(store: DownloadStore, settings: AppSettings, session: URLSession? = nil) {
         self.store = store
         self.settings = settings
-        self.session = session
+        if let session {
+            self.session = session
+            self.ownsSession = false
+        } else {
+            self.session = URLSessionFactory.makeSession(
+                requestTimeout: TimeInterval(settings.requestTimeoutSeconds),
+                proxyHost: settings.proxyHost,
+                proxyPort: settings.proxyPort
+            )
+            self.ownsSession = true
+        }
+        self.rateLimiter = RateLimiter(bytesPerSecond: settings.globalSpeedLimitBytesPerSec)
         var continuation: AsyncStream<EngineEvent>.Continuation!
         self.events = AsyncStream { c in continuation = c }
         self.eventsContinuation = continuation
@@ -46,6 +70,7 @@ actor DownloadEngine {
 
     /// Load persisted downloads and (per settings) auto-resume the unfinished ones.
     func loadPersistedAndResume() async {
+        startNetworkMonitoring()
         let persisted = await store.load()
         for d in persisted {
             downloads[d.id] = d
@@ -67,7 +92,19 @@ actor DownloadEngine {
 
     func updateSettings(_ newSettings: AppSettings) async {
         let oldMax = settings.maxConcurrentDownloads
+        let sessionChanged = newSettings.requestTimeoutSeconds != settings.requestTimeoutSeconds
+            || newSettings.proxyHost != settings.proxyHost
+            || newSettings.proxyPort != settings.proxyPort
         settings = newSettings
+        await rateLimiter.setLimit(newSettings.globalSpeedLimitBytesPerSec)
+        if ownsSession, sessionChanged {
+            session = URLSessionFactory.makeSession(
+                requestTimeout: TimeInterval(newSettings.requestTimeoutSeconds),
+                proxyHost: newSettings.proxyHost,
+                proxyPort: newSettings.proxyPort
+            )
+            log.info("Rebuilt URLSession for new proxy/timeout settings (applies to new downloads).")
+        }
         eventsContinuation.yield(.settingsChanged(newSettings))
         if newSettings.maxConcurrentDownloads > oldMax {
             await scheduleNextDownloads()
@@ -83,18 +120,25 @@ actor DownloadEngine {
         userSpecifiedFilename: Bool = false,
         threadCount: Int? = nil,
         startImmediately: Bool? = nil,
-        requestHeaders: [String: String]? = nil
+        requestHeaders: [String: String]? = nil,
+        checksum: ChecksumSpec? = nil
     ) async -> UUID {
         let resolvedThreads = threadCount ?? settings.defaultThreadCount
         let dest = destinationFolder
         let resolvedName = filename ?? (url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
+        // Prefer an explicitly-supplied checksum (Add sheet); otherwise fall back
+        // to a `#sha256=…`/`#md5=…` URL fragment. The fragment is client-side only
+        // (never sent on the wire), so it's a safe sidecar for the digest.
+        let checksum = checksum ?? ChecksumSpec.parse(fragment: url.fragment)
         let download = Download(
             url: url,
             destinationFolder: dest,
             filename: resolvedName,
             threadCount: resolvedThreads,
             userSpecifiedFilename: userSpecifiedFilename,
-            requestHeaders: RequestHeaderPolicy.sanitizeInbound(requestHeaders)
+            requestHeaders: RequestHeaderPolicy.sanitizeInbound(requestHeaders),
+            expectedChecksum: checksum?.hex,
+            checksumAlgorithm: checksum?.algorithm
         )
         downloads[download.id] = download
         insertionOrder.append(download.id)
@@ -249,6 +293,8 @@ actor DownloadEngine {
 
     /// Called from AppDelegate on app termination.
     func suspendAllForShutdown() async {
+        pathMonitor?.cancel()
+        pathMonitor = nil
         for id in coordinators.keys {
             await coordinators[id]?.suspend()
         }
@@ -263,6 +309,72 @@ actor DownloadEngine {
 
     func currentDownloads() -> [Download] {
         insertionOrder.compactMap { downloads[$0] }
+    }
+
+    // MARK: - Network reachability
+
+    private func startNetworkMonitoring() {
+        guard pathMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        pathMonitor = monitor
+        monitor.pathUpdateHandler = { [weak self] path in
+            let satisfied = path.status == .satisfied
+            Task { await self?.handleNetworkPath(satisfied: satisfied) }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.macget.network-monitor"))
+    }
+
+    private func handleNetworkPath(satisfied: Bool) async {
+        guard satisfied != lastPathSatisfied else { return }
+        lastPathSatisfied = satisfied
+
+        if !satisfied {
+            // Snapshot ids first — pausing mutates `coordinators` via its callback.
+            let activeIDs = coordinators.keys.filter { downloads[$0]?.status == .downloading }
+            guard !activeIDs.isEmpty else { return }
+            log.warning("Network lost — pausing \(activeIDs.count) active download(s) until it returns.")
+            for id in activeIDs {
+                guard let coord = coordinators[id] else { continue }
+                networkPausedIDs.insert(id)
+                await coord.pause()
+                if var d = downloads[id] {
+                    d.error = "Waiting for network…"
+                    downloads[id] = d
+                    await store.upsert(d)
+                    eventsContinuation.yield(.stateChanged(d))
+                }
+            }
+        } else {
+            let toResume = networkPausedIDs
+            networkPausedIDs.removeAll()
+            guard !toResume.isEmpty else { return }
+            log.info("Network restored — resuming \(toResume.count) download(s).")
+            for id in toResume {
+                await resume(id)
+            }
+        }
+    }
+
+    /// A diagnostics report for one download. Prefers the live coordinator (which
+    /// has up-to-the-moment chunk attempts and concurrency state); falls back to
+    /// the persisted record for inactive downloads.
+    func diagnostics(for id: UUID) async -> String? {
+        if let coord = coordinators[id] {
+            return await coord.diagnosticsReport()
+        }
+        guard let d = downloads[id] else { return nil }
+        return DownloadDiagnostics.report(for: d)
+    }
+
+    /// Change a download's queue priority. Re-runs the scheduler so a newly
+    /// high-priority queued item can take a free slot.
+    func setPriority(id: UUID, priority: DownloadPriority) async {
+        guard var d = downloads[id], d.priority != priority else { return }
+        d.priority = priority
+        downloads[id] = d
+        await store.upsert(d)
+        eventsContinuation.yield(.stateChanged(d))
+        await scheduleNextDownloads()
     }
 
     /// Live-adjust the parallel chunk count for one download. Increases re-split
@@ -291,7 +403,7 @@ actor DownloadEngine {
             guard let d = downloads[id], d.status == .queued else { return nil }
             return d
         }
-        for d in queued.prefix(slots) {
+        for d in DownloadScheduler.order(queued).prefix(slots) {
             switch d.kind {
             case .httpFile: startCoordinator(for: d)
             case .media:    startExtraction(for: d)
@@ -334,6 +446,8 @@ actor DownloadEngine {
         let coord = DownloadCoordinator(
             download: download,
             session: session,
+            rateLimiter: rateLimiter,
+            maxAttemptsPerChunk: settings.maxRetriesPerChunk,
             onStateChange: { [weak self] updated in
                 await self?.handleStateChange(updated)
             },
@@ -349,9 +463,14 @@ actor DownloadEngine {
     }
 
     private func handleStateChange(_ updated: Download) async {
+        let wasCompleted = downloads[updated.id]?.status == .completed
         downloads[updated.id] = updated
         await store.upsert(updated)
         eventsContinuation.yield(.stateChanged(updated))
+        if updated.status == .completed, !wasCompleted, settings.completionNotificationsEnabled {
+            let name = updated.filename
+            Task { @MainActor in CompletionNotifier.downloadCompleted(filename: name) }
+        }
         if updated.status.isTerminal || updated.status == .paused {
             coordinators.removeValue(forKey: updated.id)
             extractors.removeValue(forKey: updated.id)

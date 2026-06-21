@@ -29,9 +29,10 @@ Interactive dev: open `Macget.xcodeproj` in Xcode and ⌘R / ⌘U.
 
 ## Naming & docs caveats
 
-- **Two spellings exist.** Code, Xcode target, bundle ID (`com.suryansh.Macget`), os.Logger subsystem (`com.macget`), and on-disk paths all use lowercase **`Macget`**. README, SETUP.md, and `scripts/release.sh` use **`MacGet`** (with a capital G) and reference `MacGet.xcodeproj`. The actual project file is `Macget.xcodeproj` — `release.sh` will fail until its `SCHEME`/`PROJECT` constants are updated. Treat `Macget` as canonical when writing new code.
-- README's setup steps describe creating a fresh Xcode project from scratch and dragging in source folders. That's stale: the `.xcodeproj` is already committed and contains all source references. Just open it.
-- `docs/architecture.md` is referenced from README but does not exist.
+- **Two casings, by design.** Every *technical identifier* — code, Xcode target/scheme, project file (`Macget.xcodeproj`), bundle ID (`com.suryansh.Macget`), os.Logger subsystem (`com.macget`), produced artifacts (`Macget.app`, `Macget-<version>.dmg`), and on-disk paths — uses lowercase **`Macget`**. The *human-facing brand* — README headings/tagline, the marketing site under `frontend/`, `site/index.html`, and the SVG wordmark — is **`MacGet`** (capital G). Rule of thumb: anything a compiler, shell, or the filesystem reads is `Macget`; anything a person reads as the product name is `MacGet`. The README's Install/First-launch section intentionally keeps `Macget` because it refers to the literal app bundle and the verbatim macOS Gatekeeper dialog. (`scripts/release.sh` already uses the correct `Macget` `SCHEME`/`PROJECT` — the old "release.sh will fail" note is obsolete.)
+- The app's Finder display name is currently the bundle name `Macget`. To make the launched app and Gatekeeper read `MacGet`, set `CFBundleDisplayName` = `MacGet` in `Info.plist` (not yet done — it changes the Gatekeeper string and DMG label, so weigh it before a release).
+- Build setup is just "open `Macget.xcodeproj` and ⌘R" — the `.xcodeproj` is committed with all source references. `SETUP.md` is a lean contributor/release guide; the old "create a fresh project + symlink folders" workflow is gone.
+- Architecture is documented in [`docs/architecture.md`](docs/architecture.md) (linked from the README) and summarized in the Architecture section below.
 - Minimum macOS is **26.4 (Tahoe)** — set in both `MACOSX_DEPLOYMENT_TARGET` and `Info.plist`'s `LSMinimumSystemVersion`. Don't lower without confirming the codebase doesn't depend on Tahoe-only APIs.
 
 ## Architecture

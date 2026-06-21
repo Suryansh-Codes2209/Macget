@@ -2,6 +2,35 @@
 
 All notable changes to Macget. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [1.1.0] — 2026-06-22
+
+Engine throughput, reliability, correctness, and user-control improvements.
+
+### Added
+- **Adaptive concurrency (speed-aware up-scaling).** Downloads start at 4 connections and probe upward one at a time, keeping each added connection only when aggregate throughput improves ≥ 15%. Demotion (anti-leech) and the learned per-host cap always win, so probing never fights them.
+- **Work-stealing chunking.** `ChunkPlanner` slices range-capable downloads into smaller pieces than workers (8 MB target, ≤ 64 pieces); finished workers immediately steal the next outstanding piece, eliminating the "one slow chunk holds up the download" long tail.
+- **HTTP/3 (QUIC)** opted into per-request via `URLRequest.assumesHTTP3Capable` (falls back to HTTP/2 → HTTP/1.1).
+- **Checksum verification.** SHA-256 / MD5 verified at finalize before the partial is promoted; sourced from a `#sha256=…` / `#md5=…` URL fragment or the Add sheet. Mismatch fails the download and keeps the partial.
+- **`Retry-After` + jittered backoff.** 429/503 honor the server's `Retry-After` (delta-seconds or HTTP-date); other retries use capped full-jitter exponential backoff to avoid synchronized retry storms.
+- **Auto-resume on network loss.** `NWPathMonitor` pauses active downloads ("Waiting for network…") and auto-resumes when connectivity returns, instead of burning retries through an outage.
+- **If-Range changed-file fallback.** A server-side file change (validator mismatch) triggers one clean restart-from-scratch instead of a hard failure.
+- **Bandwidth throttling.** Optional global download speed cap (token-bucket `RateLimiter`), configurable in Settings → Downloads.
+- **Download priorities.** High / Normal / Low queue priority (context-menu), with a stable priority-aware scheduler.
+- **Completion notifications**, configurable **request timeout** and **per-chunk retry count**, and **HTTP/HTTPS proxy** support — all in Settings → Network.
+- **Continuous disk-space guard.** Re-checks free space mid-download and pauses cleanly if the volume fills up.
+- **Smart file-type icons.** The list shows video / audio / image / archive / PDF / doc / code / app / disk icons (tinted by type) with a corner status badge.
+- **RFC 5987 filenames** (`filename*=UTF-8''…`) and 255-byte NFC-safe filename truncation.
+- **Copy Diagnostics** context action — per-chunk attempts/errors and live concurrency state.
+
+### Changed
+- Per-chunk retry count and hard cap are now driven by the configurable retry setting (was hardcoded 5 / 25).
+- The engine owns its `URLSession` and rebuilds it when the proxy / timeout settings change.
+
+### Tests
+- New suites: `RetryBackoff`, `ChecksumVerifier`, `AdaptiveConcurrency` + `ChunkPlannerPieceSizing`, `RateLimiter`, `DownloadScheduler`, `FileTypeIcon`; extended `RangeProbe` (RFC 5987) and `FilenameResolver` (truncation).
+
+[1.1.0]: https://github.com/Suryansh-Codes2209/Macget/releases/tag/v1.1.0
+
 ## [1.0.0] — Unreleased
 
 First public release.

@@ -9,6 +9,8 @@ final class AddDownloadViewModel {
     var destinationFolder: URL
     var threadCount: Int
     var startImmediately: Bool = true
+    /// Optional expected checksum (e.g. `sha256=…`, `md5=…`, or a bare hex digest).
+    var checksumText: String = ""
 
     private let engine: DownloadEngine
     private let defaultFolder: URL
@@ -36,6 +38,14 @@ final class AddDownloadViewModel {
         destinationFolder = defaultFolder
         threadCount = defaultThreads
         startImmediately = true
+        checksumText = ""
+    }
+
+    /// True when the checksum field is empty (fine) or parses to a valid digest.
+    /// A non-empty, unparseable value is flagged so the user can fix a typo.
+    var checksumIsAcceptable: Bool {
+        checksumText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || ChecksumSpec.parse(userInput: checksumText) != nil
     }
 
     func prefillFromClipboard() {
@@ -70,7 +80,8 @@ final class AddDownloadViewModel {
             destinationFolder: destinationFolder,
             filename: safe,
             threadCount: threadCount,
-            startImmediately: startImmediately
+            startImmediately: startImmediately,
+            checksum: ChecksumSpec.parse(userInput: checksumText)
         )
         return true
     }

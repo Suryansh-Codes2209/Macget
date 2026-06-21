@@ -6,6 +6,7 @@ enum FilenameResolver {
     /// " (2)", " (3)", … before the extension until a unique name is found.
     static func uniqueURL(in folder: URL, preferredName: String) -> URL {
         let fm = FileManager.default
+        let preferredName = truncatedToByteLimit(preferredName)
         let url = folder.appendingPathComponent(preferredName)
         if !fm.fileExists(atPath: url.path) { return url }
 
@@ -43,6 +44,29 @@ enum FilenameResolver {
             return name
         }
         return "\(name).\(ext)"
+    }
+
+    /// Truncates a filename to stay within the 255-byte limit APFS (and most
+    /// filesystems) impose per path component, preserving the extension and
+    /// NFC-normalizing first (decomposed Unicode otherwise inflates the byte
+    /// count and can mismatch on lookup). Trims whole Characters so a multibyte
+    /// grapheme is never cut mid-sequence.
+    static func truncatedToByteLimit(_ name: String, limit: Int = 255) -> String {
+        let normalized = name.precomposedStringWithCanonicalMapping  // NFC
+        guard normalized.utf8.count > limit else { return normalized }
+
+        let ns = normalized as NSString
+        let ext = ns.pathExtension
+        let stem = ns.deletingPathExtension
+        let extBytes = ext.isEmpty ? 0 : ext.utf8.count + 1  // +1 for the dot
+        let budget = max(1, limit - extBytes)
+
+        var truncatedStem = stem
+        while truncatedStem.utf8.count > budget, !truncatedStem.isEmpty {
+            truncatedStem.removeLast()
+        }
+        if truncatedStem.isEmpty { truncatedStem = String(stem.prefix(1)) }
+        return ext.isEmpty ? truncatedStem : "\(truncatedStem).\(ext)"
     }
 
     /// Strips path separators and unsafe chars from a candidate name.

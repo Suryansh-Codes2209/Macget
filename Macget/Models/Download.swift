@@ -33,6 +33,13 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
     var pageURL: URL?
     /// For `.media`: an optional yt-dlp `-f` selector chosen by the user.
     var formatSelector: String?
+    /// Optional expected checksum (lowercase hex) verified after the download
+    /// finishes, before the partial is moved into place. Sourced from a
+    /// `#sha256=…`/`#md5=…` URL fragment or the Add sheet.
+    var expectedChecksum: String?
+    var checksumAlgorithm: ChecksumAlgorithm?
+    /// Queue priority — higher-priority downloads are scheduled first.
+    var priority: DownloadPriority
 
     init(
         id: UUID = UUID(),
@@ -53,7 +60,10 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         requestHeaders: [String: String]? = nil,
         kind: DownloadKind = .httpFile,
         pageURL: URL? = nil,
-        formatSelector: String? = nil
+        formatSelector: String? = nil,
+        expectedChecksum: String? = nil,
+        checksumAlgorithm: ChecksumAlgorithm? = nil,
+        priority: DownloadPriority = .normal
     ) {
         self.id = id
         self.url = url
@@ -74,6 +84,9 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         self.kind = kind
         self.pageURL = pageURL
         self.formatSelector = formatSelector
+        self.expectedChecksum = expectedChecksum
+        self.checksumAlgorithm = checksumAlgorithm
+        self.priority = priority
     }
 
     // Explicit Codable so new fields can be added with `decodeIfPresent`
@@ -85,6 +98,8 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         case threadCount, userSpecifiedFilename, etag, lastModified, supportsRange
         case chunks, createdAt, completedAt, requestHeaders
         case kind, pageURL, formatSelector
+        case expectedChecksum, checksumAlgorithm
+        case priority
     }
 
     init(from decoder: Decoder) throws {
@@ -108,6 +123,9 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         kind = try c.decodeIfPresent(DownloadKind.self, forKey: .kind) ?? .httpFile
         pageURL = try c.decodeIfPresent(URL.self, forKey: .pageURL)
         formatSelector = try c.decodeIfPresent(String.self, forKey: .formatSelector)
+        expectedChecksum = try c.decodeIfPresent(String.self, forKey: .expectedChecksum)
+        checksumAlgorithm = try c.decodeIfPresent(ChecksumAlgorithm.self, forKey: .checksumAlgorithm)
+        priority = try c.decodeIfPresent(DownloadPriority.self, forKey: .priority) ?? .normal
     }
 
     // Custom encode so secret-bearing headers (Cookie/Authorization) are redacted
@@ -133,6 +151,9 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         try c.encode(kind, forKey: .kind)
         try c.encodeIfPresent(pageURL, forKey: .pageURL)
         try c.encodeIfPresent(formatSelector, forKey: .formatSelector)
+        try c.encodeIfPresent(expectedChecksum, forKey: .expectedChecksum)
+        try c.encodeIfPresent(checksumAlgorithm, forKey: .checksumAlgorithm)
+        try c.encode(priority, forKey: .priority)
     }
 
     var bytesDownloaded: Int64 {

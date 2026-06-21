@@ -32,6 +32,16 @@ struct AddDownloadSheet: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Checksum (optional)").font(.callout).foregroundStyle(.secondary)
+                TextField("sha256=… / md5=… / hex digest", text: $vm.checksumText)
+                    .textFieldStyle(.roundedBorder)
+                if !vm.checksumIsAcceptable {
+                    Text("Not a valid SHA-256 or MD5 digest.")
+                        .font(.caption).foregroundStyle(.red)
+                }
+            }
+
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Threads: \(vm.threadCount)")
@@ -59,7 +69,7 @@ struct AddDownloadSheet: View {
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(!vm.isValid)
+                .disabled(!vm.isValid || !vm.checksumIsAcceptable)
             }
         }
         .padding(20)

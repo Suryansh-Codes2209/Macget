@@ -7,6 +7,9 @@ enum ChunkError: Error, LocalizedError {
     case wrongContentRange(expected: String, got: String)
     case writerUnavailable
     case chunkNotFound
+    /// Server asked us to back off (429 / 503). `retryAfter` is the parsed
+    /// `Retry-After` delay in seconds when the server supplied one. Retryable.
+    case serverBusy(code: Int, retryAfter: TimeInterval?)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +19,9 @@ enum ChunkError: Error, LocalizedError {
         case .wrongContentRange(let e, let g): return "Server returned wrong Content-Range. Expected \(e), got \(g)."
         case .writerUnavailable: return "File writer unavailable."
         case .chunkNotFound: return "Chunk not found in download."
+        case .serverBusy(let c, let ra):
+            if let ra { return "Server busy (HTTP \(c)); retrying in \(Int(ra.rounded()))s." }
+            return "Server busy (HTTP \(c)); will retry."
         }
     }
 }
@@ -36,6 +42,9 @@ struct ChunkWorker {
     /// body to EOF. Used for servers that never report a size (no `Content-Length`,
     /// chunked transfer, HEAD-blocked) where ranged chunking isn't possible.
     var unbounded: Bool = false
+    /// Optional shared bandwidth limiter. When set, the worker waits on it after
+    /// each write so aggregate throughput stays under the user's cap.
+    var rateLimiter: RateLimiter? = nil
     /// Called periodically with bytes flushed to disk for this chunk.
     let report: @Sendable (UUID, Int) async -> Void
 
@@ -50,6 +59,7 @@ struct ChunkWorker {
 
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
+        URLSessionFactory.applyTransportPreferences(to: &req)
         if let headers {
             for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
         }
@@ -114,6 +124,7 @@ struct ChunkWorker {
                 try await writer.write(toWrite, at: offset)
                 offset += Int64(toWrite.count)
                 await report(chunk.id, toWrite.count)
+                await rateLimiter?.consume(toWrite.count)
                 buffer.removeAll(keepingCapacity: true)
             }
         }
@@ -122,6 +133,7 @@ struct ChunkWorker {
             let toWrite = buffer
             try await writer.write(toWrite, at: offset)
             await report(chunk.id, toWrite.count)
+            await rateLimiter?.consume(toWrite.count)
         }
     }
 }
@@ -161,7 +173,7 @@ private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchec
         if unbounded {
             // No Range was sent — any 2xx is the full body. 200 is expected here.
             guard (200..<300).contains(http.statusCode) else {
-                continuation?.finish(throwing: ChunkError.unexpectedStatus(http.statusCode))
+                continuation?.finish(throwing: Self.statusError(http))
                 completionHandler(.cancel)
                 return
             }
@@ -174,7 +186,7 @@ private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchec
             return
         }
         if http.statusCode != 206 {
-            continuation?.finish(throwing: ChunkError.unexpectedStatus(http.statusCode))
+            continuation?.finish(throwing: Self.statusError(http))
             completionHandler(.cancel)
             return
         }
@@ -187,6 +199,20 @@ private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchec
             }
         }
         completionHandler(.allow)
+    }
+
+    /// Maps an error status into the right `ChunkError`. 429/503 carry the
+    /// parsed `Retry-After` so the coordinator can honor the server's backoff.
+    private static func statusError(_ http: HTTPURLResponse) -> ChunkError {
+        switch http.statusCode {
+        case 429, 503:
+            return .serverBusy(
+                code: http.statusCode,
+                retryAfter: RetryAfter.parse(http.value(forHTTPHeaderField: "Retry-After"))
+            )
+        default:
+            return .unexpectedStatus(http.statusCode)
+        }
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {

@@ -45,7 +45,7 @@ MacGet's engine **discovers each host's true capacity at runtime** and adapts:
 - **Persistent queue** — close the app, reopen, in-flight downloads continue.
 - **Drag-and-drop, clipboard watch, NSServices** — paste a URL or drop a file from anywhere.
 - **Live thread adjustment** while a download is running (subject to host caps).
-- **Auto-updates via Sparkle** (gated; wired up but inactive until SPM dep is added — see below).
+- **Auto-updates via Sparkle** — enabled and signature-verified ([details](#updates)).
 - **Native SwiftUI** with proper `@Observable` view models and an actor-based engine.
 - **MIT licensed.** No ads, no telemetry, no payments.
 

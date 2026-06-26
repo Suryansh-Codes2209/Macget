@@ -93,6 +93,31 @@ To enable auto-updates (optional): **File → Add Package Dependencies… →** 
 
 ---
 
+## Updates
+
+After the first install you don't re-download MacGet from this page — it keeps
+itself current with [Sparkle](https://sparkle-project.org), the standard
+auto-update framework for apps distributed outside the Mac App Store.
+
+- **Automatic.** On launch MacGet quietly checks its [appcast feed](https://suryansh-codes2209.github.io/Macget/appcast.xml) on a schedule. When a newer version is published it offers to download and install it.
+- **Manual.** Any time, choose **MacGet → Check for Updates…** from the menu bar.
+- **Verified.** Every update is signed with an EdDSA key; MacGet checks the signature before installing, so a tampered or corrupt download is rejected. This is independent of Apple notarization — updates are trustworthy even on the free, un-notarized build.
+
+> Sparkle is gated behind `#if canImport(Sparkle)`. Auto-updates are active in
+> release builds that bundle the Sparkle SPM dependency; a from-source build
+> without it falls back to a **Check for Updates…** menu item that explains the
+> dependency is missing.
+
+**Maintainers — publishing an update:** cut a release (see
+[Release a DMG](#release-a-dmg-scriptsreleasesh)), then regenerate the signed feed
+with `Sparkle/bin/generate_appcast site/` and push `site/`. GitHub Pages serves
+`site/appcast.xml` at the `SUFeedURL` above. The EdDSA **private** signing key
+lives only in your login Keychain (*"Private key for signing Sparkle updates"*) —
+[back it up offline](SETUP.md#4-optional-enable-sparkle-auto-updates), or you can
+never sign another update for existing installs.
+
+---
+
 ## Architecture
 
 The download engine is the heart of the app; everything else is glue. Top-level flow for one download:

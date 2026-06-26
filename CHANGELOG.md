@@ -2,6 +2,20 @@
 
 All notable changes to Macget. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [1.2.0] — 2026-06-26
+
+Media downloads, authenticated transfers, smarter organization, and live auto-updates.
+
+### Added
+- **Media (video/audio) downloads via yt-dlp.** A conservative host-based `MediaURLClassifier` routes known video/audio sites to the bundled yt-dlp + ffmpeg extractor; ordinary links still download as plain HTTP files. A format picker lets you choose quality/container.
+- **Authenticated downloads.** Keychain-backed `CredentialStore` answers Basic/Digest/NTLM challenges; an auth prompt sheet captures username/password and persists it per host so authenticated downloads keep working across launches.
+- **Auto-sort into category folders.** Optional `CategoryFolder` sorting drops finished files into per-type subfolders (Video, Audio, Image, Archive, …), matching the icon shown in the list.
+- **Priority-aware scheduler.** A stable `DownloadScheduler` runs higher-priority downloads first while preserving insertion order on ties.
+- **Sparkle auto-updates — now enabled.** The Sparkle SPM dependency is linked, Hardened Runtime is on, and `SUPublicEDKey` is set, so release builds verify (EdDSA) and install updates from the appcast. **Check for Updates…** is live in the menu bar.
+
+### Fixed
+- `FileTypeIcon` now classifies common video/audio extensions (e.g. `.mkv`, `.webm`) explicitly, so categorization is deterministic on a clean machine instead of depending on which media apps have registered the type.
+
 ## [1.1.0] — 2026-06-22
 
 Engine throughput, reliability, correctness, and user-control improvements.

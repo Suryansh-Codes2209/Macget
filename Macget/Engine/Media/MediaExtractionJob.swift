@@ -8,10 +8,21 @@ actor MediaExtractionJob {
     private(set) var download: Download
     private var tools: MediaTools
     private var runner: YtDlpRunner
+    /// Subtitle/metadata/thumbnail extras applied to the yt-dlp run.
+    private let options: MediaDownloadOptions
+    /// When on, the finished file is filed into a type-based subfolder (Movies/Music).
+    private let autoSortByType: Bool
     private var task: Task<Void, Never>?
     private var publishTask: Task<Void, Never>?
+    /// Per-download temp subdirectory yt-dlp writes into; moved out + removed on
+    /// success, cleaned up on cancel/fail/pause.
+    private var tempDir: URL?
     private var lastSpeed: Double = 0
     private var lastEta: Double?
+    /// Coarse phase surfaced to the UI. Starts in `.preparing` (covers the Deno
+    /// fetch + signature solving), flips to `.downloading` on the first progress
+    /// line, and to `.merging` when yt-dlp starts post-processing.
+    private var currentPhase: MediaPhase = .preparing
     private let log = Logger(subsystem: "com.macget", category: "MediaExtraction")
 
     let onStateChange: @Sendable (Download) async -> Void
@@ -20,11 +31,15 @@ actor MediaExtractionJob {
     init(
         download: Download,
         tools: MediaTools,
+        options: MediaDownloadOptions = .none,
+        autoSortByType: Bool = false,
         onStateChange: @escaping @Sendable (Download) async -> Void,
         onSnapshot: @escaping @Sendable (DownloadSnapshot) async -> Void
     ) {
         self.download = download
         self.tools = tools
+        self.options = options
+        self.autoSortByType = autoSortByType
         self.runner = YtDlpRunner(tools: tools)
         self.onStateChange = onStateChange
         self.onSnapshot = onSnapshot
@@ -67,6 +82,7 @@ actor MediaExtractionJob {
         await runner.cancel()
         task?.cancel()
         task = nil
+        cleanupTempDir()
     }
 
     // MARK: - Core
@@ -98,21 +114,65 @@ actor MediaExtractionJob {
 
         do {
             let selector = download.formatSelector ?? Self.defaultSelector
-            let finalURL = try await runner.download(
+            log.info("Media download starting selector=\(selector, privacy: .public)")
+            // Download into a fresh temp subdirectory so yt-dlp never sees an
+            // existing file (which it would silently skip, emitting no progress).
+            // Then move the result into the destination with a collision-resolved
+            // name, mirroring the HTTP path's `FilenameResolver.uniqueURL`.
+            let tmp = download.destinationFolder.appendingPathComponent(".macget-media-\(download.id.uuidString)", isDirectory: true)
+            tempDir = tmp
+            let producedURL = try await runner.download(
                 pageURL: download.pageURL ?? download.url,
                 formatSelector: selector,
-                destinationFolder: download.destinationFolder,
+                destinationFolder: tmp,
                 headers: download.requestHeaders,
+                options: options,
                 onProgress: { [weak self] update in
                     await self?.applyProgress(update)
+                },
+                onPhase: { [weak self] phase in
+                    await self?.setPhase(phase)
                 }
             )
+            let targetFolder = categorizedDestinationFolder(for: producedURL.lastPathComponent)
+            let finalURL = FilenameResolver.uniqueURL(
+                in: targetFolder,
+                preferredName: producedURL.lastPathComponent
+            )
+            try FileManager.default.moveItem(at: producedURL, to: finalURL)
+            download.destinationFolder = targetFolder
+            cleanupTempDir()
             await finish(finalURL: finalURL)
         } catch is CancellationError {
             // Pause/cancel from outside already set the status.
+            cleanupTempDir()
         } catch {
+            cleanupTempDir()
             await fail(with: error)
         }
+    }
+
+    /// Type-based subfolder for the finished media file when auto-sort is on, else
+    /// the destination root. Falls back to root if the subfolder can't be created.
+    private func categorizedDestinationFolder(for filename: String) -> URL {
+        guard autoSortByType, let sub = CategoryFolder.subfolder(for: filename) else {
+            return download.destinationFolder
+        }
+        let folder = download.destinationFolder.appendingPathComponent(sub, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            return folder
+        } catch {
+            log.warning("Auto-sort: couldn't create \(sub, privacy: .public), using root.")
+            return download.destinationFolder
+        }
+    }
+
+    /// Best-effort removal of the per-download temp subdirectory.
+    private func cleanupTempDir() {
+        guard let tempDir else { return }
+        try? FileManager.default.removeItem(at: tempDir)
+        self.tempDir = nil
     }
 
     /// yt-dlp's `bestvideo+bestaudio` muxed, falling back to a progressive stream.
@@ -126,12 +186,17 @@ actor MediaExtractionJob {
     }
 
     private func applyProgress(_ update: YtDlpRunner.ProgressUpdate) async {
+        currentPhase = .downloading
         download.totalBytes = update.total
         if let i = download.chunks.indices.first {
             download.chunks[i].bytesWritten = update.downloaded
         }
         lastSpeed = update.speed ?? 0
         lastEta = update.eta
+    }
+
+    private func setPhase(_ phase: MediaPhase) {
+        currentPhase = phase
     }
 
     private func startPublishLoop() {
@@ -152,12 +217,14 @@ actor MediaExtractionJob {
             bytesDownloaded: download.bytesDownloaded,
             totalBytes: download.totalBytes,
             speedBytesPerSec: lastSpeed,
-            etaSeconds: lastEta
+            etaSeconds: lastEta,
+            phase: currentPhase
         )
         await onSnapshot(snap)
     }
 
     private func finish(finalURL: URL) async {
+        log.info("Media download finished: \(finalURL.lastPathComponent, privacy: .public)")
         publishTask?.cancel()
         publishTask = nil
         download.filename = finalURL.lastPathComponent

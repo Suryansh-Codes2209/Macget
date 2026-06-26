@@ -5,10 +5,11 @@ import Foundation
 /// Wired up by `NSApp.servicesProvider = …` in `AppEnvironment`.
 @MainActor
 final class DownloadServicesProvider: NSObject {
-    private let onURL: (URL) -> Void
+    /// Assigned by `AppEnvironment` after it finishes initializing, so the handler
+    /// can capture `self` (mirrors `CaptureInbox.onCapture`).
+    var onURL: ((URL) -> Void)?
 
-    init(onURL: @escaping (URL) -> Void) {
-        self.onURL = onURL
+    override init() {
         super.init()
     }
 
@@ -25,6 +26,6 @@ final class DownloadServicesProvider: NSObject {
             errorPointer?.pointee = "Macget: not a valid http(s) URL." as NSString
             return
         }
-        onURL(url)
+        onURL?(url)
     }
 }

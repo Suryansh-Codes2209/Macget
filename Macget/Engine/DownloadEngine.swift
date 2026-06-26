@@ -38,6 +38,12 @@ actor DownloadEngine {
     private var networkPausedIDs: Set<UUID> = []
     private var lastPathSatisfied = true
 
+    /// Quiet-hours scheduling. A periodic timer pauses active downloads when the
+    /// window closes and resumes them when it reopens. Held separately from
+    /// `networkPausedIDs` so an item paused by both stays paused until both clear.
+    private var scheduleTimer: Task<Void, Never>?
+    private var scheduledPausedIDs: Set<UUID> = []
+
     /// Held while at least one download is active. Prevents macOS App Nap from
     /// throttling CPU/network when the user switches focus or minimizes the
     /// window. Released once no coordinators are running.
@@ -45,6 +51,10 @@ actor DownloadEngine {
 
     private let eventsContinuation: AsyncStream<EngineEvent>.Continuation
     nonisolated let events: AsyncStream<EngineEvent>
+
+    /// Invoked (on the main actor side) when a download needs credentials, so the
+    /// app can prompt the user. Set once by `AppEnvironment`.
+    private var authHandler: (@Sendable (UUID, String) async -> Void)?
 
     init(store: DownloadStore, settings: AppSettings, session: URLSession? = nil) {
         self.store = store
@@ -71,6 +81,7 @@ actor DownloadEngine {
     /// Load persisted downloads and (per settings) auto-resume the unfinished ones.
     func loadPersistedAndResume() async {
         startNetworkMonitoring()
+        startScheduleTimer()
         let persisted = await store.load()
         for d in persisted {
             downloads[d.id] = d
@@ -90,6 +101,11 @@ actor DownloadEngine {
         }
     }
 
+    /// Register the credential-prompt handler. Called once at startup.
+    func setAuthHandler(_ handler: @escaping @Sendable (UUID, String) async -> Void) {
+        authHandler = handler
+    }
+
     func updateSettings(_ newSettings: AppSettings) async {
         let oldMax = settings.maxConcurrentDownloads
         let sessionChanged = newSettings.requestTimeoutSeconds != settings.requestTimeoutSeconds
@@ -106,6 +122,8 @@ actor DownloadEngine {
             log.info("Rebuilt URLSession for new proxy/timeout settings (applies to new downloads).")
         }
         eventsContinuation.yield(.settingsChanged(newSettings))
+        // A schedule change (enabled/window) may open or close the window right now.
+        await evaluateSchedule()
         if newSettings.maxConcurrentDownloads > oldMax {
             await scheduleNextDownloads()
         }
@@ -295,6 +313,8 @@ actor DownloadEngine {
     func suspendAllForShutdown() async {
         pathMonitor?.cancel()
         pathMonitor = nil
+        scheduleTimer?.cancel()
+        scheduleTimer = nil
         for id in coordinators.keys {
             await coordinators[id]?.suspend()
         }
@@ -309,6 +329,24 @@ actor DownloadEngine {
 
     func currentDownloads() -> [Download] {
         insertionOrder.compactMap { downloads[$0] }
+    }
+
+    /// Apply a user-chosen manual queue order. Unknown IDs are ignored and any
+    /// existing IDs not in `orderedIDs` are appended (kept in their prior order),
+    /// so a stale UI order can never drop downloads. Persists immediately and
+    /// reschedules — a reorder can change which queued item takes a free slot.
+    func reorder(_ orderedIDs: [UUID]) async {
+        var seen = Set<UUID>()
+        var newOrder: [UUID] = []
+        for id in orderedIDs where downloads[id] != nil {
+            if seen.insert(id).inserted { newOrder.append(id) }
+        }
+        for id in insertionOrder where !seen.contains(id) {
+            newOrder.append(id)
+        }
+        insertionOrder = newOrder
+        await store.replaceAllImmediately(currentDownloads())
+        await scheduleNextDownloads()
     }
 
     // MARK: - Network reachability
@@ -350,9 +388,75 @@ actor DownloadEngine {
             guard !toResume.isEmpty else { return }
             log.info("Network restored — resuming \(toResume.count) download(s).")
             for id in toResume {
-                await resume(id)
+                await resumeFromHold(id)
             }
         }
+    }
+
+    // MARK: - Quiet-hours scheduling
+
+    /// Whether downloads are currently allowed to run, per the quiet-hours setting.
+    private var scheduleWindowOpen: Bool {
+        guard settings.scheduleEnabled else { return true }
+        return DownloadWindow.isOpen(
+            now: DownloadWindow.minutesNow(Date()),
+            start: settings.scheduleStartMinutes,
+            end: settings.scheduleEndMinutes
+        )
+    }
+
+    private func startScheduleTimer() {
+        guard scheduleTimer == nil else { return }
+        scheduleTimer = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)   // 30s tick
+                if Task.isCancelled { break }
+                await self?.evaluateSchedule()
+            }
+        }
+    }
+
+    /// Pause active downloads when the window closes; resume scheduler-paused ones
+    /// when it reopens. Only resumes IDs *we* paused, and only if no other hold
+    /// (network) still applies — so a manually-paused item is never auto-resumed.
+    private func evaluateSchedule() async {
+        if scheduleWindowOpen {
+            if !scheduledPausedIDs.isEmpty {
+                let toResume = scheduledPausedIDs
+                scheduledPausedIDs.removeAll()
+                log.info("Quiet hours ended — resuming \(toResume.count) download(s).")
+                for id in toResume { await resumeFromHold(id) }
+            }
+            // Pick up anything queued while the window was closed (e.g. at launch).
+            await scheduleNextDownloads()
+        } else {
+            let activeIDs = coordinators.keys.filter { downloads[$0]?.status == .downloading }
+                + extractors.keys.filter { downloads[$0]?.status == .downloading }
+            guard !activeIDs.isEmpty else { return }
+            log.info("Quiet hours started — pausing \(activeIDs.count) active download(s).")
+            for id in activeIDs {
+                scheduledPausedIDs.insert(id)
+                if let coord = coordinators[id] {
+                    await coord.pause()
+                } else if let job = extractors[id] {
+                    await job.pause()
+                }
+                if var d = downloads[id] {
+                    d.error = "Outside scheduled hours"
+                    downloads[id] = d
+                    await store.upsert(d)
+                    eventsContinuation.yield(.stateChanged(d))
+                }
+            }
+        }
+    }
+
+    /// Resume an on-hold download only if no hold still blocks it and the schedule
+    /// window is open. Shared by the network monitor and the quiet-hours scheduler.
+    private func resumeFromHold(_ id: UUID) async {
+        guard !networkPausedIDs.contains(id), !scheduledPausedIDs.contains(id) else { return }
+        guard scheduleWindowOpen else { return }
+        await resume(id)
     }
 
     /// A diagnostics report for one download. Prefers the live coordinator (which
@@ -395,6 +499,8 @@ actor DownloadEngine {
     // MARK: - Scheduling
 
     private func scheduleNextDownloads() async {
+        // Honor quiet hours: don't start new work while the window is closed.
+        guard scheduleWindowOpen else { return }
         let activeCount = coordinators.count + extractors.count
         let slots = max(0, settings.maxConcurrentDownloads - activeCount)
         guard slots > 0 else { return }
@@ -427,6 +533,8 @@ actor DownloadEngine {
         let job = MediaExtractionJob(
             download: download,
             tools: tools,
+            options: settings.mediaOptions,
+            autoSortByType: settings.autoSortByType,
             onStateChange: { [weak self] updated in
                 await self?.handleStateChange(updated)
             },
@@ -448,11 +556,15 @@ actor DownloadEngine {
             session: session,
             rateLimiter: rateLimiter,
             maxAttemptsPerChunk: settings.maxRetriesPerChunk,
+            autoSortByType: settings.autoSortByType,
             onStateChange: { [weak self] updated in
                 await self?.handleStateChange(updated)
             },
             onSnapshot: { [weak self] snap in
                 await self?.handleSnapshot(snap)
+            },
+            onAuthRequired: { [weak self, host = download.url.host ?? ""] in
+                await self?.authHandler?(id, host)
             }
         )
         coordinators[id] = coord
@@ -463,6 +575,7 @@ actor DownloadEngine {
     }
 
     private func handleStateChange(_ updated: Download) async {
+        Log.engine.info("DIAG handleStateChange: id=\(updated.id, privacy: .public) status=\(String(describing: updated.status), privacy: .public) kind=\(String(describing: updated.kind), privacy: .public) bytes=\(updated.bytesDownloaded) err=\(updated.error ?? "nil", privacy: .public)")
         let wasCompleted = downloads[updated.id]?.status == .completed
         downloads[updated.id] = updated
         await store.upsert(updated)

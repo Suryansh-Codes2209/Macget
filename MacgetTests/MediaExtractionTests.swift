@@ -62,6 +62,89 @@ final class MediaFormatTests: XCTestCase {
     }
 }
 
+final class MediaDownloadOptionsTests: XCTestCase {
+
+    func test_noOptions_producesNoArgs() {
+        XCTAssertTrue(YtDlpRunner.mediaOptionArgs(.none, hasFFmpeg: true).isEmpty)
+    }
+
+    func test_subtitles_withFFmpeg_writesAndEmbeds() {
+        let opts = MediaDownloadOptions(writeSubtitles: true, subtitleLanguages: "en,es")
+        let args = YtDlpRunner.mediaOptionArgs(opts, hasFFmpeg: true)
+        XCTAssertTrue(args.contains("--write-subs"))
+        XCTAssertTrue(args.contains("--write-auto-subs"))
+        XCTAssertTrue(args.contains("--embed-subs"))
+        // --sub-langs is followed by the languages value.
+        let i = args.firstIndex(of: "--sub-langs")
+        XCTAssertNotNil(i)
+        XCTAssertEqual(args[args.index(after: i!)], "en,es")
+    }
+
+    func test_subtitles_withoutFFmpeg_doesNotEmbed() {
+        let opts = MediaDownloadOptions(writeSubtitles: true, subtitleLanguages: "  ")
+        let args = YtDlpRunner.mediaOptionArgs(opts, hasFFmpeg: false)
+        XCTAssertTrue(args.contains("--write-subs"))
+        XCTAssertFalse(args.contains("--embed-subs"))
+        // Blank languages fall back to "en".
+        let i = args.firstIndex(of: "--sub-langs")!
+        XCTAssertEqual(args[args.index(after: i)], "en")
+    }
+
+    func test_metadataAndThumbnail() {
+        let opts = MediaDownloadOptions(embedMetadata: true, writeThumbnail: true)
+        let withFF = YtDlpRunner.mediaOptionArgs(opts, hasFFmpeg: true)
+        XCTAssertTrue(withFF.contains("--embed-metadata"))
+        XCTAssertTrue(withFF.contains("--write-thumbnail"))
+        XCTAssertTrue(withFF.contains("--embed-thumbnail"))
+        let noFF = YtDlpRunner.mediaOptionArgs(opts, hasFFmpeg: false)
+        XCTAssertTrue(noFF.contains("--write-thumbnail"))
+        XCTAssertFalse(noFF.contains("--embed-thumbnail"))
+    }
+}
+
+final class PlaylistProbeTests: XCTestCase {
+
+    func test_decodesFlatPlaylist() throws {
+        let json = """
+        {
+          "_type": "playlist",
+          "title": "My Mix",
+          "entries": [
+            {"id": "aaa", "title": "First", "url": "https://www.youtube.com/watch?v=aaa"},
+            {"id": "bbb", "title": "Second", "url": "bbb"}
+          ]
+        }
+        """.data(using: .utf8)!
+        let probe = try JSONDecoder().decode(PlaylistProbe.self, from: json)
+        XCTAssertEqual(probe.title, "My Mix")
+        XCTAssertEqual(probe.entries?.count, 2)
+    }
+
+    func test_singleVideo_decodesWithNoEntries() throws {
+        let json = """
+        { "title": "Just a video" }
+        """.data(using: .utf8)!
+        let probe = try JSONDecoder().decode(PlaylistProbe.self, from: json)
+        XCTAssertNil(probe.entries)
+    }
+
+    func test_entryResolvedURL() {
+        let playlist = URL(string: "https://www.youtube.com/playlist?list=PL1")!
+        // Already-absolute URL is used verbatim.
+        let abs = PlaylistEntry(id: "aaa", title: nil, url: "https://www.youtube.com/watch?v=aaa")
+        XCTAssertEqual(abs.resolvedURL(relativeTo: playlist)?.absoluteString, "https://www.youtube.com/watch?v=aaa")
+        // Bare YouTube id is reconstructed into a watch URL.
+        let bare = PlaylistEntry(id: "bbb", title: nil, url: "bbb")
+        XCTAssertEqual(bare.resolvedURL(relativeTo: playlist)?.absoluteString, "https://www.youtube.com/watch?v=bbb")
+    }
+
+    func test_playlistQualitySelectors() {
+        XCTAssertEqual(MediaPlaylistQuality.audio.selector, "bestaudio/best")
+        XCTAssertTrue(MediaPlaylistQuality.hd1080.selector.contains("height<=1080"))
+        XCTAssertEqual(MediaPlaylistQuality.allCases.count, 4)
+    }
+}
+
 final class YtDlpProgressParserTests: XCTestCase {
 
     func test_parsesProgressLine() {
@@ -94,6 +177,17 @@ final class YtDlpProgressParserTests: XCTestCase {
         /Users/me/Downloads/My_Clip.mp4
         """
         XCTAssertEqual(YtDlpRunner.outputPath(fromStdout: stdout), "/Users/me/Downloads/My_Clip.mp4")
+    }
+
+    func test_detectsMergePhaseFromPostprocessorBanners() {
+        XCTAssertEqual(YtDlpRunner.detectPhase("[Merger] Merging formats into \"clip.mp4\""), .merging)
+        XCTAssertEqual(YtDlpRunner.detectPhase("[ExtractAudio] Destination: clip.m4a"), .merging)
+        XCTAssertEqual(YtDlpRunner.detectPhase("[VideoConvertor] Converting video"), .merging)
+    }
+
+    func test_detectPhase_ignoresProgressAndDownloadLines() {
+        XCTAssertNil(YtDlpRunner.detectPhase("macget-progress:10/100/100/5.0/1.0"))
+        XCTAssertNil(YtDlpRunner.detectPhase("[download]  50.0% of 10.00MiB at 1.00MiB/s"))
     }
 }
 

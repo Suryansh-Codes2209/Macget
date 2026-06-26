@@ -12,12 +12,12 @@ final class AddDownloadViewModel {
     /// Optional expected checksum (e.g. `sha256=…`, `md5=…`, or a bare hex digest).
     var checksumText: String = ""
 
-    private let engine: DownloadEngine
+    private let environment: AppEnvironment
     private let defaultFolder: URL
     private let defaultThreads: Int
 
-    init(engine: DownloadEngine, settings: AppSettings) {
-        self.engine = engine
+    init(environment: AppEnvironment, settings: AppSettings) {
+        self.environment = environment
         self.defaultFolder = settings.defaultDestination
         self.destinationFolder = settings.defaultDestination
         self.defaultThreads = settings.defaultThreadCount
@@ -68,14 +68,16 @@ final class AddDownloadViewModel {
         }
     }
 
-    /// Returns true if a download was queued. The caller should then dismiss the sheet.
+    /// Returns true if the URL was accepted. The caller should then dismiss the sheet.
+    /// Video URLs are routed to the quality picker by `environment.add`; the
+    /// filename/threads/checksum fields below apply only to plain HTTP downloads.
     func submit() async -> Bool {
         guard isValid else { return false }
         let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines))!
         let suggested = url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent
         let safe = FilenameResolver.sanitize(suggested)
 
-        await engine.add(
+        environment.add(
             url: url,
             destinationFolder: destinationFolder,
             filename: safe,

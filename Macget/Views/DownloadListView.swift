@@ -6,13 +6,23 @@ struct DownloadListView: View {
     @State private var sortOrder: [KeyPathComparator<DownloadRowItem>] = [
         .init(\.createdAt, order: .reverse)
     ]
+    /// When true the table is shown in the user's manual queue order (drag-reorder
+    /// equivalent). Clicking a column header switches to that column's sort; the
+    /// "Queue Order" action — and any move — switches back.
+    @State private var useManualOrder = true
+
+    /// Rows in the order they should be displayed: manual queue order, or the
+    /// active column sort.
+    private var displayRows: [DownloadRowItem] {
+        useManualOrder ? vm.rows : vm.rows.sorted(using: sortOrder)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             if vm.rows.isEmpty {
                 emptyState
             } else {
-                Table(vm.rows.sorted(using: sortOrder), selection: $selection, sortOrder: $sortOrder) {
+                Table(displayRows, selection: $selection, sortOrder: $sortOrder) {
                     TableColumn("Filename", value: \.filename) { row in
                         HStack(spacing: 6) {
                             fileIcon(for: row)
@@ -60,6 +70,9 @@ struct DownloadListView: View {
                         }
                     }
                 }
+                // A column-header click means the user wants that column's sort, so
+                // leave manual queue order.
+                .onChange(of: sortOrder) { useManualOrder = false }
             }
 
             statusBar
@@ -157,14 +170,30 @@ struct DownloadListView: View {
                         .padding(.trailing, 4)
                 }
         case .downloading:
-            ProgressView(value: row.fractionComplete)
-                .progressViewStyle(.linear)
-                .overlay(alignment: .trailing) {
-                    Text(percentString(row.fractionComplete))
-                        .font(.caption)
-                        .monospacedDigit()
-                        .padding(.trailing, 4)
-                }
+            // Media downloads spend time in phases with no byte movement (setup,
+            // ffmpeg merge). When there's no usable determinate fraction — or we're
+            // explicitly merging — show an indeterminate bar with the phase label so
+            // the row never looks frozen. HTTP downloads have `phase == nil` and keep
+            // the determinate bar exactly as before.
+            if let phase = row.phase, phase == .merging || row.fractionComplete == 0 {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .overlay(alignment: .trailing) {
+                        Text(phase.label)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.trailing, 4)
+                    }
+            } else {
+                ProgressView(value: row.fractionComplete)
+                    .progressViewStyle(.linear)
+                    .overlay(alignment: .trailing) {
+                        Text(percentString(row.fractionComplete))
+                            .font(.caption)
+                            .monospacedDigit()
+                            .padding(.trailing, 4)
+                    }
+            }
         }
     }
 
@@ -201,16 +230,23 @@ struct DownloadListView: View {
             Button("Pause") {
                 rows.forEach { vm.pause($0.id) }
             }
+            .keyboardShortcut("p", modifiers: .command)
         }
-        if rows.contains(where: { $0.status == .paused || $0.status == .failed }) {
-            Button("Resume") {
-                rows.forEach { vm.resume($0.id) }
+        // Resume covers both paused and failed; for a failed-only selection the
+        // engine path is identical, so label it "Retry" to match user intent.
+        let resumable = rows.filter { $0.status == .paused || $0.status == .failed }
+        if !resumable.isEmpty {
+            let allFailed = resumable.allSatisfy { $0.status == .failed }
+            Button(allFailed ? "Retry" : "Resume") {
+                resumable.forEach { vm.resume($0.id) }
             }
+            .keyboardShortcut("r", modifiers: .command)
         }
         if rows.contains(where: { !$0.status.isTerminal }) {
             Button("Cancel") {
                 rows.forEach { vm.cancel($0.id) }
             }
+            .keyboardShortcut(".", modifiers: .command)
         }
         let adjustable = rows.filter { $0.status == .queued || $0.status == .paused }
         if !adjustable.isEmpty {
@@ -228,16 +264,43 @@ struct DownloadListView: View {
                 }
             }
         }
+
+        // Manual queue reordering. Moving always re-enters manual order so the
+        // change is visible even if a column sort was active. Order is honored
+        // within a priority band (see DownloadScheduler.order).
+        let movable = rows.filter { !$0.status.isTerminal }
+        if !movable.isEmpty {
+            Divider()
+            Button("Move to Top") { useManualOrder = true; vm.move(ids, .top) }
+            if ids.count == 1 {
+                Button("Move Up") { useManualOrder = true; vm.move(ids, .up) }
+                Button("Move Down") { useManualOrder = true; vm.move(ids, .down) }
+            }
+            Button("Move to Bottom") { useManualOrder = true; vm.move(ids, .bottom) }
+            if !useManualOrder {
+                Button("Queue Order") { useManualOrder = true }
+            }
+        }
+
         Divider()
         if rows.count == 1, let row = rows.first {
             Button("Copy URL") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(row.url.absoluteString, forType: .string)
             }
+            Button("Copy Destination Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(row.destinationURL.path, forType: .string)
+            }
             if row.status == .completed {
+                Button("Open File") {
+                    NSWorkspace.shared.open(row.destinationURL)
+                }
+                .keyboardShortcut("o", modifiers: .command)
                 Button("Show in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([row.destinationURL])
                 }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
             }
             Button("Copy Diagnostics") {
                 vm.copyDiagnostics(row.id)
@@ -247,9 +310,11 @@ struct DownloadListView: View {
         Button("Remove from List") {
             rows.forEach { vm.remove($0.id, deleteFile: false) }
         }
+        .keyboardShortcut(.delete, modifiers: [])
         Button("Remove and Delete File", role: .destructive) {
             rows.forEach { vm.remove($0.id, deleteFile: true) }
         }
+        .keyboardShortcut(.delete, modifiers: .command)
     }
 
     private var statusBar: some View {
@@ -259,6 +324,10 @@ struct DownloadListView: View {
             Text("Down: \(ByteFormatter.speedString(vm.totalSpeed))")
                 .monospacedDigit()
             Spacer()
+            if vm.completedCount > 0 {
+                Text("Completed: \(vm.completedCount) · \(ByteFormatter.string(vm.completedBytes))")
+                    .monospacedDigit()
+            }
         }
         .font(.callout)
         .foregroundStyle(.secondary)

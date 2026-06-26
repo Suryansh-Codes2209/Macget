@@ -1,17 +1,15 @@
-<?xml version="1.0" encoding="utf-8"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
-        <title>MacGet</title>
-        <link>https://suryansh-codes2209.github.io/Macget/appcast.xml</link>
-        <description>Updates for MacGet, a free multi-threaded download manager for macOS.</description>
-        <language>en</language>
-        <!--
-            Starter appcast: intentionally has no item entries, so installed
-            apps see "no update available". Do NOT hand-write release items here.
-            Each release, run scripts/release.sh (no-notarize mode) from the repo
-            root, then run Sparkle's generate_appcast on the site/ folder.
-            generate_appcast rewrites this file with signed item entries
-            (sparkle:edSignature) for every DMG it finds, then push site/.
-        -->
+        <title>Macget</title>
+        <item>
+            <title>1.2.0</title>
+            <pubDate>Fri, 26 Jun 2026 16:59:19 +0530</pubDate>
+            <sparkle:version>3</sparkle:version>
+            <sparkle:shortVersionString>1.2.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/Suryansh-Codes2209/Macget/releases/download/v1.2.0/macget.dmg" length="139219242" type="application/octet-stream" sparkle:edSignature="WPz6L88PIQJTW125iO3dgZn/9yOtFwWDlcLZ0CQ3nJd881ergt7EGqRSYTqWMecmKhugXkpZOZDyfQN2VqRYDg=="/>
+        </item>
     </channel>
 </rss>

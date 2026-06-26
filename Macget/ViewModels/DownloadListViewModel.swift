@@ -40,6 +40,7 @@ struct DownloadRowItem: Identifiable, Equatable {
     let threadCount: Int           // current active thread count (live, persisted)
     let supportsRange: Bool        // false → multi-thread is a no-op
     let priority: DownloadPriority
+    let phase: MediaPhase?         // media lifecycle phase; nil for HTTP downloads
 
     var fractionComplete: Double {
         guard let total = totalBytes, total > 0 else { return 0 }
@@ -126,7 +127,8 @@ final class DownloadListViewModel {
                 createdAt: d.createdAt,
                 threadCount: d.threadCount,
                 supportsRange: d.supportsRange,
-                priority: d.priority
+                priority: d.priority,
+                phase: snap?.phase
             )
         }
         rows = filtered(items)
@@ -152,6 +154,20 @@ final class DownloadListViewModel {
 
     func filterRefreshed() {
         rebuildRows()
+    }
+
+    // MARK: - Session stats
+
+    /// Completed downloads currently tracked (resets when "Clear Completed" runs).
+    var completedCount: Int {
+        downloadsByID.values.filter { $0.status == .completed }.count
+    }
+
+    /// Total bytes across completed downloads this session.
+    var completedBytes: Int64 {
+        downloadsByID.values
+            .filter { $0.status == .completed }
+            .reduce(0) { $0 + ($1.totalBytes ?? $1.bytesDownloaded) }
     }
 
     // MARK: - Counts for sidebar
@@ -194,6 +210,36 @@ final class DownloadListViewModel {
 
     func setPriority(_ id: UUID, _ priority: DownloadPriority) {
         Task { await engine.setPriority(id: id, priority: priority) }
+    }
+
+    /// Where to move the selected downloads within the manual queue order.
+    enum QueueMove { case top, bottom, up, down }
+
+    /// Reorder the manual queue. Applies the change to the local order optimistically
+    /// (so the table updates immediately) and persists it via the engine. Note this
+    /// reorders the insertion-order tiebreak — the scheduler still runs higher
+    /// priorities first, so a move is honored within a priority band.
+    func move(_ ids: Set<UUID>, _ target: QueueMove) {
+        guard !ids.isEmpty else { return }
+        let moving = insertionOrder.filter { ids.contains($0) }
+        guard !moving.isEmpty else { return }
+        switch target {
+        case .top:
+            insertionOrder = moving + insertionOrder.filter { !ids.contains($0) }
+        case .bottom:
+            insertionOrder = insertionOrder.filter { !ids.contains($0) } + moving
+        case .up:
+            if let id = moving.first, let idx = insertionOrder.firstIndex(of: id), idx > 0 {
+                insertionOrder.swapAt(idx, idx - 1)
+            }
+        case .down:
+            if let id = moving.first, let idx = insertionOrder.firstIndex(of: id), idx < insertionOrder.count - 1 {
+                insertionOrder.swapAt(idx, idx + 1)
+            }
+        }
+        rebuildRows()
+        let order = insertionOrder
+        Task { await engine.reorder(order) }
     }
 
     /// Copies a per-download diagnostics report (chunks, attempts, errors, live

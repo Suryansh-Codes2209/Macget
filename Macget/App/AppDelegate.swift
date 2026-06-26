@@ -14,6 +14,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.servicesProvider = env.servicesProvider
             NSUpdateDynamicServices()
         }
+        openExtensionStoreOnFirstLaunch()
+    }
+
+    /// On the very first launch ever, open the companion browser extension's
+    /// Chrome Web Store page so the user can install it right away. A persisted
+    /// flag guarantees this happens exactly once.
+    private func openExtensionStoreOnFirstLaunch() {
+        let key = "Macget.didOpenExtensionStoreOnFirstLaunch"
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: key) else { return }
+        defaults.set(true, forKey: key)
+
+        guard let url = URL(string: "https://chromewebstore.google.com/detail/ldmhmgglgemkoogpokfcgplbpfokcejl") else { return }
+        Log.app.info("First launch: opening browser extension store page")
+        NSWorkspace.shared.open(url)
     }
 
     /// Handle URLs dropped on the Dock icon or opened via the macget:// scheme.

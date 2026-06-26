@@ -1,4 +1,22 @@
 import Foundation
+import os
+
+/// Coarse lifecycle phase for a media (yt-dlp) download, surfaced to the UI so the
+/// row shows a meaningful label during the windows where no bytes move: initial
+/// setup/signature solving, and the post-download ffmpeg merge.
+enum MediaPhase: Sendable, Equatable {
+    case preparing
+    case downloading
+    case merging
+
+    var label: String {
+        switch self {
+        case .preparing:   return "Preparing…"
+        case .downloading: return "Downloading…"
+        case .merging:     return "Merging…"
+        }
+    }
+}
 
 enum MediaError: Error, LocalizedError {
     case toolsUnavailable
@@ -64,6 +82,28 @@ actor YtDlpRunner {
         }
     }
 
+    /// Resolve a playlist's entries cheaply (no per-video format probing). Returns
+    /// an empty array for a non-playlist URL (which decodes with `entries == nil`).
+    func probePlaylist(pageURL: URL, headers: [String: String]?) async throws -> [PlaylistEntry] {
+        var args = ["--no-config", "--flat-playlist", "-J"]
+        args += jsRuntimeArgs()
+        args += headerArgs(headers)
+        args.append(pageURL.absoluteString)
+
+        let (status, stdout, stderr) = try await execute(arguments: args, onLine: nil)
+        guard status == 0 else {
+            throw MediaError.ytDlpFailed(status: status, message: Self.tail(stderr))
+        }
+        guard let data = stdout.data(using: .utf8) else {
+            throw MediaError.decodeFailed("empty output")
+        }
+        do {
+            return try JSONDecoder().decode(PlaylistProbe.self, from: data).entries ?? []
+        } catch {
+            throw MediaError.decodeFailed(error.localizedDescription)
+        }
+    }
+
     // MARK: - Download
 
     /// Download `pageURL` at `formatSelector` into `destinationFolder`, muxing with
@@ -73,12 +113,17 @@ actor YtDlpRunner {
         formatSelector: String,
         destinationFolder: URL,
         headers: [String: String]?,
-        onProgress: @Sendable @escaping (ProgressUpdate) async -> Void
+        options: MediaDownloadOptions = .none,
+        onProgress: @Sendable @escaping (ProgressUpdate) async -> Void,
+        onPhase: @Sendable @escaping (MediaPhase) async -> Void
     ) async throws -> URL {
         try FileManager.default.createDirectory(at: destinationFolder, withIntermediateDirectories: true)
 
         var args = [
-            "--no-config", "--no-playlist", "--newline", "--no-simulate",
+            // `--print` implies `--quiet`, which otherwise suppresses ALL
+            // `--progress-template` output — so the progress lines below would
+            // never be emitted. `--progress` forces them even under quiet mode.
+            "--no-config", "--no-playlist", "--newline", "--no-simulate", "--progress",
             "--restrict-filenames",
             "--progress-template",
             "\(Self.progressPrefix)%(progress.downloaded_bytes)s/%(progress.total_bytes)s/%(progress.total_bytes_estimate)s/%(progress.speed)s/%(progress.eta)s",
@@ -86,6 +131,7 @@ actor YtDlpRunner {
             "-f", formatSelector,
             "-o", destinationFolder.appendingPathComponent("%(title)s.%(ext)s").path,
         ]
+        args += mediaOptionArgs(options)
         if let ffmpegDir = tools.ffmpegDir {
             args += ["--ffmpeg-location", ffmpegDir.path]
         }
@@ -96,6 +142,8 @@ actor YtDlpRunner {
         let (status, stdout, stderr) = try await execute(arguments: args) { line in
             if let p = Self.parseProgress(line) {
                 await onProgress(p)
+            } else if let phase = Self.detectPhase(line) {
+                await onPhase(phase)
             }
         }
 
@@ -123,6 +171,30 @@ actor YtDlpRunner {
         return ["--js-runtimes", "deno:\(deno.path)"]
     }
 
+    /// Subtitle / metadata / thumbnail flags from the user's media options.
+    /// Embedding (subs/metadata/thumbnail) needs ffmpeg; when it's missing we fall
+    /// back to writing sidecar files so the user still gets the data.
+    func mediaOptionArgs(_ options: MediaDownloadOptions) -> [String] {
+        Self.mediaOptionArgs(options, hasFFmpeg: tools.ffmpegDir != nil)
+    }
+
+    static func mediaOptionArgs(_ options: MediaDownloadOptions, hasFFmpeg: Bool) -> [String] {
+        var args: [String] = []
+        if options.writeSubtitles {
+            let langs = options.subtitleLanguages.trimmingCharacters(in: .whitespaces)
+            args += ["--write-subs", "--write-auto-subs", "--sub-langs", langs.isEmpty ? "en" : langs]
+            if hasFFmpeg { args.append("--embed-subs") }
+        }
+        if options.embedMetadata {
+            args.append("--embed-metadata")
+        }
+        if options.writeThumbnail {
+            args.append("--write-thumbnail")
+            if hasFFmpeg { args.append("--embed-thumbnail") }
+        }
+        return args
+    }
+
     private func headerArgs(_ headers: [String: String]?) -> [String] {
         guard let headers else { return [] }
         var args: [String] = []
@@ -132,8 +204,10 @@ actor YtDlpRunner {
         return args
     }
 
-    /// Runs yt-dlp, streaming stdout lines to `onLine` and collecting full
-    /// stdout/stderr. Returns the exit status. The stdout EOF marks process end.
+    /// Runs yt-dlp, streaming **both** stdout and stderr lines to `onLine` and
+    /// collecting full stdout/stderr. Returns the exit status. yt-dlp writes its
+    /// `--progress-template` output to stderr and the `--print` path to stdout, so
+    /// progress parsing must see both streams. The stream ends when both pipes EOF.
     private func execute(
         arguments: [String],
         onLine: (@Sendable (String) async -> Void)?
@@ -141,6 +215,11 @@ actor YtDlpRunner {
         let proc = Process()
         proc.executableURL = tools.ytDlp
         proc.arguments = arguments
+        // Inherit our environment but force unbuffered Python output so progress
+        // lines stream in real time rather than buffering until the process exits.
+        var env = ProcessInfo.processInfo.environment
+        env["PYTHONUNBUFFERED"] = "1"
+        proc.environment = env
 
         let outPipe = Pipe()
         let errPipe = Pipe()
@@ -149,38 +228,44 @@ actor YtDlpRunner {
         self.process = proc
 
         let stdoutAll = DataBox()
-        let stderrBox = DataBox()
-        errPipe.fileHandleForReading.readabilityHandler = { h in
-            let d = h.availableData
-            if d.isEmpty { h.readabilityHandler = nil } else { stderrBox.append(d) }
-        }
+        let stderrAll = DataBox()
 
         let lines = AsyncStream<String> { continuation in
-            let pending = DataBox()
-            outPipe.fileHandleForReading.readabilityHandler = { h in
-                let d = h.availableData
-                if d.isEmpty {
-                    if let rest = pending.takeRemainderString() { continuation.yield(rest) }
-                    continuation.finish()
-                    h.readabilityHandler = nil
-                    return
+            // Both pipe handlers fire on background queues; finish the merged
+            // stream only once both have hit EOF.
+            let openPipes = Counter(2)
+
+            func makeHandler(collect: DataBox, pending: DataBox) -> @Sendable (FileHandle) -> Void {
+                return { h in
+                    let d = h.availableData
+                    if d.isEmpty {
+                        if let rest = pending.takeRemainderString() { continuation.yield(rest) }
+                        h.readabilityHandler = nil
+                        if openPipes.decrement() == 0 { continuation.finish() }
+                        return
+                    }
+                    collect.append(d)
+                    pending.append(d)
+                    for line in pending.takeLines() { continuation.yield(line) }
                 }
-                stdoutAll.append(d)
-                pending.append(d)
-                for line in pending.takeLines() { continuation.yield(line) }
             }
+
+            outPipe.fileHandleForReading.readabilityHandler = makeHandler(collect: stdoutAll, pending: DataBox())
+            errPipe.fileHandleForReading.readabilityHandler = makeHandler(collect: stderrAll, pending: DataBox())
         }
 
+        Log.engine.info("yt-dlp launching \(proc.executableURL?.path ?? "nil", privacy: .public)")
         try proc.run()
 
         for await line in lines {
             await onLine?(line)
         }
-        proc.waitUntilExit()          // stdout closed → process is exiting
+        proc.waitUntilExit()          // both pipes closed → process is exiting
         self.process = nil
 
         let stdout = String(data: stdoutAll.takeAll(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrBox.takeAll(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrAll.takeAll(), encoding: .utf8) ?? ""
+        Log.engine.info("yt-dlp exited status=\(proc.terminationStatus) stderrTail=\(Self.tail(stderr, lines: 5), privacy: .public)")
         return (proc.terminationStatus, stdout, stderr)
     }
 
@@ -198,6 +283,19 @@ actor YtDlpRunner {
         let downloaded = Int64(num(parts[0]) ?? 0)
         let total = num(parts[1]).map { Int64($0) } ?? num(parts[2]).map { Int64($0) }
         return ProgressUpdate(downloaded: downloaded, total: total, speed: num(parts[3]), eta: num(parts[4]))
+    }
+
+    /// Detects the post-download ffmpeg phase from yt-dlp's postprocessor banners
+    /// (e.g. `[Merger] Merging formats into ...`). These lines carry no byte
+    /// progress, so the UI shows an indeterminate "Merging…" state instead of a
+    /// frozen-looking bar.
+    static func detectPhase(_ line: String) -> MediaPhase? {
+        if line.contains("[Merger]") || line.contains("Merging formats")
+            || line.contains("[ExtractAudio]") || line.contains("[VideoConvertor]")
+            || line.contains("[VideoRemuxer]") {
+            return .merging
+        }
+        return nil
     }
 
     /// The last absolute-path line in stdout (yt-dlp's `--print after_move:filepath`),
@@ -234,14 +332,18 @@ private final class DataBox: @unchecked Sendable {
         return copy
     }
 
-    /// Extract complete `\n`-terminated lines, leaving any partial remainder.
+    /// Extract complete lines, leaving any partial remainder. Treats both `\n`
+    /// (LF) and `\r` (CR) as terminators: yt-dlp's progress updates can arrive
+    /// carriage-return-terminated depending on launch context, and a LF-only
+    /// splitter would never surface them as lines (they'd accumulate until EOF).
+    /// Empty tokens (e.g. the gap in a `\r\n` pair) are skipped.
     func takeLines() -> [String] {
         lock.lock(); defer { lock.unlock() }
         var out: [String] = []
-        while let nl = data.firstIndex(of: 0x0A) {
-            let lineData = data[data.startIndex..<nl]
-            if let s = String(data: lineData, encoding: .utf8) { out.append(s) }
-            data.removeSubrange(data.startIndex...nl)
+        while let idx = data.firstIndex(where: { $0 == 0x0A || $0 == 0x0D }) {
+            let lineData = data[data.startIndex..<idx]
+            if !lineData.isEmpty, let s = String(data: lineData, encoding: .utf8) { out.append(s) }
+            data.removeSubrange(data.startIndex...idx)
         }
         return out
     }
@@ -252,5 +354,18 @@ private final class DataBox: @unchecked Sendable {
         let s = String(data: data, encoding: .utf8)
         data.removeAll(keepingCapacity: false)
         return s.flatMap { $0.isEmpty ? nil : $0 }
+    }
+}
+
+/// Thread-safe countdown used to coordinate two pipe `readabilityHandler`s, which
+/// fire on background queues. `decrement()` returns the new value.
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Int
+    init(_ value: Int) { self.value = value }
+    func decrement() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        value -= 1
+        return value
     }
 }

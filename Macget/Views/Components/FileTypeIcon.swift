@@ -15,8 +15,15 @@ enum FileTypeIcon {
         guard !ext.isEmpty else { return .generic }
 
         // Fast-path extensions that UTType either misclassifies for our purposes
-        // or doesn't know on every macOS version.
+        // or doesn't know on every macOS version. (e.g. .mkv/.webm resolve only
+        // when a third-party app has registered the type, so they're unreliable
+        // on a clean machine / CI runner — classify them explicitly here.)
         switch ext {
+        case "mp4", "m4v", "mov", "mkv", "webm", "avi", "wmv", "flv",
+             "mpg", "mpeg", "m2ts", "ogv", "3gp":
+            return .video
+        case "mp3", "m4a", "aac", "flac", "wav", "aiff", "ogg", "opus", "wma":
+            return .audio
         case "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz", "zst":
             return .archive
         case "dmg", "iso":

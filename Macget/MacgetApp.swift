@@ -17,17 +17,14 @@ struct MacgetApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(listVM: listVM, appEnvironment: environment, mediaPick: environment.mediaPick)
+            ContentView(listVM: listVM, appEnvironment: environment, mediaPick: environment.mediaPick, authPrompt: environment.authPrompt)
                 .frame(minWidth: 720, minHeight: 420)
                 .task {
                     appDelegate.environment = environment
                     listVM.bootstrap()
                     environment.clipboardWatcher.onURLDetected = { url in
                         Task { @MainActor in
-                            await environment.engine.add(
-                                url: url,
-                                destinationFolder: environment.settings.defaultDestination
-                            )
+                            environment.add(url: url)
                         }
                     }
                 }

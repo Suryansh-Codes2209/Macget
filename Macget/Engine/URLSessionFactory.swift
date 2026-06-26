@@ -24,9 +24,11 @@ enum URLSessionFactory {
         // Signal latency-sensitive interactive data so macOS doesn't deprioritize
         // network IO when the app is backgrounded.
         config.networkServiceType = .responsiveData
-        // Keep TCP connections warm if the app loses focus mid-download — saves
-        // a TLS handshake when we come back to the foreground.
-        config.shouldUseExtendedBackgroundIdleMode = true
+        // (We used to set `shouldUseExtendedBackgroundIdleMode = true` to keep TCP
+        // connections warm across loss of focus. Apple deprecated it in macOS 15.4
+        // with "Not supported" — there is no replacement API; the system now
+        // manages connection idle behavior itself, and URLSession's own per-host
+        // connection pooling + `waitsForConnectivity` already cover the intent.)
         // HTTP/3 (QUIC) is opted into per-request via `URLRequest.assumesHTTP3Capable`
         // (see `applyTransportPreferences`) — there's no session-level switch.
         // (Multipath TCP — `multipathServiceType` — is iOS-only; not available on

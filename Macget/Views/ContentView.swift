@@ -6,6 +6,7 @@ struct ContentView: View {
     @Bindable var listVM: DownloadListViewModel
     let appEnvironment: AppEnvironment
     @Bindable var mediaPick: MediaPickModel
+    @Bindable var authPrompt: AuthPromptModel
 
     @State private var showingAddSheet = false
 
@@ -44,7 +45,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showingAddSheet) {
             AddDownloadSheet(
-                vm: AddDownloadViewModel(engine: appEnvironment.engine, settings: appEnvironment.settings),
+                vm: AddDownloadViewModel(environment: appEnvironment, settings: appEnvironment.settings),
                 isPresented: $showingAddSheet
             )
         }
@@ -53,6 +54,12 @@ struct ContentView: View {
             set: { if !$0 { mediaPick.cancel() } }
         )) {
             MediaPickSheet(model: mediaPick)
+        }
+        .sheet(isPresented: Binding(
+            get: { authPrompt.isPresented },
+            set: { if !$0 { authPrompt.cancel() } }
+        )) {
+            AuthPromptSheet(model: authPrompt)
         }
         .searchable(text: $listVM.searchText, prompt: "Search downloads")
         .onChange(of: listVM.searchText) { _, _ in listVM.filterRefreshed() }

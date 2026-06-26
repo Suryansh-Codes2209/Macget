@@ -18,11 +18,14 @@ struct RangeProbeResult: Sendable {
 enum RangeProbeError: Error, LocalizedError {
     case noResponse
     case httpStatus(Int)
+    /// 401/407 — the engine prompts for credentials and retries.
+    case authRequired(Int)
 
     var errorDescription: String? {
         switch self {
         case .noResponse: return "Server did not return an HTTP response."
         case .httpStatus(let code): return "Server returned HTTP \(code)."
+        case .authRequired: return "This download requires a username and password."
         }
     }
 }
@@ -34,35 +37,44 @@ enum RangeProbe {
     static func probe(
         url: URL,
         headers: [String: String]? = nil,
+        credential: URLCredential? = nil,
         session: URLSession = URLSessionFactory.shared
     ) async throws -> RangeProbeResult {
         // Try HEAD first.
-        if let result = try? await probeHead(url: url, headers: headers, session: session) {
+        if let result = try? await probeHead(url: url, headers: headers, credential: credential, session: session) {
             return result
         }
         // Fallback: tiny ranged GET.
-        return try await probeRangedGet(url: url, headers: headers, session: session)
+        return try await probeRangedGet(url: url, headers: headers, credential: credential, session: session)
     }
 
-    private static func probeHead(url: URL, headers: [String: String]?, session: URLSession) async throws -> RangeProbeResult {
+    /// Run a request, answering any auth challenge with `credential`.
+    private static func data(for req: URLRequest, credential: URLCredential?, session: URLSession) async throws -> (Data, URLResponse) {
+        let responder = AuthChallengeResponder(credential: credential)
+        return try await session.data(for: req, delegate: responder)
+    }
+
+    private static func probeHead(url: URL, headers: [String: String]?, credential: URLCredential?, session: URLSession) async throws -> RangeProbeResult {
         var req = URLRequest(url: url)
         req.httpMethod = "HEAD"
         apply(headers, to: &req)
-        let (_, response) = try await session.data(for: req)
+        let (_, response) = try await data(for: req, credential: credential, session: session)
         return try parse(response: response)
     }
 
-    private static func probeRangedGet(url: URL, headers: [String: String]?, session: URLSession) async throws -> RangeProbeResult {
+    private static func probeRangedGet(url: URL, headers: [String: String]?, credential: URLCredential?, session: URLSession) async throws -> RangeProbeResult {
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
         apply(headers, to: &req)
         req.setValue("bytes=0-0", forHTTPHeaderField: "Range")
-        let (_, response) = try await session.data(for: req)
+        let (_, response) = try await data(for: req, credential: credential, session: session)
         guard let http = response as? HTTPURLResponse else { throw RangeProbeError.noResponse }
 
         let acceptsRanges: Bool
         let totalBytes: Int64?
-        if http.statusCode == 206 {
+        if http.statusCode == 401 || http.statusCode == 407 {
+            throw RangeProbeError.authRequired(http.statusCode)
+        } else if http.statusCode == 206 {
             acceptsRanges = true
             // Content-Range: bytes 0-0/12345
             if let cr = http.value(forHTTPHeaderField: "Content-Range"),
@@ -93,6 +105,7 @@ enum RangeProbe {
 
     private static func parse(response: URLResponse) throws -> RangeProbeResult {
         guard let http = response as? HTTPURLResponse else { throw RangeProbeError.noResponse }
+        if http.statusCode == 401 || http.statusCode == 407 { throw RangeProbeError.authRequired(http.statusCode) }
         guard (200..<300).contains(http.statusCode) else { throw RangeProbeError.httpStatus(http.statusCode) }
 
         let totalBytes: Int64? = http.expectedContentLength >= 0 ? http.expectedContentLength : nil

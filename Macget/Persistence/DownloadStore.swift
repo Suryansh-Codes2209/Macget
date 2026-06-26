@@ -27,16 +27,31 @@ actor DownloadStore {
         }
     }
 
+    private var backupURL: URL { fileURL.appendingPathExtension("bak") }
+
     func load() -> [Download] {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        if let primary = decodeQueue(at: fileURL) { return primary }
+        // The atomic write prevents torn files, so a primary that exists but won't
+        // decode means bad *content* (a botched upgrade/edit). Fall back to the
+        // last-known-good backup before giving up.
+        if FileManager.default.fileExists(atPath: fileURL.path),
+           let backup = decodeQueue(at: backupURL) {
+            log.warning("queue.json failed to decode — recovered \(backup.count) item(s) from queue.json.bak.")
+            return backup
+        }
+        return []
+    }
+
+    private func decodeQueue(at url: URL) -> [Download]? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         do {
-            let data = try Data(contentsOf: fileURL)
+            let data = try Data(contentsOf: url)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             return try decoder.decode([Download].self, from: data)
         } catch {
-            log.error("Failed to load queue.json: \(error.localizedDescription)")
-            return []
+            log.error("Failed to decode \(url.lastPathComponent, privacy: .public): \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -69,6 +84,16 @@ actor DownloadStore {
         saveAll(current)
     }
 
+    /// Replace the whole persisted queue and flush right away (no debounce). Used
+    /// for manual reordering so the new order survives even if a debounced
+    /// progress write would otherwise read a stale on-disk order in between.
+    func replaceAllImmediately(_ downloads: [Download]) async {
+        pendingWrite = downloads
+        debounceTask?.cancel()
+        debounceTask = nil
+        await flushIfNeeded()
+    }
+
     /// Write any pending state immediately (used at app shutdown).
     func flushIfNeeded() async {
         guard let pending = pendingWrite else { return }
@@ -78,6 +103,12 @@ actor DownloadStore {
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let data = try encoder.encode(pending)
+            // Snapshot the current good file as a backup before overwriting, so a
+            // future bad write/upgrade can be recovered from queue.json.bak.
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try? FileManager.default.removeItem(at: backupURL)
+                try? FileManager.default.copyItem(at: fileURL, to: backupURL)
+            }
             try data.write(to: fileURL, options: .atomic)
         } catch {
             log.error("Failed to write queue.json: \(error.localizedDescription)")

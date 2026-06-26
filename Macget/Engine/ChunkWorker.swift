@@ -10,6 +10,9 @@ enum ChunkError: Error, LocalizedError {
     /// Server asked us to back off (429 / 503). `retryAfter` is the parsed
     /// `Retry-After` delay in seconds when the server supplied one. Retryable.
     case serverBusy(code: Int, retryAfter: TimeInterval?)
+    /// Server demands credentials (401) or proxy auth (407) we don't have (or the
+    /// stored ones were rejected). Non-retryable; the engine prompts the user.
+    case authRequired(code: Int)
 
     var errorDescription: String? {
         switch self {
@@ -22,6 +25,10 @@ enum ChunkError: Error, LocalizedError {
         case .serverBusy(let c, let ra):
             if let ra { return "Server busy (HTTP \(c)); retrying in \(Int(ra.rounded()))s." }
             return "Server busy (HTTP \(c)); will retry."
+        case .authRequired(let c):
+            return c == 407
+                ? "Proxy authentication required."
+                : "This download requires a username and password."
         }
     }
 }
@@ -45,6 +52,8 @@ struct ChunkWorker {
     /// Optional shared bandwidth limiter. When set, the worker waits on it after
     /// each write so aggregate throughput stays under the user's cap.
     var rateLimiter: RateLimiter? = nil
+    /// Optional credential for HTTP Basic/Digest/NTLM challenges on this host.
+    var credential: URLCredential? = nil
     /// Called periodically with bytes flushed to disk for this chunk.
     let report: @Sendable (UUID, Int) async -> Void
 
@@ -84,6 +93,7 @@ struct ChunkWorker {
 
     private func stream(request: URLRequest, expectedStart: Int64, expectedEnd: Int64, startingOffset: Int64, unbounded: Bool) async throws {
         let delegate = StreamingDelegate()
+        delegate.credential = credential
         let stream = AsyncThrowingStream<Data, Error> { continuation in
             delegate.attach(continuation: continuation, expectedRangeStart: expectedStart, expectedRangeEnd: expectedEnd, unbounded: unbounded)
             let task = session.dataTask(with: request)
@@ -146,6 +156,8 @@ private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchec
     private var expectedStart: Int64 = 0
     private var expectedEnd: Int64 = 0
     private var unbounded = false
+    /// Credential for server-auth challenges on this task, if the host has one.
+    var credential: URLCredential?
 
     func attach(
         continuation: AsyncThrowingStream<Data, Error>.Continuation,
@@ -202,7 +214,8 @@ private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchec
     }
 
     /// Maps an error status into the right `ChunkError`. 429/503 carry the
-    /// parsed `Retry-After` so the coordinator can honor the server's backoff.
+    /// parsed `Retry-After` so the coordinator can honor the server's backoff;
+    /// 401/407 surface as `authRequired` so the engine can prompt for credentials.
     private static func statusError(_ http: HTTPURLResponse) -> ChunkError {
         switch http.statusCode {
         case 429, 503:
@@ -210,8 +223,35 @@ private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchec
                 code: http.statusCode,
                 retryAfter: RetryAfter.parse(http.value(forHTTPHeaderField: "Retry-After"))
             )
+        case 401, 407:
+            return .authRequired(code: http.statusCode)
         default:
             return .unexpectedStatus(http.statusCode)
+        }
+    }
+
+    /// Answer HTTP Basic/Digest/NTLM challenges with the host credential (first
+    /// attempt only — a `previousFailureCount > 0` means it was rejected, so we
+    /// cancel and let the 401 surface as `authRequired`). Non-auth challenges
+    /// (e.g. server trust) get default handling.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didReceive challenge: URLAuthenticationChallenge,
+        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
+        let method = challenge.protectionSpace.authenticationMethod
+        let isServerAuth = method == NSURLAuthenticationMethodHTTPBasic
+            || method == NSURLAuthenticationMethodHTTPDigest
+            || method == NSURLAuthenticationMethodNTLM
+        guard isServerAuth else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+        if let credential, challenge.previousFailureCount == 0 {
+            completionHandler(.useCredential, credential)
+        } else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
         }
     }
 

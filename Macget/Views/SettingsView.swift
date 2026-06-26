@@ -63,6 +63,21 @@ struct SettingsView: View {
                             .foregroundStyle(mediaToolStatus?.hasPrefix("yt-dlp not found") == true ? .red : .secondary)
                     }
                     .font(.caption)
+
+                    Toggle("Download subtitles", isOn: $vm.settings.mediaWriteSubtitles)
+                    if vm.settings.mediaWriteSubtitles {
+                        HStack {
+                            Text("Subtitle languages")
+                            TextField("en", text: $vm.settings.mediaSubtitleLanguages)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 120)
+                            Text("e.g. en, en,es, all")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Toggle("Embed metadata (title, uploader, date)", isOn: $vm.settings.mediaEmbedMetadata)
+                    Toggle("Save thumbnail / cover art", isOn: $vm.settings.mediaWriteThumbnail)
                 }
             } header: {
                 Text("Video downloads")
@@ -103,6 +118,7 @@ struct SettingsView: View {
                     in: 1...Download.maxThreadCount
                 )
                 Toggle("Start downloads automatically when added", isOn: $vm.settings.startDownloadsAutomatically)
+                Toggle("Sort completed downloads into folders by type", isOn: $vm.settings.autoSortByType)
             } footer: {
                 Text("Each download splits the file into N parallel HTTP-Range requests when the server supports it. Macget starts conservatively and adds connections only while they speed the download up. More threads = faster on cooperative servers, but some servers throttle if you open too many connections.")
                     .font(.caption)
@@ -138,8 +154,38 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                Toggle("Only download during scheduled hours", isOn: $vm.settings.scheduleEnabled)
+                if vm.settings.scheduleEnabled {
+                    DatePicker("From", selection: timeBinding(\.scheduleStartMinutes), displayedComponents: .hourAndMinute)
+                    DatePicker("Until", selection: timeBinding(\.scheduleEndMinutes), displayedComponents: .hourAndMinute)
+                }
+            } header: {
+                Text("Schedule")
+            } footer: {
+                Text("Outside this window, active downloads pause and resume automatically when it reopens. A window that crosses midnight (e.g. 10 PM–6 AM) is supported. Set both times equal for no restriction.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(20)
+    }
+
+    /// Bridges an `AppSettings` minutes-from-midnight field to a `DatePicker`.
+    private func timeBinding(_ keyPath: WritableKeyPath<AppSettings, Int>) -> Binding<Date> {
+        Binding(
+            get: {
+                let mins = vm.settings[keyPath: keyPath]
+                return Calendar.current.date(
+                    bySettingHour: mins / 60, minute: mins % 60, second: 0, of: Date()
+                ) ?? Date()
+            },
+            set: { newDate in
+                let c = Calendar.current.dateComponents([.hour, .minute], from: newDate)
+                vm.settings[keyPath: keyPath] = (c.hour ?? 0) * 60 + (c.minute ?? 0)
+            }
+        )
     }
 
     private var networkTab: some View {

@@ -9,12 +9,15 @@ struct DownloadSnapshot: Sendable, Equatable {
     let totalBytes: Int64?
     let speedBytesPerSec: Double
     let etaSeconds: TimeInterval?
+    /// Media (yt-dlp) lifecycle phase; `nil` for normal HTTP downloads.
+    var phase: MediaPhase? = nil
 }
 
 enum CoordinatorError: Error, LocalizedError {
     case unknownContentLength
     case insufficientDiskSpace(required: Int64, available: Int64)
     case finalizeFailed(String)
+    case stalled
 
     var errorDescription: String? {
         switch self {
@@ -24,6 +27,8 @@ enum CoordinatorError: Error, LocalizedError {
             return "Not enough disk space. Need \(r) bytes, have \(a)."
         case .finalizeFailed(let s):
             return "Could not move file to destination: \(s)"
+        case .stalled:
+            return "Download stalled — no data received."
         }
     }
 }
@@ -65,6 +70,17 @@ actor DownloadCoordinator {
     private var diskCheckCounter = 0
     /// Publish-loop ticks between mid-download disk-space re-checks (≈5s).
     private static let diskCheckEveryNTicks = 20
+
+    /// Stall watchdog state. Detects a live-but-silent connection (zero bytes for
+    /// `stallTimeoutSeconds`) and restarts the in-flight workers — distinct from the
+    /// rapid-fail detector, which reacts to *failed attempts*, not silent progress.
+    private var stallLastBytes: Int64 = -1
+    private var stallLastProgressAt = Date()
+    private var stallRestarts = 0
+    /// Seconds of zero byte movement (while downloading) before a restart.
+    private static let stallTimeoutSeconds: TimeInterval = 30
+    /// Consecutive stall-restarts before giving up and failing the download.
+    private static let maxStallRestarts = 3
 
     /// Adaptive concurrency: the download starts at `AdaptiveConcurrency.initialWorkers`
     /// and probes upward, keeping each added connection only when throughput
@@ -109,6 +125,9 @@ actor DownloadCoordinator {
     let onStateChange: @Sendable (Download) async -> Void
     /// Called every ~250ms while downloading.
     let onSnapshot: @Sendable (DownloadSnapshot) async -> Void
+    /// Called when the download fails because the server demands credentials we
+    /// don't have (or stored ones were rejected), so the engine can prompt.
+    let onAuthRequired: (@Sendable () async -> Void)?
 
     init(
         download: Download,
@@ -116,8 +135,10 @@ actor DownloadCoordinator {
         hostCapStore: HostCapStore = HostCapStore.shared,
         rateLimiter: RateLimiter? = nil,
         maxAttemptsPerChunk: Int = 5,
+        autoSortByType: Bool = false,
         onStateChange: @escaping @Sendable (Download) async -> Void,
-        onSnapshot: @escaping @Sendable (DownloadSnapshot) async -> Void
+        onSnapshot: @escaping @Sendable (DownloadSnapshot) async -> Void,
+        onAuthRequired: (@Sendable () async -> Void)? = nil
     ) {
         self.download = download
         self.session = session
@@ -125,9 +146,16 @@ actor DownloadCoordinator {
         self.rateLimiter = rateLimiter
         self.maxAttemptsPerChunk = max(1, min(10, maxAttemptsPerChunk))
         self.maxChunkAttempts = max(1, min(10, maxAttemptsPerChunk)) * 5
+        self.autoSortByType = autoSortByType
         self.onStateChange = onStateChange
         self.onSnapshot = onSnapshot
+        self.onAuthRequired = onAuthRequired
     }
+
+    /// When on, `complete()` files the result into a type-based subfolder.
+    private let autoSortByType: Bool
+    /// Credential for this host (Basic/Digest/NTLM), resolved at run start.
+    private var resolvedCredential: URLCredential?
 
     var currentDownload: Download { download }
 
@@ -206,9 +234,14 @@ actor DownloadCoordinator {
     // MARK: - Core orchestration
 
     private func runDownload() async throws {
+        // Resolve any stored credential for this host (re-resolved each run, so a
+        // credential entered after an auth-required prompt is picked up on resume).
+        if let host = download.url.host {
+            resolvedCredential = CredentialStore.shared.credential(forHost: host)
+        }
         // 1. Probe (only if we don't already have totalBytes from a prior session).
         if download.totalBytes == nil || download.chunks.isEmpty {
-            let probe = try await RangeProbe.probe(url: download.url, headers: download.requestHeaders, session: session)
+            let probe = try await RangeProbe.probe(url: download.url, headers: download.requestHeaders, credential: resolvedCredential, session: session)
             download.totalBytes = probe.totalBytes
             download.supportsRange = probe.acceptsRanges
             download.etag = probe.etag
@@ -328,6 +361,7 @@ actor DownloadCoordinator {
             headers: download.requestHeaders,
             unbounded: true,
             rateLimiter: rateLimiter,
+            credential: resolvedCredential,
             report: { [weak self] id, bytes in
                 await self?.reportBytes(chunkID: id, bytes: bytes)
             }
@@ -395,7 +429,7 @@ actor DownloadCoordinator {
                 // Some errors are non-retryable: server lied about Range support,
                 // returned a wrong byte range, etc.
                 switch err {
-                case .rangeRefused, .wrongContentRange, .chunkNotFound, .writerUnavailable:
+                case .rangeRefused, .wrongContentRange, .chunkNotFound, .writerUnavailable, .authRequired:
                     recordChunkError(chunkID: chunkID, error: err)
                     throw err
                 case .unexpectedStatus(let code) where Self.isTerminalHTTPStatus(code):
@@ -507,6 +541,7 @@ actor DownloadCoordinator {
             session: session,
             headers: download.requestHeaders,
             rateLimiter: rateLimiter,
+            credential: resolvedCredential,
             report: { [weak self] id, bytes in
                 await self?.reportBytes(chunkID: id, bytes: bytes)
             }
@@ -538,6 +573,7 @@ actor DownloadCoordinator {
                 await self?.publishSnapshot()
                 await self?.checkDiskSpaceIfDue()
                 await self?.checkAdaptiveConcurrency()
+                await self?.checkStall()
             }
         }
     }
@@ -612,6 +648,40 @@ actor DownloadCoordinator {
         }
     }
 
+    /// Watchdog for a connection that's alive but delivering nothing. When bytes
+    /// haven't moved for `stallTimeoutSeconds`, cancel the in-flight workers so the
+    /// orchestration loop respawns them from their recorded offsets (the same drain-
+    /// and-respawn path demotion uses). After `maxStallRestarts` with no recovery,
+    /// fail cleanly via the orchestration loop (set `pendingFatalError`, cancel all).
+    private func checkStall() async {
+        guard download.status == .downloading, !download.chunks.isEmpty else { return }
+        let now = Date()
+        let bytes = download.bytesDownloaded
+        if bytes > stallLastBytes {
+            stallLastBytes = bytes
+            stallLastProgressAt = now
+            stallRestarts = 0
+            return
+        }
+        guard now.timeIntervalSince(stallLastProgressAt) >= Self.stallTimeoutSeconds else { return }
+        // Nothing in flight → orchestration is between waves; let it respawn. Just
+        // re-arm the timer so we don't immediately fire again.
+        guard !inFlight.isEmpty else { stallLastProgressAt = now; return }
+
+        if stallRestarts >= Self.maxStallRestarts {
+            Log.engine.warning("\(self.download.filename) stalled — giving up after \(Self.maxStallRestarts) restart(s).")
+            if pendingFatalError == nil {
+                pendingFatalError = CoordinatorError.stalled
+                for task in inFlight.values { task.cancel() }
+            }
+            return
+        }
+        stallRestarts += 1
+        stallLastProgressAt = now
+        Log.engine.warning("\(self.download.filename) stalled \(Int(Self.stallTimeoutSeconds))s — restarting \(self.inFlight.count) worker(s) [\(self.stallRestarts)/\(Self.maxStallRestarts)].")
+        for task in inFlight.values { task.cancel() }
+    }
+
     private func publishSnapshot() async {
         let speed = await speedMeter.currentSpeed()
         let eta: TimeInterval?
@@ -654,9 +724,12 @@ actor DownloadCoordinator {
             }
         }
 
-        // Resolve filename collision at destination.
+        // Pick the destination folder: optionally a type-based subfolder. If the
+        // subfolder can't be created, fall back to the root rather than failing.
+        let targetFolder = categorizedDestinationFolder()
+        // Resolve filename collision at the (possibly categorized) destination.
         let finalURL = FilenameResolver.uniqueURL(
-            in: download.destinationFolder,
+            in: targetFolder,
             preferredName: download.filename
         )
         do {
@@ -664,9 +737,10 @@ actor DownloadCoordinator {
                 try FileManager.default.removeItem(at: finalURL)
             }
             try FileManager.default.moveItem(at: download.partialFileURL, to: finalURL)
-            if finalURL != download.destinationURL {
-                download.filename = finalURL.lastPathComponent
-            }
+            // Keep destinationFolder/filename consistent so destinationURL (Open /
+            // Reveal) points at the real location after categorization.
+            download.destinationFolder = targetFolder
+            download.filename = finalURL.lastPathComponent
         } catch {
             await fail(with: CoordinatorError.finalizeFailed(error.localizedDescription))
             return
@@ -676,6 +750,22 @@ actor DownloadCoordinator {
         download.error = nil
         await publishSnapshot()
         await onStateChange(download)
+    }
+
+    /// The folder the completed file should land in: a type-based subfolder when
+    /// auto-sort is on and the file has a known category, else the destination root.
+    private func categorizedDestinationFolder() -> URL {
+        guard autoSortByType, let sub = CategoryFolder.subfolder(for: download.filename) else {
+            return download.destinationFolder
+        }
+        let folder = download.destinationFolder.appendingPathComponent(sub, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            return folder
+        } catch {
+            log.warning("Auto-sort: couldn't create \(sub, privacy: .public), using root: \(error.localizedDescription)")
+            return download.destinationFolder
+        }
     }
 
     /// Distinguish a user-initiated stop (which surfaces as `URLError.cancelled`
@@ -694,7 +784,19 @@ actor DownloadCoordinator {
             await restartFromScratch()
             return
         }
+        // Server needs credentials we don't have — fail, but ask the engine to
+        // prompt so the user can supply them and resume.
+        if Self.isAuthRequired(error) {
+            await onAuthRequired?()
+        }
         await fail(with: error)
+    }
+
+    /// True for a 401/407 surfaced from the probe or a chunk worker.
+    static func isAuthRequired(_ error: Error) -> Bool {
+        if let ce = error as? ChunkError, case .authRequired = ce { return true }
+        if let pe = error as? RangeProbeError, case .authRequired = pe { return true }
+        return false
     }
 
     /// A `rangeRefused` after we'd recorded a validator means the file changed
@@ -788,7 +890,7 @@ actor DownloadCoordinator {
     static func isPermanentChunkError(_ error: Error) -> Bool {
         if let ce = error as? ChunkError {
             switch ce {
-            case .rangeRefused, .wrongContentRange, .chunkNotFound, .writerUnavailable:
+            case .rangeRefused, .wrongContentRange, .chunkNotFound, .writerUnavailable, .authRequired:
                 return true
             case .unexpectedStatus(let code):
                 return isTerminalHTTPStatus(code)

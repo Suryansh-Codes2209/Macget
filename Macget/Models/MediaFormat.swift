@@ -91,3 +91,79 @@ struct MediaPickOption: Identifiable, Equatable, Sendable {
     let label: String
     let selector: String
 }
+
+/// Optional extras applied to every media (yt-dlp) download. Sourced from global
+/// Settings (`AppSettings.mediaOptions`) so the user sets them once.
+struct MediaDownloadOptions: Sendable, Equatable {
+    var writeSubtitles: Bool = false
+    /// Comma-separated yt-dlp `--sub-langs` value (e.g. "en", "en,es", "all").
+    var subtitleLanguages: String = "en"
+    var embedMetadata: Bool = false
+    var writeThumbnail: Bool = false
+
+    static let none = MediaDownloadOptions()
+
+    var isDefault: Bool { self == .none }
+}
+
+/// A generic, format-probe-free quality applied to every entry of a playlist
+/// download. (Per-entry quality picking would require probing each video, which
+/// is too slow for large playlists.)
+enum MediaPlaylistQuality: String, CaseIterable, Identifiable, Sendable {
+    case best, hd1080, hd720, audio
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .best:   return "Best available"
+        case .hd1080: return "Up to 1080p"
+        case .hd720:  return "Up to 720p"
+        case .audio:  return "Audio only"
+        }
+    }
+
+    var selector: String {
+        switch self {
+        case .best:   return "bestvideo*+bestaudio/best"
+        case .hd1080: return "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
+        case .hd720:  return "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+        case .audio:  return "bestaudio/best"
+        }
+    }
+}
+
+/// One entry of a `yt-dlp --flat-playlist -J` result. flat extraction is cheap
+/// (no per-video format probing) — enough to list a playlist and fan it out into
+/// individual media downloads.
+struct PlaylistEntry: Codable, Sendable, Identifiable, Equatable {
+    let id: String
+    let title: String?
+    let url: String?
+
+    enum CodingKeys: String, CodingKey { case id, title, url }
+
+    /// Best-effort absolute page URL for this entry. flat-playlist `url` is usually
+    /// already absolute; for bare IDs we reconstruct a watch URL on the playlist's
+    /// host (YouTube), else resolve relative to the playlist URL.
+    func resolvedURL(relativeTo playlistURL: URL) -> URL? {
+        if let url, let u = URL(string: url), (u.scheme ?? "").hasPrefix("http") {
+            return u
+        }
+        let host = (playlistURL.host ?? "").lowercased()
+        if host.contains("youtube") || host.contains("youtu.be") {
+            return URL(string: "https://www.youtube.com/watch?v=\(id)")
+        }
+        if let url { return URL(string: url, relativeTo: playlistURL)?.absoluteURL }
+        return nil
+    }
+}
+
+/// Top-level object of a `yt-dlp --flat-playlist -J` result for a playlist URL.
+/// A non-playlist URL decodes with `entries == nil`.
+struct PlaylistProbe: Codable, Sendable {
+    let title: String?
+    let entries: [PlaylistEntry]?
+
+    enum CodingKeys: String, CodingKey { case title, entries }
+}

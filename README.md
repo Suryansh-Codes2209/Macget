@@ -45,7 +45,7 @@ MacGet's engine **discovers each host's true capacity at runtime** and adapts:
 - **Persistent queue** — close the app, reopen, in-flight downloads continue.
 - **Drag-and-drop, clipboard watch, NSServices** — paste a URL or drop a file from anywhere.
 - **Live thread adjustment** while a download is running (subject to host caps).
-- **Auto-updates via Sparkle** (gated; wired up but inactive until SPM dep is added — see below).
+- **Auto-updates via Sparkle** — enabled and signature-verified ([details](#updates)).
 - **Native SwiftUI** with proper `@Observable` view models and an actor-based engine.
 - **MIT licensed.** No ads, no telemetry, no payments.
 
@@ -90,6 +90,31 @@ open Macget.xcodeproj
 Then in Xcode: **⌘R** to run, **⌘U** to test. The `.xcodeproj` is committed and Sparkle is gated behind `#if canImport(Sparkle)`, so the app builds and runs without any extra setup.
 
 To enable auto-updates (optional): **File → Add Package Dependencies… →** `https://github.com/sparkle-project/Sparkle` (≥ 2.6.0).
+
+---
+
+## Updates
+
+After the first install you don't re-download MacGet from this page — it keeps
+itself current with [Sparkle](https://sparkle-project.org), the standard
+auto-update framework for apps distributed outside the Mac App Store.
+
+- **Automatic.** On launch MacGet quietly checks its [appcast feed](https://suryansh-codes2209.github.io/Macget/appcast.xml) on a schedule. When a newer version is published it offers to download and install it.
+- **Manual.** Any time, choose **MacGet → Check for Updates…** from the menu bar.
+- **Verified.** Every update is signed with an EdDSA key; MacGet checks the signature before installing, so a tampered or corrupt download is rejected. This is independent of Apple notarization — updates are trustworthy even on the free, un-notarized build.
+
+> Sparkle is gated behind `#if canImport(Sparkle)`. Auto-updates are active in
+> release builds that bundle the Sparkle SPM dependency; a from-source build
+> without it falls back to a **Check for Updates…** menu item that explains the
+> dependency is missing.
+
+**Maintainers — publishing an update:** cut a release (see
+[Release a DMG](#release-a-dmg-scriptsreleasesh)), then regenerate the signed feed
+with `Sparkle/bin/generate_appcast site/` and push `site/`. GitHub Pages serves
+`site/appcast.xml` at the `SUFeedURL` above. The EdDSA **private** signing key
+lives only in your login Keychain (*"Private key for signing Sparkle updates"*) —
+[back it up offline](SETUP.md#4-optional-enable-sparkle-auto-updates), or you can
+never sign another update for existing installs.
 
 ---
 

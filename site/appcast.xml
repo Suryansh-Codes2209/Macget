@@ -6,14 +6,11 @@
         <description>Updates for MacGet, a free multi-threaded download manager for macOS.</description>
         <language>en</language>
         <!--
-            Starter appcast — intentionally has no <item> entries, so installed
+            Starter appcast: intentionally has no item entries, so installed
             apps see "no update available". Do NOT hand-write release items here.
-            Each release, run from the repo root:
-
-                ./scripts/release.sh --no-notarize
-                <DerivedData>/.../Sparkle/bin/generate_appcast site/
-
-            generate_appcast rewrites this file with signed <item> entries
+            Each release, run scripts/release.sh (no-notarize mode) from the repo
+            root, then run Sparkle's generate_appcast on the site/ folder.
+            generate_appcast rewrites this file with signed item entries
             (sparkle:edSignature) for every DMG it finds, then push site/.
         -->
     </channel>

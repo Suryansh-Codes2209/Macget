@@ -1,0 +1,67 @@
+---
+title: Organizing Downloads
+description: Auto-sort finished downloads into category folders, and how MacGet resolves filename collisions.
+---
+
+## Auto-sort by type
+
+With **Sort completed downloads into category folders** enabled in Settings,
+MacGet files each finished download into a subfolder of your destination based
+on its type.
+
+| Category | Folder |
+| --- | --- |
+| Video | `Movies` |
+| Audio | `Music` |
+| Images | `Pictures` |
+| Archives | `Archives` |
+| PDFs and documents | `Documents` |
+| Source code | `Code` |
+| Applications and disk images | `Apps` |
+
+Anything MacGet can't categorise stays in the destination root rather than
+landing in a catch-all folder.
+
+This is **off by default**, and sorting happens at finalize — while a download
+is in flight, its partial file sits in the destination root.
+
+The category matches the icon shown next to the download in the list, so what
+you see in the queue is where the file will end up.
+
+## Filename collisions
+
+If the destination already contains a file with the same name, MacGet appends a
+counter rather than overwriting: `report.pdf` becomes `report (2).pdf`, then
+`report (3).pdf`, and so on.
+
+This resolution happens at **finalize**, not when the download starts, so a file
+that appears while the download is running is still handled correctly.
+
+## Filenames from the server
+
+MacGet determines the filename in this order:
+
+1. A `Content-Disposition` header, including RFC 5987 encoded forms
+   (`filename*=UTF-8''…`) for non-ASCII names.
+2. The last path component of the URL.
+3. A fallback derived from the host.
+
+Names are truncated safely at 255 bytes with NFC normalisation preserved, so a
+long name with accented or non-Latin characters doesn't produce an invalid file.
+
+## Partial files
+
+While downloading, MacGet writes to a hidden partial file next to the
+destination:
+
+```
+<destination>/.<filename>.macget-partial
+```
+
+It is allocated at full size up front and written to at the correct offsets by
+each chunk. On APFS the file stays sparse, so it doesn't consume the full size
+until the bytes actually arrive.
+
+The partial is moved into place only after the download completes and any
+[checksum](/docs/checksums) verifies. A failed download leaves the partial
+behind so it can be resumed — deleting it forces a fresh start.

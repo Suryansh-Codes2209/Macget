@@ -1,0 +1,54 @@
+---
+title: Verifying Checksums
+description: Verify a download against a SHA-256 or MD5 hash before the file is promoted into place.
+---
+
+MacGet can verify a completed download against a hash before moving it into its
+final location. If the hash doesn't match, the download fails and the partial
+file is kept rather than handing you a file that looks fine and isn't.
+
+## Supplying a checksum
+
+Two ways.
+
+**In the Add sheet** — paste the hash into the checksum field alongside the URL.
+
+**In the URL fragment** — append the hash to the URL itself:
+
+```
+https://example.com/file.zip#sha256=e3b0c44298fc1c149afbf4c8996fb924...
+https://example.com/file.zip#md5=d41d8cd98f00b204e9800998ecf8427e
+```
+
+`sha-256` is accepted as a spelling of `sha256`. A bare hex fragment also works
+when its length unambiguously identifies the algorithm — 64 characters for
+SHA-256, 32 for MD5.
+
+The fragment form is convenient because it survives copy-paste. A URL carrying
+its own hash can be dropped into MacGet from anywhere and verifies itself.
+
+## When verification runs
+
+At **finalize**, after the last byte lands and before the partial file is moved
+into place. That ordering matters: a file that fails verification never appears
+at its destination path at all, so nothing downstream can pick it up by
+mistake.
+
+## When it fails
+
+The download is marked failed and the partial file is left on disk. That is
+deliberate — a hash mismatch has two very different causes, and MacGet can't
+tell them apart:
+
+- The download was corrupted in transit, in which case retrying may fix it.
+- The file genuinely isn't what you expected, in which case you want to
+  investigate rather than silently re-download.
+
+Keeping the partial lets you inspect it. Delete it to start over.
+
+## A note on MD5
+
+MD5 is supported because plenty of projects still publish MD5 sums, and
+verifying against one is better than verifying against nothing. It is not
+collision-resistant and should not be relied on to prove a file is authentic.
+Prefer SHA-256 whenever the publisher offers it.

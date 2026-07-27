@@ -21,7 +21,7 @@ export function FAQ() {
           align="center"
           eyebrow="FAQ"
           title={<span id="faq-heading">Quick answers.</span>}
-          lede="If something here is unclear, the README and source code are the source of truth."
+          lede="If something here is unclear, the docs go deeper — and the source code is always the final word."
         />
 
         <ul className="mt-14 space-y-2">

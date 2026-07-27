@@ -1,0 +1,70 @@
+---
+title: Adding Downloads
+description: Five ways to get a URL into MacGet's queue — the Add sheet, drag and drop, the clipboard watcher, macOS Services, and the macget:// URL scheme.
+---
+
+MacGet accepts downloads through five paths. All of them end in the same place:
+a `Download` in the queue, scheduled by the engine.
+
+## The Add sheet
+
+The direct route. Paste a URL, choose a destination folder, and optionally
+override the thread count or supply a [checksum](/docs/checksums).
+
+If the URL points at a [known media host](/docs/media-downloads) and media
+extraction is enabled, you'll get a format picker instead of a plain file
+download.
+
+## Drag and drop
+
+Drop a URL — from a browser address bar, a link, or a text selection — onto the
+MacGet window or its Dock icon.
+
+## Clipboard watching
+
+MacGet can watch the pasteboard and offer to enqueue http(s) URLs as you copy
+them. It polls once per second and only reacts to URLs it hasn't already seen.
+
+This is **off by default**. Enable it in **Settings → General →
+Watch clipboard for URLs**.
+
+## macOS Services
+
+MacGet registers a system Service, so you can select a URL in almost any app and
+send it straight to MacGet from the **Services** submenu of the app menu, or
+from the right-click menu.
+
+## The `macget://` URL scheme
+
+For scripting and integrations, MacGet registers a custom URL scheme. Both forms
+work:
+
+```
+macget://download?url=<percent-encoded-http-url>
+macget://download/<percent-encoded-http-url>
+```
+
+For example, from the shell:
+
+```bash
+open "macget://download?url=https%3A%2F%2Fexample.com%2Ffile.zip"
+```
+
+Only `http` and `https` targets are accepted.
+
+## From your browser
+
+The most convenient path for everyday use is the
+[browser extension](/docs/browser-extension), which intercepts downloads as they
+start and hands them to MacGet with the cookies and referrer needed for
+logged-in downloads.
+
+## What happens next
+
+Whether a download starts immediately depends on two settings:
+
+- **Start downloads automatically** (on by default) — new downloads begin as
+  soon as they're added, rather than sitting queued.
+- **Maximum concurrent downloads** (3 by default) — how many run at once.
+  Anything past the limit waits its turn, ordered by
+  [priority](/docs/priorities-and-queue).

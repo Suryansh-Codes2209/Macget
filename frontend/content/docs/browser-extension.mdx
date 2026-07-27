@@ -1,0 +1,113 @@
+---
+title: Browser Extension
+description: Capture downloads from Chrome, Edge, Brave, and Firefox and hand them to MacGet with cookies and referrer intact.
+---
+
+The capture extension intercepts downloads as they start in your browser and
+hands them to MacGet, including the cookies and referrer needed for downloads
+behind a login.
+
+## How it works
+
+```
+Browser download starts
+  → extension collects { url, cookies, referrer, user-agent, filename, size }
+  → sends it to the native-messaging host (MacgetCaptureHost, bundled in Macget.app)
+  → host writes it as JSON into ~/Library/Application Support/Macget/incoming/
+  → MacGet ingests it and downloads with its multi-threaded engine
+```
+
+The browser's own download is cancelled **only after** MacGet acknowledges the
+handoff. A missing or disabled host can never make a download silently
+disappear — worst case, the browser downloads it normally.
+
+Everything happens on your machine over local native messaging. The extension
+contains no code that contacts a remote server. See the
+[privacy policy](/privacy) for the full detail on what it collects and why.
+
+## Setup
+
+<Steps>
+<Step>
+### Enable capture in MacGet
+
+**Settings → Browser integration** → turn on **Auto-capture downloads from the
+browser extension**.
+
+This installs the native-messaging host manifests for every supported browser
+and starts watching the inbox directory.
+</Step>
+
+<Step>
+### Install the extension
+
+Follow the instructions for your browser below.
+</Step>
+
+<Step>
+### Keep MacGet at a stable path
+
+The host path is re-stamped each time MacGet launches, so moving the app and
+relaunching is fine. But the manifests point at wherever MacGet last ran — if
+you move it and don't relaunch, capture stops working.
+</Step>
+</Steps>
+
+### Chrome, Edge, and Brave
+
+1. Open `chrome://extensions` (or `edge://extensions`, `brave://extensions`).
+2. Enable **Developer mode**.
+3. Choose **Load unpacked** and select the `chromium/` folder from the
+   repository.
+4. Confirm the extension ID is `knccbiljmilfmhfellkfbdmilpbdkgni`.
+
+<Callout title="The ID is not cosmetic">
+That ID is pinned by the `key` field in the extension's manifest, and the
+native-messaging host manifest only trusts that exact ID. If the ID differs, the
+host will refuse the connection — which is the point: it stops any other
+extension on your machine from talking to MacGet.
+</Callout>
+
+### Firefox
+
+1. Run `./build.sh` once in `BrowserExtension/` to sync shared files into
+   `firefox/`.
+2. Open `about:debugging#/runtime/this-firefox`.
+3. Choose **Load Temporary Add-on** and select `firefox/manifest.json`.
+
+Temporary add-ons are removed when Firefox restarts. Firefox 121 or later is
+required.
+
+## What gets captured
+
+| Field | Why it's needed |
+| --- | --- |
+| URL | The file to download |
+| Cookies for that URL | So logged-in downloads work outside the browser |
+| Referrer | Some hosts reject requests without one |
+| User-Agent | Some hosts serve different content per client |
+| Filename | The browser's suggested name |
+| Size and MIME type | Lets MacGet plan chunks before probing |
+
+Cookies are read scoped to the download URL specifically — not your whole cookie
+store.
+
+## Media pages
+
+On a [recognised media host](/docs/media-downloads), the extension can hand over
+the *page* URL along with any stream manifests it observed, so MacGet's
+extractor can resolve formats. This path only does anything when media
+extraction is enabled in MacGet.
+
+## Troubleshooting
+
+**Downloads still go to the browser.** Check that browser integration is on in
+MacGet's settings, and that MacGet has been launched at least once since you
+last moved the app.
+
+**Firefox forgets the extension.** Temporary add-ons don't survive a restart.
+That's a Firefox constraint on unsigned add-ons, not a MacGet bug.
+
+**The extension ID doesn't match.** You likely loaded a copy without the `key`
+field from the manifest. Load the `chromium/` folder from the repository
+directly.

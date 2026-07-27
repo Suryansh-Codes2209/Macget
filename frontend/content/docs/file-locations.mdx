@@ -1,0 +1,75 @@
+---
+title: File Locations
+description: Every file MacGet writes, what's in it, and what happens if you delete it.
+---
+
+Everything MacGet stores lives in one directory:
+
+```
+~/Library/Application Support/Macget/
+```
+
+## The files
+
+| File | Contents | Safe to delete? |
+| --- | --- | --- |
+| `queue.json` | The download queue — URLs, destinations, per-chunk progress, status | Yes, with MacGet quit. You lose the queue and the ability to resume anything in it |
+| `settings.json` | All preferences | Yes. Settings revert to defaults |
+| `host_caps.json` | Learned parallelism cap per host | Yes. Deleting it makes MacGet rediscover host limits |
+| `incoming/` | Handoff files from the browser extension, consumed as they're ingested | Yes. Anything not yet ingested is lost |
+
+Quit MacGet before deleting any of these — it flushes state at shutdown and will
+write the in-memory version back over your changes otherwise.
+
+## Partial downloads
+
+Partial files are **not** in Application Support. They sit next to the
+destination:
+
+```
+<destination folder>/.<filename>.macget-partial
+```
+
+They're hidden (leading dot), allocated at full size, and sparse on APFS.
+Deleting one forces that download to start over.
+
+## Credentials
+
+Download credentials are in the **macOS Keychain**, not in any file above. Find
+them in Keychain Access by searching for `Macget`. Deleting an entry means the
+next download from that host prompts for credentials again.
+
+## Bundled tools
+
+`yt-dlp` and `ffmpeg` are inside the app bundle itself
+(`/Applications/Macget.app`), not installed system-wide. Removing the app
+removes them.
+
+## Logs
+
+MacGet logs through the unified logging system under the subsystem `com.macget`.
+Nothing is written to a log file on disk, and nothing is sent anywhere. To read
+them live:
+
+```bash
+log stream --predicate 'subsystem == "com.macget"' --level debug
+```
+
+Or to look at recent history:
+
+```bash
+log show --predicate 'subsystem == "com.macget"' --last 1h
+```
+
+This is the fastest way to see what the engine is actually doing when a download
+misbehaves.
+
+## Complete removal
+
+```bash
+rm -rf /Applications/Macget.app
+rm -rf ~/Library/Application\ Support/Macget
+```
+
+Then remove any `Macget` entries from Keychain Access, and uninstall the browser
+extension if you installed it.

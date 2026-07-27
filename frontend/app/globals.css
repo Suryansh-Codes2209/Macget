@@ -1,4 +1,9 @@
 @import "tailwindcss";
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+
+/* Tailwind must scan fumadocs' prebuilt components for utility classes. */
+@source "../node_modules/fumadocs-ui/dist/**/*.js";
 
 @theme {
   /* Surfaces */
@@ -32,6 +37,34 @@
 
   /* Easing */
   --ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/*
+ * Map fumadocs' design tokens onto the MacGet palette.
+ *
+ * fumadocs' base layer sets `body { background: var(--color-fd-background) }`
+ * globally, which would otherwise repaint the marketing pages. Pointing its
+ * tokens at our own means the docs inherit the brand and the "leak" is a no-op:
+ * both stylesheets are asking for the same colors.
+ */
+:root,
+.dark {
+  --color-fd-background: var(--color-midnight);
+  --color-fd-foreground: var(--color-frost);
+  --color-fd-muted: var(--color-surface);
+  --color-fd-muted-foreground: var(--color-mute);
+  --color-fd-popover: var(--color-surface);
+  --color-fd-popover-foreground: var(--color-frost);
+  --color-fd-card: var(--color-surface);
+  --color-fd-card-foreground: var(--color-frost);
+  --color-fd-border: var(--color-line);
+  --color-fd-primary: var(--color-brand-sky);
+  --color-fd-primary-foreground: var(--color-abyss);
+  --color-fd-secondary: var(--color-surface-2);
+  --color-fd-secondary-foreground: var(--color-frost);
+  --color-fd-accent: var(--color-surface-2);
+  --color-fd-accent-foreground: var(--color-frost);
+  --color-fd-ring: var(--color-brand-blue);
 }
 
 @layer base {

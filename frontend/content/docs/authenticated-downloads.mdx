@@ -1,0 +1,53 @@
+---
+title: Authenticated Downloads
+description: Downloading files behind HTTP authentication, with credentials stored in the macOS Keychain and reused per host.
+---
+
+Some files sit behind an authentication challenge. MacGet answers **Basic**,
+**Digest**, and **NTLM** challenges, and remembers the credentials so the
+download survives restarts.
+
+## How it works
+
+When a server responds with an authentication challenge, MacGet presents a
+prompt asking for a username and password. Provide them and the download
+continues from where it stopped.
+
+Credentials are stored **per host**. The next download from the same host reuses
+them without prompting — including downloads resumed after quitting and
+reopening the app.
+
+## Where credentials are stored
+
+In the **macOS Keychain**, through `CredentialStore`. They are not written to
+`settings.json`, not written to `queue.json`, and never stored in plain text.
+
+To review or revoke them, open **Keychain Access** and search for `Macget`.
+Deleting an entry there means the next download from that host prompts again.
+
+## Cookie-based logins
+
+Many sites don't use HTTP authentication at all — they use a session cookie,
+which an authentication prompt cannot supply. For those, use the
+[browser extension](/docs/browser-extension). It captures the download along
+with the cookies scoped to that URL, so the session comes with it.
+
+## Chunked downloads and authentication
+
+Authentication applies per request, and MacGet may issue up to 16 parallel range
+requests for one file. Each carries the same credentials.
+
+If a server rejects the parallel requests but accepts a single one, that shows
+up as MacGet [demoting its concurrency](/docs/adaptive-concurrency) — the
+download slows but completes. Servers that reject authenticated range requests
+entirely cause a fall back to a single stream.
+
+## When authentication fails
+
+A 401 or 403 that persists after credentials are supplied is treated as a
+**permanent** failure, not a transient one. MacGet fails fast rather than
+retrying — repeatedly replaying bad credentials is a good way to get an IP
+temporarily banned.
+
+Check the credentials in Keychain Access, delete the entry, and retry to be
+prompted again.

@@ -1,0 +1,104 @@
+---
+title: Troubleshooting
+description: Common problems with MacGet and what actually causes them.
+---
+
+## The app won't open
+
+**"Apple cannot check it for malicious software."** Expected — MacGet is not
+notarized. See [first launch](/docs/first-launch).
+
+**It bounces in the Dock and quits.** Almost always a macOS version below
+Tahoe 26.4. Check  → About This Mac.
+
+## Downloads are slower than expected
+
+**Check the connection count before the thread setting.** If a download is
+running at 2 connections despite a setting of 16, the host imposed that — see
+[adaptive concurrency](/docs/adaptive-concurrency). That's the engine protecting
+the download, not a bug.
+
+**A previously learned cap may be stale.** Caps only ratchet downward, so a host
+that has since loosened its limits will still be treated conservatively. Quit
+MacGet and delete `~/Library/Application Support/Macget/host_caps.json` to make
+it rediscover.
+
+**Check the speed limit.** A global cap in Settings applies to all downloads
+combined, not per download.
+
+**More threads is usually not the answer.** Raising thread count and concurrent
+downloads together multiplies open connections, which most CDNs treat as abuse.
+
+## A download won't resume
+
+**The remote file changed.** MacGet sends `If-Range` with the original
+validator. If the server says the file changed, resuming safely is impossible
+and MacGet restarts once from scratch. See
+[resume semantics](/docs/resume-semantics).
+
+**The server doesn't support ranges.** Nothing to resume from; the download
+restarts. The original probe records this.
+
+**The partial file was deleted or moved.** Progress is tracked against a specific
+partial file. Without it, the download starts over.
+
+## Downloads fail immediately
+
+Some failures are deliberately not retried, because retrying makes things worse:
+**401, 403, 404, 410, 451**, range refusals, and malformed responses fail fast.
+
+A 403 on a URL that works in your browser usually means the link is
+session-bound or referrer-checked. Use the
+[browser extension](/docs/browser-extension), which carries the cookies and
+referrer across.
+
+## The browser extension isn't capturing
+
+1. Confirm **Settings → Browser integration** is on in MacGet.
+2. Confirm MacGet has launched at least once since you last moved the app — the
+   native-messaging host path is stamped at launch.
+3. On Chromium, confirm the extension ID is
+   `knccbiljmilfmhfellkfbdmilpbdkgni`. A different ID is refused by design.
+4. On Firefox, remember temporary add-ons don't survive a browser restart.
+
+If capture fails, the browser downloads the file normally — the handoff is only
+finalised after MacGet acknowledges it.
+
+## Media downloads fail
+
+**Media extraction is off by default.** Turn it on in Settings → Media.
+
+**The site changed its player.** Extractors break when sites change. yt-dlp is
+bundled, so the fix arrives with a MacGet update.
+
+**DRM-protected content will not download.** MacGet makes no attempt to
+circumvent DRM.
+
+## The disk filled up
+
+MacGet refuses a download whose total size exceeds 95% of free space, and
+re-checks during the download — pausing cleanly if the volume fills from
+elsewhere. Free space and resume the download.
+
+Remember that partial files are allocated at full size. They're sparse on APFS,
+so they don't consume it all at once, but the space will be needed eventually.
+
+## Seeing what's actually happening
+
+Right-click a download and choose **Copy Diagnostics** for per-chunk attempts,
+errors, and live concurrency state. That's usually enough to tell a host problem
+from a MacGet problem.
+
+For live engine logs:
+
+```bash
+log stream --predicate 'subsystem == "com.macget"' --level debug
+```
+
+## Still broken
+
+[Open an issue](https://github.com/Suryansh-Codes2209/Macget/issues) with the
+diagnostics output and what you expected. For anything security-related, please
+follow the
+[security policy](https://github.com/Suryansh-Codes2209/Macget/blob/main/SECURITY.md)
+instead of filing publicly.

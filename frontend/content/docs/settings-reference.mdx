@@ -1,0 +1,78 @@
+---
+title: Settings Reference
+description: Every MacGet setting, its default, and its valid range — taken from AppSettings in the source.
+---
+
+Settings are stored in `~/Library/Application Support/Macget/settings.json`.
+Values are clamped when loaded, so a hand-edited file can't push MacGet outside
+a valid range — it will be corrected silently on the next launch.
+
+Unknown or missing keys fall back to their defaults rather than resetting the
+whole file, so a `settings.json` written by an older version still loads.
+
+## General
+
+| Setting | Default | Range / notes |
+| --- | --- | --- |
+| Default destination | System **Downloads** folder | Falls back to `~/Downloads` |
+| Default thread count | **8** | 1–16 |
+| Maximum concurrent downloads | **3** | 1–16 |
+| Watch clipboard for URLs | **Off** | Polls the pasteboard at 1 Hz |
+| Start downloads automatically | **On** | Off queues new downloads instead |
+| Resume downloads on launch | **On** | Off moves them to paused instead |
+| Sort completed downloads by type | **Off** | See [organizing downloads](/docs/organizing-downloads) |
+| Completion notifications | **Off** | Posts a system notification per download |
+
+## Network
+
+| Setting | Default | Range / notes |
+| --- | --- | --- |
+| Global speed limit | **Unlimited** | Aggregate across all downloads; unset or ≤ 0 means unlimited |
+| Request timeout | **30 s** | 5–300 |
+| Retries per chunk | **5** | 1–10. The engine's hard ceiling is five times this value |
+| Proxy host | **None** | Both host and port must be set for the proxy to take effect |
+| Proxy port | **None** | 1–65535 |
+
+<Callout title="Changing network settings rebuilds the session">
+The engine owns its `URLSession` and rebuilds it when the proxy or timeout
+changes. Downloads in flight are unaffected; the new settings apply to
+subsequent requests.
+</Callout>
+
+## Media
+
+Only relevant when media extraction is enabled. See
+[media downloads](/docs/media-downloads).
+
+| Setting | Default | Range / notes |
+| --- | --- | --- |
+| Enable media extraction | **Off** | Requires a terms-of-service acknowledgement |
+| Write subtitles | **Off** | |
+| Subtitle languages | `en` | Comma-separated (`en,es`) or `all`. Empty falls back to `en` |
+| Embed metadata | **Off** | Writes title, uploader, and date into the file |
+| Write thumbnail | **Off** | Saves the poster image alongside the download |
+
+## Browser integration
+
+| Setting | Default | Range / notes |
+| --- | --- | --- |
+| Auto-capture from the browser extension | **On** | Installs native-messaging host manifests and watches the inbox |
+
+Turning this on is what registers MacGet with your browsers. See the
+[browser extension guide](/docs/browser-extension).
+
+## Thread counts, in practice
+
+The default of 8 threads per download is a reasonable middle. Some notes before
+you raise it:
+
+- **16 is the hard ceiling**, matching aria2's. It is not arbitrary — past
+  roughly that point, most hosts stop rewarding additional connections.
+- **Per-host caps override your setting.** If MacGet learned that a host rejects
+  parallelism, it will not use more workers than that host tolerated, whatever
+  you configure. See [adaptive concurrency](/docs/adaptive-concurrency).
+- **Threads multiply with concurrent downloads.** 16 threads across 3 concurrent
+  downloads is 48 connections, which many networks and most CDNs will treat as
+  abusive.
+
+If downloads feel slow, the cause is more often the host than the thread count.

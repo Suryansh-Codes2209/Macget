@@ -28,3 +28,6 @@ next-env.d.ts
 
 # bun
 bun.lock
+
+# fumadocs generated source
+.source

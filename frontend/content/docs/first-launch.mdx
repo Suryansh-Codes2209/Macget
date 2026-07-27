@@ -1,0 +1,98 @@
+---
+title: First Launch & Gatekeeper
+description: MacGet is distributed un-notarized, so macOS blocks the first launch. What the warning means and how to clear it, once.
+---
+
+The first time you open MacGet, macOS refuses and shows:
+
+> "Macget" can't be opened because Apple cannot check it for malicious software.
+
+This is expected. Here is what it means and how to get past it.
+
+## Why it happens
+
+Apple notarization requires a paid Apple Developer account at $99/year. MacGet
+is free and unfunded, so releases are not notarized. macOS flags every
+downloaded file with an extended attribute — `com.apple.quarantine` — and when
+you open a quarantined app that Apple has not notarized, Gatekeeper stops it.
+
+The warning means **Apple has not scanned this build**. It does not mean macOS
+found anything wrong with it.
+
+What you get instead:
+
+- The [full source](https://github.com/Suryansh-Codes2209/Macget) is public and
+  releases are built from it.
+- **Hardened Runtime** is enabled on the release build.
+- Every automatic update is verified against an **EdDSA signature** before it is
+  allowed to install, independently of Apple.
+
+## Clearing it in System Settings
+
+<Steps>
+<Step>
+### Click Done
+
+Dismiss the dialog. Do not move the app to the Trash.
+</Step>
+
+<Step>
+### Open Privacy & Security
+
+**System Settings** → **Privacy & Security**, then scroll down to the
+**Security** section.
+</Step>
+
+<Step>
+### Open Anyway
+
+You'll see a line noting that "Macget" was blocked. Click **Open Anyway**, then
+authenticate with Touch ID or your password.
+</Step>
+
+<Step>
+### Confirm
+
+One final confirmation dialog — click **Open**. MacGet launches.
+</Step>
+</Steps>
+
+macOS remembers this decision. Every subsequent launch is normal, and Sparkle
+auto-updates install without repeating it.
+
+## Clearing it from the terminal
+
+The equivalent one-liner:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Macget.app
+```
+
+<Callout type="warn" title="Know what this does">
+`-d` deletes an attribute, `-r` applies it recursively through the bundle. You
+are removing the quarantine tag that triggers the Gatekeeper check, so the check
+never runs.
+
+That is the same decision as clicking Open Anyway, just faster. Run it on
+software you have deliberately chosen to trust from a source you verified —
+never as a reflex on anything that refuses to open.
+</Callout>
+
+## Verifying the app is intact
+
+You can confirm the bundle's signature and that Hardened Runtime is on:
+
+```bash
+codesign -dv --verbose=4 /Applications/Macget.app
+```
+
+Look for `flags=0x10000(runtime)` in the output. Release builds are ad-hoc
+signed, so the authority will not name a Developer ID — that is the expected
+result for an un-notarized build.
+
+## If Open Anyway isn't there
+
+The entry only appears after a blocked launch attempt, and it can time out. Try
+opening MacGet again, then go straight back to **Privacy & Security**. Failing
+that, right-click the app in Finder and choose **Open**, which offers the same
+override from the context menu.

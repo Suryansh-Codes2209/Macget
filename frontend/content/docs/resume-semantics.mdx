@@ -1,0 +1,79 @@
+---
+title: Resume Semantics
+description: How MacGet resumes downloads across pauses, crashes, and restarts without corrupting the file.
+---
+
+Resuming a chunked download is where a download manager either works or quietly
+corrupts your files. MacGet's approach is to never trust that the remote file is
+the same one it started with.
+
+## What's persisted
+
+The queue lives in `~/Library/Application Support/Macget/queue.json`. Each
+download records its total size, its destination, and its chunks — and each
+chunk records how many bytes have been written to it.
+
+Writes are debounced by 500 ms so a fast download doesn't rewrite the file
+constantly, and flushed explicitly at shutdown.
+
+## On relaunch
+
+With **Resume downloads on launch** enabled (the default), queued and
+downloading items are scheduled normally. The coordinator skips the probe and
+planning stages entirely when the total size is already known and chunks exist —
+there is nothing to rediscover.
+
+With it disabled, anything that was downloading is moved to **paused** and waits
+for you.
+
+## The `If-Range` guard
+
+This is the part that prevents silent corruption.
+
+When a worker resumes a chunk, it sends the `ETag` (or `Last-Modified`) recorded
+during the original probe as an `If-Range` header alongside the byte range.
+
+The semantics are precise: if the validator still matches, the server returns
+the requested range and resuming is safe. If the file changed, the server
+returns the **whole file** instead of the range.
+
+Without this check, a resumed download of a file that changed would splice new
+bytes into old ones and produce a file that is complete, correctly sized, and
+garbage. `If-Range` makes that case detectable.
+
+## When the file changed
+
+MacGet detects the validator mismatch and restarts the download cleanly from
+scratch, once. It doesn't retry the resume repeatedly against a file that is
+demonstrably different, and it doesn't keep the mixed data.
+
+## Chunk-level accounting
+
+Each chunk tracks its own write offset, so resume is per chunk rather than per
+file. A download interrupted with three chunks at 90% and one at 10% resumes all
+four exactly where they stopped — the 90% chunks aren't refetched.
+
+Writes go through the `FileWriter` actor, which serialises positional writes
+into the sparse partial file. Concurrent chunks cannot race each other into the
+same region.
+
+## Network loss
+
+A dropped connection isn't treated as a failure. `NWPathMonitor` watches
+connectivity: when the network goes away, active downloads pause and show
+"Waiting for network…", and they auto-resume when it returns.
+
+This matters because the alternative is burning retry attempts against an
+unreachable network and failing the download before connectivity comes back.
+
+## Servers that don't support ranges
+
+If the original probe found no range support, there is nothing to resume from —
+the download restarts. MacGet tells you this rather than pretending progress was
+preserved.
+
+## Partial files
+
+The partial file for an interrupted download stays on disk at
+`<destination>/.<filename>.macget-partial`. Deleting it forces a fresh download.
+Leaving it lets MacGet continue.

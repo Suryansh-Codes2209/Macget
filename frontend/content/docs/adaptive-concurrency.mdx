@@ -1,0 +1,82 @@
+---
+title: Adaptive Concurrency
+description: How MacGet discovers each host's real parallelism limit — probing up while it helps, demoting when the host pushes back, and remembering the result.
+---
+
+This is the part of MacGet that actually distinguishes it. Most download
+managers treat thread count as a number you set. MacGet treats it as something
+to measure.
+
+## The problem
+
+Open eight connections to a modern CDN and one of several things happens. It
+serves all eight happily. Or it resets connections after a few bytes. Or it
+throttles your IP. Or it returns 403 and stops talking to you.
+
+Which one you get depends on the host, and there is no header that tells you in
+advance. A fixed thread count is therefore either too conservative for hosts
+that would have served more, or too aggressive for hosts that punish it — and
+"too aggressive" doesn't mean slightly slower, it means failed downloads.
+
+## Scaling up
+
+Downloads start at **4 connections**, not at your configured maximum. From
+there, MacGet adds one worker at a time and measures aggregate throughput.
+
+A new connection is kept only if it improved total throughput by at least
+**15%**. Below that, the gain isn't worth the extra socket, and the engine stops
+probing upward.
+
+The threshold is what stops the probe from creeping toward 16 on hosts where
+extra connections do nothing — a common case, since many servers apply a
+per-client bandwidth cap that no amount of parallelism gets around.
+
+## Backing off
+
+Scaling up is the optimistic half. Demotion is the half that keeps downloads
+alive.
+
+When **four or more chunk attempts fail without meaningful progress inside a
+10-second window**, the engine reads that as the host rejecting parallelism. It
+responds by:
+
+1. Halving its effective worker count.
+2. Cancelling the lowest-progress chunks, keeping the ones furthest along.
+3. Continuing with the reduced count.
+
+If failures keep happening, it halves again, repeating until the download is
+stable. A download that would have failed outright instead completes more
+slowly.
+
+Demotion always wins over probing. The upward probe can never override a cap
+that demotion established — if it could, the two would oscillate against each
+other forever.
+
+## Remembering
+
+The learned limit is persisted per host in
+`~/Library/Application Support/Macget/host_caps.json`.
+
+The next download from that host starts at the right level immediately, with no
+rediscovery cost and no repeat of the failures that taught MacGet the limit in
+the first place.
+
+**Caps only ratchet downward.** If a host loosens its limits later, MacGet won't
+notice on its own. To make it rediscover, delete `host_caps.json` — a "forget
+host limits" action in the UI is on the roadmap.
+
+## Staggered spawn
+
+Workers spawn **100 ms apart** rather than simultaneously. A burst of TCP SYNs
+from one IP is a signature anti-abuse middleboxes look for; a steady ramp is
+not. This costs a fraction of a second at the start of a download and measurably
+reduces how often hosts push back at all.
+
+## What this means for your settings
+
+Your thread count is an **upper bound and a request**, not a command. The engine
+will use fewer connections when the host demands it, and won't use more than
+helped when measured.
+
+If a download runs at 2 connections despite a setting of 16, that isn't a bug —
+it's the host telling MacGet what it will tolerate, and MacGet listening.

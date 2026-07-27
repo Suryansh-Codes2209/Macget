@@ -1,0 +1,108 @@
+---
+title: Engine Pipeline
+description: What happens to a download from the moment you add it — probe, disk check, plan, allocate, stream, finalize.
+---
+
+Every HTTP download runs through the same six stages. The engine is
+actor-based: `DownloadEngine` owns the queue, and each running download gets a
+`DownloadCoordinator` that owns its lifecycle.
+
+```
+Probe → Disk-space check → Plan chunks → Allocate partial file
+      → Stream chunks in parallel → Verify & finalize
+```
+
+## 1. Probe
+
+A `HEAD` request, falling back to `GET` with `Range: bytes=0-0` — some servers
+return 405 for HEAD, and failing there would rule out perfectly downloadable
+files.
+
+The probe records:
+
+- **Content length** — the total size, when the server declares one.
+- **`Accept-Ranges`** — whether parallel chunking is possible at all.
+- **`ETag` and `Last-Modified`** — validators kept for
+  [resume](/docs/resume-semantics).
+- **Filename** from `Content-Disposition`, including RFC 5987 encoded forms.
+
+## 2. Disk-space check
+
+If the total size exceeds 95% of free space at the destination, the download is
+refused up front rather than filling the volume and failing late. Free space is
+re-checked during the download too, and the download pauses cleanly if the
+volume fills from elsewhere.
+
+## 3. Plan chunks
+
+`ChunkPlanner` slices the byte range into pieces:
+
+- Target piece size is **8 MB**, capped at **64 pieces**.
+- Every chunk is at least **64 KB** — below that, connection overhead costs more
+  than the parallelism gains.
+- Worker count is clamped to **1–16**, and further clamped by any
+  [learned cap](/docs/adaptive-concurrency) for the host.
+
+Pieces are deliberately smaller than the number of workers. That's what enables
+**work-stealing**: when a worker finishes its piece it immediately takes the
+next outstanding one, so a single slow connection can't hold up the file while
+others sit idle.
+
+If the server doesn't support ranges, the plan collapses to one chunk and the
+download proceeds as a single stream.
+
+## 4. Allocate
+
+`FileWriter` — an actor, so concurrent chunk writes are serialised — opens the
+partial file and truncates it to the full size. On APFS this stays sparse, so
+the space isn't consumed until bytes arrive.
+
+## 5. Stream
+
+All incomplete chunks run in parallel inside a throwing task group. Each chunk
+goes through `ChunkWorker`: one HTTP range request, one attempt, streamed via a
+bridge from `URLSessionDataDelegate` into an `AsyncThrowingStream<Data>`, with
+64 KB buffered writes.
+
+Workers spawn **100 ms apart** rather than all at once, so anti-abuse
+middleboxes see a steady ramp instead of a burst of TCP SYNs from one IP.
+
+Requests opt into **HTTP/3** where the server offers it, falling back to HTTP/2
+and then HTTP/1.1.
+
+Retries are classified rather than blanket:
+
+- **Permanent** — 401, 403, 404, 410, 451, range refusals, malformed responses.
+  These fail immediately; retrying only wastes attempts and risks a ban.
+- **Transient** — connection lost mid-stream, server-side stream kills, 5xx,
+  408, 429. These retry with capped full-jitter exponential backoff, honouring
+  `Retry-After` when the server sends one.
+
+Jitter matters: without it, all chunks of a rate-limited download retry in
+lockstep and re-trigger the same limit.
+
+## 6. Verify and finalize
+
+Any supplied [checksum](/docs/checksums) is verified first. Then
+`FilenameResolver` picks a unique destination name and the partial file is moved
+into place — into a [category folder](/docs/organizing-downloads) if auto-sort
+is on.
+
+## Progress reporting
+
+The coordinator publishes a snapshot every **250 ms** to the UI. Speed comes
+from `SpeedMeter`, a 3-second rolling window over byte samples; ETA is
+suppressed below 1 KB/s, where the estimate would be meaningless noise.
+
+## Staying awake
+
+While any download is running, MacGet holds a `ProcessInfo` activity so macOS
+App Nap doesn't throttle CPU or network when you switch apps or minimise the
+window. The shared `URLSession` uses `responsiveData` service type and extended
+background idle mode.
+
+## Shutdown
+
+On quit, the app suspends active downloads and flushes queue state to disk
+before allowing the process to exit. This is what keeps per-chunk offsets and
+the on-disk partial files consistent with each other.

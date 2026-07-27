@@ -1,112 +1,211 @@
+const REPO = "https://github.com/Suryansh-Codes2209/Macget";
+
 export const siteConfig = {
   name: "MacGet",
   binary: "Macget",
   tagline: "A native macOS download manager that doesn't fight your network.",
   heroHeadline: ["Download.", "In parallel."],
   heroSub:
-    "MacGet splits every file across up to 16 chunks, resumes across restarts, and adapts to throttled hosts — all in a native SwiftUI app built for macOS Tahoe.",
+    "MacGet splits every file across up to 16 chunks, learns what each host will tolerate, and resumes across restarts — a native SwiftUI app for macOS Tahoe.",
   minOS: "macOS Tahoe 26.4",
-  version: "1.0",
-  // TODO: replace REPLACE_ME with the real GitHub username before release
-  repoUrl: "https://github.com/REPLACE_ME/macget",
-  downloadUrl: "https://github.com/REPLACE_ME/macget/releases/latest",
-  licenseUrl: "https://github.com/REPLACE_ME/macget/blob/main/LICENSE",
+  version: "1.2.0",
+
+  /** Canonical origin. Used for metadataBase, canonical tags, and the sitemap. */
+  url: "https://macget.suryansh.work",
+
+  repoUrl: REPO,
+  downloadUrl: `${REPO}/releases/latest`,
+  releasesUrl: `${REPO}/releases`,
+  licenseUrl: `${REPO}/blob/main/LICENSE`,
+  issuesUrl: `${REPO}/issues`,
+  securityUrl: `${REPO}/blob/main/SECURITY.md`,
+  contactEmail: "suryansh.codes2001@gmail.com",
+
   disclaimer:
     "MacGet is not affiliated with or endorsed by Tonec Inc. or Internet Download Manager.",
+
   nav: [
-    { label: "Features", href: "#features" },
-    { label: "How it works", href: "#how" },
-    { label: "FAQ", href: "#faq" },
+    { label: "Features", href: "/#features" },
+    { label: "How it works", href: "/#how" },
+    { label: "Docs", href: "/docs" },
+    { label: "Install", href: "/install" },
+    { label: "Changelog", href: "/changelog" },
   ],
+
+  footerNav: [
+    {
+      title: "Product",
+      links: [
+        { label: "Features", href: "/#features" },
+        { label: "How it works", href: "/#how" },
+        { label: "Changelog", href: "/changelog" },
+        { label: "FAQ", href: "/#faq" },
+      ],
+    },
+    {
+      title: "Documentation",
+      links: [
+        { label: "Docs home", href: "/docs" },
+        { label: "Installation", href: "/install" },
+        { label: "Browser extension", href: "/docs/browser-extension" },
+        { label: "Settings reference", href: "/docs/settings-reference" },
+      ],
+    },
+    {
+      title: "Project",
+      links: [
+        { label: "GitHub", href: REPO, external: true },
+        { label: "Releases", href: `${REPO}/releases`, external: true },
+        { label: "Report an issue", href: `${REPO}/issues`, external: true },
+        { label: "MIT License", href: `${REPO}/blob/main/LICENSE`, external: true },
+      ],
+    },
+    {
+      title: "Legal",
+      links: [
+        { label: "Privacy Policy", href: "/privacy" },
+        { label: "Security policy", href: `${REPO}/blob/main/SECURITY.md`, external: true },
+      ],
+    },
+  ],
+
   features: [
     {
       title: "Up to 16 parallel chunks",
       blurb:
-        "HTTP-Range requests split each file across as many threads as the host allows. The engine clamps to ≥64 KB per chunk to avoid wasting connections.",
+        "HTTP-Range requests split each file across as many connections as the host allows. Work-stealing hands finished workers the next outstanding piece, so one slow chunk never holds up the file.",
       icon: "Layers",
-    },
-    {
-      title: "Resume across restarts",
-      blurb:
-        "Partial files persist with per-chunk progress recorded. If-Range guards against silent corruption when a file changes mid-download.",
-      icon: "RotateCw",
     },
     {
       title: "Adapts to throttled hosts",
       blurb:
-        "Demotes parallelism when servers push back. Caps persist per-host, so the second download to the same origin starts smarter.",
+        "When a server starts rejecting parallelism, the engine halves its workers instead of hammering. The learned cap persists per host, so the next download from that origin starts smart.",
       icon: "Activity",
     },
     {
-      title: "Native SwiftUI, App Nap-resistant",
+      title: "Resume across restarts",
       blurb:
-        "Built for macOS Tahoe 26.4. Keeps streaming when minimized. Hardened Runtime, signed and notarized.",
-      icon: "Apple",
+        "Per-chunk progress is persisted. Quit mid-download and reopen — it picks up where it left off. If-Range validators catch a file that changed underneath you instead of corrupting it.",
+      icon: "RotateCw",
     },
     {
-      title: "Three input paths",
+      title: "Video and audio via yt-dlp",
       blurb:
-        "Clipboard watcher catches copied URLs at 1 Hz. NSServices and drag-and-drop cover everything else.",
-      icon: "Clipboard",
+        "Media links route to a bundled yt-dlp + ffmpeg extractor with a quality and container picker. Opt-in — ordinary links always download as plain HTTP files.",
+      icon: "Clapperboard",
+    },
+    {
+      title: "Downloads behind a login",
+      blurb:
+        "Basic, Digest, and NTLM challenges are answered from credentials you store once. They live in the macOS Keychain, not in a config file.",
+      icon: "KeyRound",
+    },
+    {
+      title: "Capture from your browser",
+      blurb:
+        "A Chrome, Edge, Brave, and Firefox extension hands downloads to MacGet over local native messaging — cookies and referrer included, so logged-in downloads keep working.",
+      icon: "Chrome",
+    },
+    {
+      title: "Verified, not just downloaded",
+      blurb:
+        "SHA-256 and MD5 are checked at finalize, before the partial file is promoted. A mismatch fails the download and keeps the partial rather than handing you a bad file.",
+      icon: "ShieldCheck",
+    },
+    {
+      title: "Yours to schedule",
+      blurb:
+        "Global speed cap, per-download priorities, configurable timeouts and retries, HTTP/HTTPS proxy support, and auto-sort into category folders when a download lands.",
+      icon: "SlidersHorizontal",
     },
     {
       title: "MIT licensed, zero telemetry",
       blurb:
-        "Open source. No analytics. No remote logging. Your queue and settings live in ~/Library/Application Support/Macget.",
-      icon: "ShieldCheck",
+        "No analytics, no remote logging, no account. Your queue and settings never leave ~/Library/Application Support/Macget.",
+      icon: "Lock",
     },
   ],
+
   pipeline: [
     {
       step: "Probe",
       detail:
-        "HEAD with GET-range fallback. Records ETag, Last-Modified, and whether the host honors byte-range requests.",
+        "HEAD with a ranged-GET fallback, because some servers 405 on HEAD. Records size, ETag, Last-Modified, and whether byte ranges are honored at all.",
     },
     {
       step: "Plan",
       detail:
-        "Up to 16 chunks, ≥64 KB each. Clamped to per-host caps the engine has previously learned.",
+        "Split into pieces of ~8 MB, up to 16 workers, each chunk at least 64 KB. Clamped to whatever cap the engine already learned for this host.",
     },
     {
       step: "Stream",
       detail:
-        "Parallel HTTP-Range fetches over a single shared URLSession. Smart retry on transient errors, fail-fast on permanent ones.",
+        "Parallel range requests over one shared URLSession, HTTP/3 where offered. Transient errors back off and retry; permanent ones fail fast instead of burning attempts.",
     },
     {
       step: "Finalize",
       detail:
-        "Atomic move from .macget-partial to the resolved unique filename. Sparkle handles its own update channel separately.",
+        "Verify the checksum if one was given, then move the partial into place under a unique name — and into a category folder if auto-sort is on.",
     },
   ],
+
   stats: [
     { label: "Parallel chunks", value: "16", caption: "max per file" },
     { label: "Telemetry", value: "0", caption: "no analytics, no logging" },
     { label: "License", value: "MIT", caption: "open source forever" },
   ],
+
+  /**
+   * First-launch steps shown inline under the download CTA. MacGet ships
+   * un-notarized, so this is the difference between a user who expects
+   * Gatekeeper and a user who thinks the app is broken.
+   */
+  firstLaunch: [
+    {
+      title: "macOS will warn you once",
+      detail:
+        "“Macget can't be opened because Apple cannot check it for malicious software.” Expected — the build isn't notarized. Click Done.",
+    },
+    {
+      title: "Open Anyway",
+      detail:
+        "System Settings → Privacy & Security. Scroll to the message about Macget and click Open Anyway, then confirm.",
+    },
+    {
+      title: "That's it, forever",
+      detail:
+        "macOS remembers. Every later launch — and every Sparkle auto-update — opens normally with no prompt.",
+    },
+  ],
+
   faq: [
     {
       q: "Why another download manager?",
-      a: "Most chew battery, ignore Range support, or fight macOS power management. Macget uses native URLSession, persists state cleanly, and adapts to hosts instead of hammering them.",
+      a: "Most either ignore Range support, or open every connection they can and get throttled for it. MacGet discovers what each host actually tolerates at runtime and adapts, using native URLSession and persisting state properly across launches.",
+    },
+    {
+      q: "Is it safe if it isn't notarized?",
+      a: "MacGet is distributed free and un-notarized because notarization requires a paid Apple Developer account. That's a cost decision, not a security one: the source is public and auditable, the build has Hardened Runtime enabled, and every auto-update is verified against an EdDSA signature before it installs. The tradeoff is a one-time Gatekeeper prompt on first launch — the install guide walks through it.",
     },
     {
       q: "Apple Silicon?",
-      a: "Yes — built native, Universal binary signed and notarized. Minimum macOS is Tahoe 26.4.",
+      a: "Yes — a native universal binary. Minimum macOS is Tahoe 26.4.",
     },
     {
       q: "What if a server doesn't support Range?",
-      a: "Macget detects this in the probe and falls back to a single-stream download. No corruption, no pretending parallelism is happening.",
-    },
-    {
-      q: "Is the app sandboxed?",
-      a: "No. App Sandbox is intentionally off — Macget is not destined for the Mac App Store. Hardened Runtime is on; updates use Sparkle's EdDSA signatures.",
+      a: "The probe detects it and falls back to a single stream. No corruption, and no pretending parallelism is happening when it isn't.",
     },
     {
       q: "How do updates work?",
-      a: "Sparkle auto-update. The appcast is hosted on the project's GitHub Pages and signed with a private EdDSA key.",
+      a: "Sparkle. MacGet checks a signed appcast on a schedule and can install updates itself — you don't come back here to re-download. Every update is EdDSA-signed and the signature is checked before installing, independently of Apple notarization.",
     },
     {
-      q: "Does it touch my data?",
-      a: "No telemetry, no analytics, no remote logging. Queue and settings live entirely in ~/Library/Application Support/Macget on your machine.",
+      q: "Does it collect anything?",
+      a: "No. No analytics, no telemetry, no remote logging, no account, and no server of ours to send anything to. Your queue, settings, and learned host limits stay in ~/Library/Application Support/Macget. The privacy policy spells out the few cases where MacGet touches the network at all.",
+    },
+    {
+      q: "Is the app sandboxed?",
+      a: "No — App Sandbox is intentionally off, since MacGet isn't destined for the Mac App Store. Hardened Runtime is on.",
     },
   ],
 } as const;

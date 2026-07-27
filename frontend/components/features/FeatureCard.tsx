@@ -4,10 +4,15 @@ import { motion } from "motion/react";
 import {
   Activity,
   Apple,
+  Chrome,
+  Clapperboard,
   Clipboard,
+  KeyRound,
   Layers,
+  Lock,
   RotateCw,
   ShieldCheck,
+  SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
 import { fadeUp } from "@/lib/motion";
@@ -15,10 +20,15 @@ import { fadeUp } from "@/lib/motion";
 const ICONS: Record<string, LucideIcon> = {
   Activity,
   Apple,
+  Chrome,
+  Clapperboard,
   Clipboard,
+  KeyRound,
   Layers,
+  Lock,
   RotateCw,
   ShieldCheck,
+  SlidersHorizontal,
 };
 
 interface FeatureCardProps {

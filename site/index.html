@@ -3,8 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!--
+  This page exists only so GitHub Pages has an index alongside appcast.xml,
+  which must stay at this exact URL — every installed copy of MacGet polls it
+  as its SUFeedURL. The real site is https://macget.suryansh.work/, so this
+  copy is kept out of search results and points canonically at it.
+-->
+<meta name="robots" content="noindex, follow">
+<link rel="canonical" href="https://macget.suryansh.work/">
 <title>MacGet — Free Multi-threaded Download Manager for macOS</title>
-<meta name="description" content="MacGet is a free, open-source download manager for macOS with up to 20 parallel HTTP-Range threads, pause/resume, and a native SwiftUI interface.">
+<meta name="description" content="MacGet is a free, open-source download manager for macOS with up to 16 parallel HTTP-Range threads, pause/resume, and a native SwiftUI interface.">
 <style>
   :root {
     --bg: #0b0d10;
@@ -85,15 +93,16 @@
 <body>
 <main>
   <h1>MacGet</h1>
-  <p class="tagline">A free, open-source download manager for macOS. Up to 20 parallel threads per file.</p>
+  <p class="tagline">A free, open-source download manager for macOS. Up to 16 parallel threads per file.</p>
 
   <a class="cta" href="https://github.com/Suryansh-Codes2209/Macget/releases/latest" rel="noopener">
     Download for macOS
   </a>
   <div class="meta">Requires macOS 26 Tahoe or later · Free forever · MIT licensed</div>
+  <div class="meta">Full site, documentation, and install guide: <a href="https://macget.suryansh.work/" style="color: var(--accent);">macget.suryansh.work</a></div>
 
   <ul class="features">
-    <li><b>Multi-threaded</b><span>HTTP Range requests across up to 20 parallel connections per file.</span></li>
+    <li><b>Multi-threaded</b><span>HTTP Range requests across up to 16 parallel connections per file.</span></li>
     <li><b>Pause / Resume</b><span>State survives quit-and-relaunch. Restart your Mac, pick up where you left off.</span></li>
     <li><b>Native</b><span>Built in SwiftUI. Looks and behaves like a Mac app should.</span></li>
     <li><b>Free</b><span>No ads, no telemetry, no in-app purchases. Open source on GitHub.</span></li>

@@ -1,0 +1,61 @@
+---
+title: Introduction
+description: MacGet is a native, multi-threaded download manager for macOS that adapts to each host instead of hammering it. Start here.
+---
+
+MacGet is a download manager for macOS Tahoe, written in SwiftUI with an
+actor-based engine. It splits each file across up to 16 HTTP-Range connections,
+learns how much parallelism each host will actually tolerate, and resumes
+cleanly across restarts.
+
+These docs cover the shipping release, **v1.2.0**.
+
+## Why it exists
+
+Most "multi-threaded" download managers open as many connections as you allow
+and treat the result as a win. Modern CDNs disagree: they reset connections
+after a few bytes, throttle the IP, or return 403. Past a certain point, more
+threads make a download *slower*, or make it fail outright.
+
+MacGet treats parallelism as something to discover rather than assume. It probes
+upward while throughput improves, backs off when a host starts pushing back, and
+remembers what it learned so the next download from that origin starts at a
+sensible level.
+
+## Where to start
+
+<Cards>
+  <Card title="Install MacGet" href="/docs/installation">
+    Download, install, and get past the first-launch Gatekeeper prompt.
+  </Card>
+  <Card title="Adding downloads" href="/docs/adding-downloads">
+    Five ways to get a URL into the queue, including from your browser.
+  </Card>
+  <Card title="Settings reference" href="/docs/settings-reference">
+    Every setting, its default, and its valid range.
+  </Card>
+  <Card title="How the engine works" href="/docs/engine-pipeline">
+    Probe, plan, stream, finalize — what happens to a download.
+  </Card>
+</Cards>
+
+## What's in the box
+
+- **Up to 16 parallel chunks** per file, with work-stealing so one slow piece
+  doesn't hold up the rest.
+- **Adaptive concurrency** that scales up while it helps and demotes when the
+  host objects, with the learned cap persisted per host.
+- **Resume across restarts**, guarded by `If-Range` validators.
+- **Media downloads** through a bundled yt-dlp and ffmpeg, opt-in.
+- **Authenticated downloads** with credentials in the macOS Keychain.
+- **Browser capture** for Chrome, Edge, Brave, and Firefox.
+- **Checksum verification** before a partial file is promoted.
+- **Bandwidth limits, priorities, proxies, and auto-sorting** into category
+  folders.
+
+## A note on distribution
+
+MacGet is free and distributed **un-notarized**, because notarization requires a
+paid Apple Developer account. macOS will warn you once on first launch. The
+[first launch guide](/docs/first-launch) explains what the warning means and how
+to get past it — and why auto-updates are still signature-verified regardless.

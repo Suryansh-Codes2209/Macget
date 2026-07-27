@@ -1,0 +1,56 @@
+---
+title: Updating
+description: MacGet updates itself through Sparkle, verifying an EdDSA signature on every update before it installs.
+---
+
+After the first install you don't come back to the website. MacGet keeps itself
+current with [Sparkle](https://sparkle-project.org), the standard auto-update
+framework for Mac apps distributed outside the App Store.
+
+## How it works
+
+On launch, MacGet quietly checks a signed appcast feed on a schedule. When a
+newer version is published, it offers to download and install it.
+
+You can also check whenever you like: **MacGet → Check for Updates…** in the
+menu bar.
+
+## Why updates are trustworthy on an un-notarized build
+
+Every release is signed with an **EdDSA** private key held by the maintainer.
+MacGet ships with the corresponding public key (`SUPublicEDKey` in its
+`Info.plist`) and verifies the signature of any update *before* installing it.
+
+An update that was tampered with, corrupted in transit, or served by someone
+who compromised the feed host fails that check and is rejected. This is
+independent of Apple notarization, which is why auto-updates remain safe even
+though the build is not notarized.
+
+Updates install without repeating the [Gatekeeper step](/docs/first-launch) —
+macOS already trusts the app.
+
+## Building from source
+
+If you build from source without adding the Sparkle package dependency, the
+updater is compiled out entirely (`#if canImport(Sparkle)`) and **Check for
+Updates…** explains that the dependency is missing. Pull and rebuild to update
+in that case.
+
+## For maintainers
+
+Publishing an update:
+
+1. Bump **Marketing Version** and **Current Project Version** in the Xcode
+   target settings.
+2. Add an entry to `CHANGELOG.md` — the site's
+   [changelog page](/changelog) is generated from it.
+3. Run `./scripts/release.sh` from the repository root.
+4. Create a GitHub release with the produced `dist/*.dmg` attached.
+5. Regenerate the signed feed with `Sparkle/bin/generate_appcast site/` and push
+   `site/`.
+
+<Callout type="warn" title="The signing key is unrecoverable">
+The EdDSA private key lives only in the maintainer's login Keychain, as
+*"Private key for signing Sparkle updates"*. Without a backup you can never sign
+another update that existing installs will accept. Back it up offline.
+</Callout>

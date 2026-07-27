@@ -1,0 +1,27 @@
+{
+  "title": "Documentation",
+  "root": true,
+  "pages": [
+    "index",
+    "---Getting started---",
+    "installation",
+    "first-launch",
+    "updating",
+    "---Using MacGet---",
+    "adding-downloads",
+    "media-downloads",
+    "authenticated-downloads",
+    "browser-extension",
+    "priorities-and-queue",
+    "organizing-downloads",
+    "checksums",
+    "settings-reference",
+    "---How it works---",
+    "engine-pipeline",
+    "adaptive-concurrency",
+    "resume-semantics",
+    "---Reference---",
+    "file-locations",
+    "troubleshooting"
+  ]
+}

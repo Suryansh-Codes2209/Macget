@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { RootProvider } from "fumadocs-ui/provider/next";
 import { siteConfig } from "@/lib/site-config";
+import { SITE_URL, absoluteUrl, isProduction } from "@/lib/seo";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -15,28 +17,55 @@ const geistMono = Geist_Mono({
   display: "swap",
 });
 
+const title = `${siteConfig.name} — ${siteConfig.tagline}`;
+
 export const metadata: Metadata = {
-  title: `${siteConfig.name} — ${siteConfig.tagline}`,
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: title,
+    template: `%s | ${siteConfig.name}`,
+  },
   description: siteConfig.heroSub,
   applicationName: siteConfig.name,
-  authors: [{ name: siteConfig.name }],
+  authors: [{ name: "Suryansh", url: "https://github.com/Suryansh-Codes2209" }],
+  creator: "Suryansh",
+  alternates: { canonical: absoluteUrl("/") },
   keywords: [
-    "macOS",
-    "download manager",
-    "multi-threaded",
-    "HTTP range",
+    "macOS download manager",
+    "multi-threaded downloader",
+    "HTTP range download",
+    "IDM alternative for Mac",
+    "yt-dlp Mac GUI",
+    "resume downloads macOS",
+    "open source download manager",
     "SwiftUI",
-    "open source",
     "MacGet",
   ],
+  category: "technology",
+  // Preview deployments must not compete with the canonical site in search.
+  robots: isProduction
+    ? {
+        index: true,
+        follow: true,
+        googleBot: {
+          index: true,
+          follow: true,
+          "max-image-preview": "large",
+          "max-snippet": -1,
+        },
+      }
+    : { index: false, follow: false },
   openGraph: {
-    title: `${siteConfig.name} — ${siteConfig.tagline}`,
+    title,
     description: siteConfig.heroSub,
+    url: SITE_URL,
+    siteName: siteConfig.name,
+    locale: "en_US",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: `${siteConfig.name} — ${siteConfig.tagline}`,
+    title,
     description: siteConfig.heroSub,
   },
 };
@@ -55,11 +84,14 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable}`}
+      // The site is dark-only; `dark` is what fumadocs keys its tokens off.
+      className={`dark ${geistSans.variable} ${geistMono.variable}`}
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-midnight font-sans text-frost antialiased">
-        {children}
+        <RootProvider theme={{ enabled: false, forcedTheme: "dark" }}>
+          {children}
+        </RootProvider>
       </body>
     </html>
   );

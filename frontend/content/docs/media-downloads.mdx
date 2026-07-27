@@ -1,0 +1,67 @@
+---
+title: Media Downloads
+description: Downloading video and audio through the bundled yt-dlp and ffmpeg, with format selection, subtitles, metadata, and thumbnails.
+---
+
+MacGet can download video and audio from streaming sites using a bundled
+**yt-dlp** and **ffmpeg**. Ordinary links are unaffected — they still download
+as plain HTTP files through the multi-threaded engine.
+
+<Callout title="Off by default">
+Media extraction is disabled until you turn it on in
+**Settings → Media**, which also carries a terms-of-service acknowledgement.
+With it off, yt-dlp is never invoked.
+</Callout>
+
+## How a link is classified
+
+MacGet uses a deliberately conservative host-based classifier rather than
+guessing from the URL shape. Recognised hosts include YouTube (`youtube.com`,
+`youtu.be`, `youtube-nocookie.com`), Vimeo, Twitch, Dailymotion, TikTok,
+SoundCloud, Streamable, and Reddit video.
+
+Anything not on the list downloads as a normal file. This is intentional: a
+false positive would route a plain download through an extractor that cannot
+handle it, which is far more annoying than a missed one.
+
+## Choosing a format
+
+When a media link is recognised, MacGet queries the available formats and shows
+a picker with resolution, container, and codec. Pick one and the download
+proceeds; ffmpeg merges separate video and audio streams when the site serves
+them apart, which is normal for higher resolutions.
+
+## Extras
+
+Configured in **Settings → Media**, and applied to every media download:
+
+| Option | Default | Notes |
+| --- | --- | --- |
+| Write subtitles | Off | Downloads subtitle tracks alongside the media |
+| Subtitle languages | `en` | Comma-separated, e.g. `en,es`, or `all` |
+| Embed metadata | Off | Writes title, uploader, and date into the file |
+| Write thumbnail | Off | Saves the poster image next to the download |
+
+## Progress reporting
+
+Media downloads report progress from yt-dlp rather than from MacGet's chunk
+engine, because the extractor owns the transfer. You'll see throughput and
+percentage, but not the per-chunk breakdown that HTTP downloads show — there are
+no MacGet-managed chunks to display.
+
+## Limitations
+
+- **No multi-threaded chunking.** Extraction is handled by yt-dlp, so MacGet's
+  adaptive concurrency doesn't apply.
+- **Sites change.** Extractors break when sites change their players. Since
+  yt-dlp is bundled with the app, fixes arrive with MacGet updates rather than
+  independently.
+- **Some content will not download.** DRM-protected streams are not extractable,
+  and MacGet makes no attempt to circumvent that.
+
+## Your responsibility
+
+MacGet is a general-purpose tool. Downloading content you don't have the right
+to copy may violate a site's terms of service or copyright law where you live.
+That's your call to make, and the acknowledgement in Settings exists so it is a
+deliberate one.

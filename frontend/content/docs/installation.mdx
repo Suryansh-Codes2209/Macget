@@ -1,0 +1,70 @@
+---
+title: Installation
+description: Download and install MacGet on macOS Tahoe 26.4 or later, from a release DMG or from source.
+---
+
+MacGet requires **macOS Tahoe 26.4 or later**. It ships as a universal binary,
+so it runs natively on both Apple Silicon and Intel Macs.
+
+## From a release DMG
+
+1. Download `Macget.dmg` from the
+   [releases page](https://github.com/Suryansh-Codes2209/Macget/releases/latest).
+2. Open the DMG.
+3. Drag **Macget** into your **Applications** folder.
+4. Eject the DMG.
+
+<Callout title="Keep it in /Applications">
+The browser extension's native-messaging host is registered at the path MacGet
+last launched from. Moving the app and relaunching re-stamps it, but leaving it
+in `/Applications` avoids the question entirely.
+</Callout>
+
+The first time you open it, macOS will block the launch — MacGet is not
+notarized. This is expected and takes about fifteen seconds to clear; see
+[First launch](/docs/first-launch).
+
+## From source
+
+The Xcode project is committed with all source references, so there is no
+generation step.
+
+```bash
+git clone https://github.com/Suryansh-Codes2209/Macget.git
+cd Macget
+open Macget.xcodeproj
+```
+
+Then press **⌘R** to run or **⌘U** to test.
+
+Sparkle is gated behind `#if canImport(Sparkle)`, so the app builds and runs
+without the dependency — the **Check for Updates…** menu item simply explains
+that it is missing. To enable auto-updates, add the package in Xcode:
+
+**File → Add Package Dependencies…** → `https://github.com/sparkle-project/Sparkle`
+(version 2.6.0 or later).
+
+### Building from the command line
+
+```bash
+xcodebuild -project Macget.xcodeproj -scheme Macget -configuration Debug build
+xcodebuild test -project Macget.xcodeproj -scheme Macget -destination 'platform=macOS'
+```
+
+## Bundled tools
+
+Release builds bundle **yt-dlp** and **ffmpeg** inside the app, used only for
+[media downloads](/docs/media-downloads). Nothing is installed system-wide, and
+nothing is downloaded at runtime.
+
+## Uninstalling
+
+Quit MacGet, then:
+
+```bash
+rm -rf /Applications/Macget.app
+rm -rf ~/Library/Application\ Support/Macget
+```
+
+Remove any saved download credentials from Keychain Access, and uninstall the
+browser extension if you added it.

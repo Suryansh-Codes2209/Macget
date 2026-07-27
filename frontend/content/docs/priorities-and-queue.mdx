@@ -1,0 +1,69 @@
+---
+title: Priorities & the Queue
+description: How MacGet decides what downloads next — concurrency limits, High/Normal/Low priorities, and stable ordering.
+---
+
+MacGet runs a bounded number of downloads at once and keeps the rest queued. Two
+things decide what runs next: the concurrency limit and each download's
+priority.
+
+## Concurrency limit
+
+**Maximum concurrent downloads** (default **3**) caps how many downloads are
+active simultaneously. This is separate from the thread count, which controls
+how many connections a *single* download uses.
+
+The two multiply. Three concurrent downloads at 8 threads each is up to 24 open
+connections — which is why raising both aggressively tends to make everything
+slower rather than faster.
+
+## Priorities
+
+Every download is **High**, **Normal** (the default), or **Low**. Change it from
+the context menu on any queued download.
+
+The scheduler always prefers a higher-priority download when a slot frees up.
+Within the same priority, ordering is **stable**: downloads run in the order you
+added them. Bumping one item to High doesn't reshuffle everything else.
+
+Priority affects *scheduling only*. It does not give a running download more
+bandwidth or more threads — an active download is never throttled in favour of a
+higher-priority one that starts later.
+
+## Pause, resume, cancel
+
+- **Pause** stops the transfer and keeps the partial file and per-chunk
+  progress. Resuming continues from where it stopped.
+- **Cancel** stops the download and discards it from the queue.
+- **Pause All** / **Resume All** apply to everything at once.
+
+Pausing frees a concurrency slot, so the next queued download starts.
+
+## Bandwidth limiting
+
+A global speed cap across all active downloads is available in
+**Settings → Downloads**. It's implemented as a token-bucket rate limiter over
+the aggregate, not per download — so three downloads under a 5 MB/s cap share
+that 5 MB/s.
+
+Leave it unset for unlimited.
+
+## Live thread adjustment
+
+You can change a running download's thread count without restarting it. MacGet
+splits an in-flight chunk to spawn additional workers.
+
+Increases are subject to the [per-host cap](/docs/adaptive-concurrency) the
+engine has learned. If a host has been demoted to 2 workers, asking for 16 will
+not override that — the cap exists because the host was actively rejecting more.
+
+## On restart
+
+What happens to in-flight downloads when you quit depends on **Resume downloads
+on launch** (on by default):
+
+- **On** — downloads that were running are rescheduled and continue.
+- **Off** — anything that was downloading is moved to **paused**, waiting for
+  you.
+
+Either way, no progress is lost: per-chunk offsets are persisted before exit.

@@ -19,7 +19,7 @@ export function Features() {
               <br className="hidden sm:inline" /> actually work.
             </span>
           }
-          lede="One shared URLSession. Six features that compound. No background daemons, no kernel extensions, no telemetry."
+          lede="One shared URLSession, an engine that learns each host's limits, and no background daemons, kernel extensions, or telemetry anywhere."
         />
 
         <MotionInView className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">

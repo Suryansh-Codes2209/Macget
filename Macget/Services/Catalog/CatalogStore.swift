@@ -12,9 +12,33 @@ import OSLog
 enum CatalogStore {
     private static let log = Logger(subsystem: "com.macget", category: "CatalogStore")
 
+    /// Built-ins carry their own default enabled state (Standard Ebooks ships off
+    /// because its feed is donor-gated), so a single "disabled" list isn't enough
+    /// — we track both directions and let the built-in's default apply when the
+    /// user has expressed no preference.
     private struct Payload: Codable {
         var custom: [CatalogSource] = []
         var disabledBuiltInIDs: [UUID] = []
+        var enabledBuiltInIDs: [UUID] = []
+
+        private enum CodingKeys: String, CodingKey {
+            case custom, disabledBuiltInIDs, enabledBuiltInIDs
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            custom = try c.decodeIfPresent([CatalogSource].self, forKey: .custom) ?? []
+            disabledBuiltInIDs = try c.decodeIfPresent([UUID].self, forKey: .disabledBuiltInIDs) ?? []
+            enabledBuiltInIDs = try c.decodeIfPresent([UUID].self, forKey: .enabledBuiltInIDs) ?? []
+        }
+
+        init(custom: [CatalogSource], disabledBuiltInIDs: [UUID], enabledBuiltInIDs: [UUID]) {
+            self.custom = custom
+            self.disabledBuiltInIDs = disabledBuiltInIDs
+            self.enabledBuiltInIDs = enabledBuiltInIDs
+        }
     }
 
     static var fileURL: URL = {
@@ -35,9 +59,14 @@ enum CatalogStore {
     static func load() -> [CatalogSource] {
         let payload = loadPayload()
         let disabled = Set(payload.disabledBuiltInIDs)
+        let enabled = Set(payload.enabledBuiltInIDs)
         let builtIns = CatalogSource.builtIns.map { builtIn -> CatalogSource in
             var copy = builtIn
-            copy.isEnabled = !disabled.contains(builtIn.id)
+            if disabled.contains(builtIn.id) {
+                copy.isEnabled = false
+            } else if enabled.contains(builtIn.id) {
+                copy.isEnabled = true
+            }   // else: keep the built-in's shipped default
             return copy
         }
         // Defensive: a hand-edited file could mark a custom entry as built-in and
@@ -53,7 +82,8 @@ enum CatalogStore {
     static func save(_ sources: [CatalogSource]) {
         let payload = Payload(
             custom: sources.filter { !$0.isBuiltIn },
-            disabledBuiltInIDs: sources.filter { $0.isBuiltIn && !$0.isEnabled }.map(\.id)
+            disabledBuiltInIDs: sources.filter { $0.isBuiltIn && !$0.isEnabled }.map(\.id),
+            enabledBuiltInIDs: sources.filter { $0.isBuiltIn && $0.isEnabled }.map(\.id)
         )
         do {
             let encoder = JSONEncoder()

@@ -54,17 +54,25 @@ final class BookBrowserModel {
     var searchText = ""
     private(set) var isSearchResult = false
 
-    var selectedEntryID: CatalogEntry.ID?
+    var selectedEntryID: CatalogEntry.ID? {
+        didSet {
+            guard selectedEntryID != oldValue else { return }
+            resolveAcquisitionsForSelection()
+        }
+    }
     var selectedEntry: CatalogEntry? {
         entries.first { $0.id == selectedEntryID }
     }
+    /// True while an entry's real download links are being fetched (archive.org
+    /// only — OPDS feeds carry them inline).
+    private(set) var isResolvingSelection = false
 
     /// Transient confirmation shown after a book is queued.
     private(set) var statusMessage: String?
 
     // MARK: Dependencies
 
-    private let client: OPDSClient
+    private let service: CatalogService
     private let onDownload: (CatalogEntry, AcquisitionLink) -> Void
     private let log = Logger(subsystem: "com.macget", category: "BookBrowser")
 
@@ -73,11 +81,11 @@ final class BookBrowserModel {
     private var loadGeneration = 0
 
     init(
-        client: OPDSClient = OPDSClient(),
+        service: CatalogService = CatalogService(),
         sources: [CatalogSource] = CatalogStore.load(),
         onDownload: @escaping (CatalogEntry, AcquisitionLink) -> Void
     ) {
-        self.client = client
+        self.service = service
         self.sources = sources
         self.onDownload = onDownload
         self.selectedSourceID = sources.first(where: \.isEnabled)?.id
@@ -109,7 +117,23 @@ final class BookBrowserModel {
         }
         breadcrumbs = [(title: source.name, url: source.feedURL)]
         isSearchResult = false
-        load(url: source.feedURL, replacingResults: true)
+
+        // The root is fetched through `rootFeed`, not `loadFeed` — archive.org has
+        // no feed document at its base URL, so its shelves are synthesized.
+        loadGeneration += 1
+        let generation = loadGeneration
+        state = .loading
+        selectedEntryID = nil
+        Task {
+            do {
+                let feed = try await service.rootFeed(for: source)
+                guard generation == loadGeneration else { return }
+                apply(feed, replacingResults: true)
+            } catch {
+                guard generation == loadGeneration else { return }
+                fail(error)
+            }
+        }
     }
 
     func open(_ link: CatalogNavigationLink) {
@@ -148,7 +172,7 @@ final class BookBrowserModel {
 
         Task {
             do {
-                let feed = try await client.search(query: query, in: source)
+                let feed = try await service.search(query: query, in: source)
                 guard generation == loadGeneration else { return }
                 breadcrumbs = [
                     (title: source.name, url: source.feedURL),
@@ -166,6 +190,7 @@ final class BookBrowserModel {
     // MARK: - Loading
 
     private func load(url: URL, replacingResults: Bool) {
+        guard let source = selectedSource else { return }
         loadGeneration += 1
         let generation = loadGeneration
         state = .loading
@@ -173,7 +198,7 @@ final class BookBrowserModel {
 
         Task {
             do {
-                let feed = try await client.loadFeed(at: url)
+                let feed = try await service.loadFeed(at: url, for: source)
                 guard generation == loadGeneration else { return }
                 apply(feed, replacingResults: replacingResults)
             } catch {
@@ -190,12 +215,13 @@ final class BookBrowserModel {
         guard let index = entries.firstIndex(where: { $0.id == entry.id }),
               index >= entries.count - 6 else { return }
 
+        guard let source = selectedSource else { return }
         isLoadingMore = true
         let generation = loadGeneration
         Task {
             defer { isLoadingMore = false }
             do {
-                let feed = try await client.loadFeed(at: next)
+                let feed = try await service.loadFeed(at: next, for: source)
                 guard generation == loadGeneration else { return }
                 appendPage(feed)
             } catch {
@@ -236,6 +262,34 @@ final class BookBrowserModel {
         navigation = []
         nextPageURL = nil
         log.error("Catalog load failed: \(message, privacy: .public)")
+    }
+
+    // MARK: - Resolving download links
+
+    /// archive.org search results carry only an identifier, so the real file list
+    /// is fetched when the user selects a book. OPDS entries already have theirs
+    /// and this returns immediately without a request.
+    private func resolveAcquisitionsForSelection() {
+        guard let source = selectedSource, source.kind == .archiveOrg else { return }
+        guard let entryID = selectedEntryID,
+              let index = entries.firstIndex(where: { $0.id == entryID }) else { return }
+        let entry = entries[index]
+        // Already resolved — a details-only entry has exactly one text/html link.
+        guard entry.downloadableAcquisitions.isEmpty else { return }
+
+        isResolvingSelection = true
+        let generation = loadGeneration
+        Task {
+            defer { isResolvingSelection = false }
+            do {
+                let links = try await service.resolveAcquisitions(for: entry, in: source)
+                guard generation == loadGeneration,
+                      let current = entries.firstIndex(where: { $0.id == entryID }) else { return }
+                entries[current].acquisitions = links
+            } catch {
+                log.error("Could not resolve files for \(entryID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     // MARK: - Downloading

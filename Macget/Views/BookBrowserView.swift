@@ -323,7 +323,15 @@ private struct BookDetailPane: View {
 
     @ViewBuilder
     private var formats: some View {
-        if entry.downloadableAcquisitions.isEmpty {
+        if model.isResolvingSelection, entry.downloadableAcquisitions.isEmpty {
+            // archive.org only: the file list is a second request, made on selection.
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Finding available formats…")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        } else if entry.downloadableAcquisitions.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Not available for download")
                     .font(.subheadline.weight(.medium))

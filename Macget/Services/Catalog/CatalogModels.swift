@@ -2,8 +2,22 @@ import Foundation
 
 // MARK: - Catalog sources
 
-/// One OPDS catalog root the user can browse. Built-ins ship with the app and
-/// can be disabled but not deleted; user-added ones can be removed.
+/// How MacGet talks to a catalog.
+///
+/// Almost everything speaks OPDS. `archiveOrg` exists because the Internet
+/// Archive **retired its OPDS BookServer** — `bookserver.archive.org` no longer
+/// resolves — so IA is reached through its own JSON search/metadata API instead.
+enum CatalogKind: String, Codable, Sendable, Hashable {
+    case opds
+    case archiveOrg
+    /// Project Gutenberg via the Gutendex JSON API — Gutenberg's own OPDS search
+    /// returns one sub-feed per book rather than inline download links. See
+    /// `GutendexClient`.
+    case gutendex
+}
+
+/// One catalog root the user can browse. Built-ins ship with the app and can be
+/// disabled but not deleted; user-added ones can be removed.
 ///
 /// `id` is stable for built-ins (hardcoded UUIDs) so a user's enable/disable
 /// choice survives relaunch even though the built-in list itself isn't persisted.
@@ -11,22 +25,36 @@ struct CatalogSource: Identifiable, Codable, Sendable, Equatable, Hashable {
     let id: UUID
     var name: String
     var feedURL: URL
+    var kind: CatalogKind
     var isBuiltIn: Bool
     var isEnabled: Bool
+    /// Shown in Settings when a catalog needs something MacGet can't provide —
+    /// currently only Standard Ebooks, whose feed is donor-gated.
+    var note: String?
 
-    init(id: UUID = UUID(), name: String, feedURL: URL, isBuiltIn: Bool = false, isEnabled: Bool = true) {
+    init(
+        id: UUID = UUID(),
+        name: String,
+        feedURL: URL,
+        kind: CatalogKind = .opds,
+        isBuiltIn: Bool = false,
+        isEnabled: Bool = true,
+        note: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.feedURL = feedURL
+        self.kind = kind
         self.isBuiltIn = isBuiltIn
         self.isEnabled = isEnabled
+        self.note = note
     }
 
     // Explicit Codable with `decodeIfPresent` defaults, matching the discipline in
     // `Download` — an older catalogs.json missing a field must still decode rather
     // than dropping every catalog the user added.
     private enum CodingKeys: String, CodingKey {
-        case id, name, feedURL, isBuiltIn, isEnabled
+        case id, name, feedURL, kind, isBuiltIn, isEnabled, note
     }
 
     init(from decoder: Decoder) throws {
@@ -34,32 +62,51 @@ struct CatalogSource: Identifiable, Codable, Sendable, Equatable, Hashable {
         id = try c.decode(UUID.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         feedURL = try c.decode(URL.self, forKey: .feedURL)
+        kind = try c.decodeIfPresent(CatalogKind.self, forKey: .kind) ?? .opds
         isBuiltIn = try c.decodeIfPresent(Bool.self, forKey: .isBuiltIn) ?? false
         isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        note = try c.decodeIfPresent(String.self, forKey: .note)
     }
 }
 
 extension CatalogSource {
     /// Catalogs that ship with the app. All are free/public-domain or
-    /// openly-licensed sources that publish a documented OPDS feed.
+    /// openly-licensed sources.
+    ///
+    /// Endpoints here were verified against the live services rather than taken
+    /// from documentation — two of the three "obvious" URLs turned out not to
+    /// work (see the notes on Internet Archive and Standard Ebooks below).
     static let builtIns: [CatalogSource] = [
         CatalogSource(
             id: UUID(uuidString: "1A5E0C10-0000-4000-A000-000000000001")!,
             name: "Project Gutenberg",
-            feedURL: URL(string: "https://m.gutenberg.org/ebooks.opds/")!,
+            feedURL: URL(string: "https://gutendex.com/books")!,
+            kind: .gutendex,
             isBuiltIn: true
         ),
+        // IA retired its OPDS BookServer — `bookserver.archive.org` doesn't even
+        // resolve now — so this goes through archive.org's JSON APIs instead.
+        // `feedURL` is the item base, used to build search and download URLs.
+        CatalogSource(
+            id: UUID(uuidString: "1A5E0C10-0000-4000-A000-000000000003")!,
+            name: "Internet Archive",
+            feedURL: URL(string: "https://archive.org/")!,
+            kind: .archiveOrg,
+            isBuiltIn: true
+        ),
+        // Standard Ebooks gates *all* its OPDS feeds (`/feeds/opds`,
+        // `/feeds/opds/all`, `/feeds/opds/new-releases`) behind a Patrons Circle
+        // donation — every one returns 401 to an anonymous client. Shipped off by
+        // default so it doesn't greet new users with an auth error; a patron can
+        // switch it on and it works.
         CatalogSource(
             id: UUID(uuidString: "1A5E0C10-0000-4000-A000-000000000002")!,
             name: "Standard Ebooks",
             feedURL: URL(string: "https://standardebooks.org/feeds/opds")!,
-            isBuiltIn: true
-        ),
-        CatalogSource(
-            id: UUID(uuidString: "1A5E0C10-0000-4000-A000-000000000003")!,
-            name: "Internet Archive",
-            feedURL: URL(string: "https://bookserver.archive.org/catalog/")!,
-            isBuiltIn: true
+            kind: .opds,
+            isBuiltIn: true,
+            isEnabled: false,
+            note: "Requires a Standard Ebooks Patrons Circle membership — their OPDS feed rejects anonymous clients."
         ),
     ]
 
@@ -73,9 +120,6 @@ extension CatalogSource {
         }
         if host.hasSuffix("standardebooks.org") {
             return "https://standardebooks.org/feeds/opds/all?query={searchTerms}"
-        }
-        if host.hasSuffix("archive.org") {
-            return "https://bookserver.archive.org/catalog/search?q={searchTerms}"
         }
         return nil
     }

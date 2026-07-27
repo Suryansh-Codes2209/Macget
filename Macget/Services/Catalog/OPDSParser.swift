@@ -187,7 +187,7 @@ private final class AtomFeedDelegate: NSObject, XMLParserDelegate {
                 namespaceURI: String?,
                 qualifiedName qName: String?,
                 attributes attributeDict: [String: String] = [:]) {
-        let name = Self.localName(elementName)
+        let name = CatalogText.localName(elementName)
         elementStack.append(name)
         text = ""
 
@@ -226,7 +226,7 @@ private final class AtomFeedDelegate: NSObject, XMLParserDelegate {
                 didEndElement elementName: String,
                 namespaceURI: String?,
                 qualifiedName qName: String?) {
-        let name = Self.localName(elementName)
+        let name = CatalogText.localName(elementName)
         defer {
             if !elementStack.isEmpty { elementStack.removeLast() }
             text = ""
@@ -268,7 +268,7 @@ private final class AtomFeedDelegate: NSObject, XMLParserDelegate {
 
         case "summary", "content":
             if currentEntry != nil, currentEntry?.summary?.isEmpty ?? true, !value.isEmpty {
-                currentEntry?.summary = Self.strippingHTML(value)
+                currentEntry?.summary = CatalogText.strippingHTML(value)
             }
 
         case "language":
@@ -283,7 +283,7 @@ private final class AtomFeedDelegate: NSObject, XMLParserDelegate {
 
         case "updated", "issued", "date":
             if currentEntry != nil, currentEntry?.updated == nil {
-                currentEntry?.updated = Self.parseDate(value)
+                currentEntry?.updated = CatalogText.parseDate(value)
             }
 
         default:
@@ -301,7 +301,7 @@ private final class AtomFeedDelegate: NSObject, XMLParserDelegate {
 
     private func handleLinkStart(_ attributes: [String: String]) {
         guard let href = attributes["href"],
-              let url = Self.resolve(href, against: baseURL) else { return }
+              let url = CatalogText.resolve(href, against: baseURL) else { return }
         let rel = attributes["rel"] ?? ""
         let type = attributes["type"] ?? ""
 
@@ -410,7 +410,14 @@ private final class AtomFeedDelegate: NSObject, XMLParserDelegate {
         // nothing actionable to show.
     }
 
-    // MARK: Helpers
+}
+
+// MARK: - Shared text helpers
+
+/// Small parsing utilities shared by the OPDS and archive.org catalog paths.
+/// Both back the same `CatalogEntry`, so both need the same summary cleanup and
+/// URL resolution.
+enum CatalogText {
 
     /// Strip a namespace prefix and lowercase, so `dc:language`, `dcterms:language`
     /// and `language` all match the same case.
@@ -492,7 +499,7 @@ private final class OpenSearchDelegate: NSObject, XMLParserDelegate {
                 namespaceURI: String?,
                 qualifiedName qName: String?,
                 attributes attributeDict: [String: String] = [:]) {
-        guard AtomFeedDelegate.localName(elementName) == "url",
+        guard CatalogText.localName(elementName) == "url",
               let template = attributeDict["template"], !template.isEmpty else { return }
         templates.append((attributeDict["type"] ?? "", template))
     }
@@ -567,7 +574,7 @@ private struct OPDS2Feed: Decodable {
         }
 
         feed.navigation = navLinks.compactMap { link in
-            guard let url = AtomFeedDelegate.resolve(link.href, against: baseURL) else { return nil }
+            guard let url = CatalogText.resolve(link.href, against: baseURL) else { return nil }
             let title = link.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !title.isEmpty else { return nil }
             return CatalogNavigationLink(id: link.href, title: title, url: url, subtitle: nil)
@@ -577,14 +584,14 @@ private struct OPDS2Feed: Decodable {
 
         for link in links ?? [] {
             let rels = link.rel?.values ?? []
-            if rels.contains("next"), let url = AtomFeedDelegate.resolve(link.href, against: baseURL) {
+            if rels.contains("next"), let url = CatalogText.resolve(link.href, against: baseURL) {
                 feed.nextPageURL = url
             }
             if rels.contains("search") {
                 if link.templated == true || link.href.contains("{searchTerms}") {
                     feed.searchTemplate = link.href
                 } else if link.type?.lowercased().contains("opensearchdescription") == true,
-                          let url = AtomFeedDelegate.resolve(link.href, against: baseURL) {
+                          let url = CatalogText.resolve(link.href, against: baseURL) {
                     feed.searchDescriptionURL = url
                 }
             }
@@ -607,7 +614,7 @@ private extension OPDS2Feed.Publication {
             guard acquisitionRel != nil || (link.type.flatMap { BookFormat(mimeType: $0)?.isSupported } == true) else {
                 return nil
             }
-            guard let url = AtomFeedDelegate.resolve(link.href, against: baseURL) else { return nil }
+            guard let url = CatalogText.resolve(link.href, against: baseURL) else { return nil }
             var price: AcquisitionLink.Price?
             if let p = link.properties?.price, let value = p.value {
                 price = .init(amount: Decimal(value), currencyCode: p.currency ?? "USD")
@@ -622,20 +629,20 @@ private extension OPDS2Feed.Publication {
         guard !acquisitions.isEmpty else { return nil }
 
         let imageLinks = images ?? []
-        let cover = imageLinks.first.flatMap { AtomFeedDelegate.resolve($0.href, against: baseURL) }
-        let thumbnail = imageLinks.last.flatMap { AtomFeedDelegate.resolve($0.href, against: baseURL) }
+        let cover = imageLinks.first.flatMap { CatalogText.resolve($0.href, against: baseURL) }
+        let thumbnail = imageLinks.last.flatMap { CatalogText.resolve($0.href, against: baseURL) }
 
         return CatalogEntry(
             id: metadata?.identifier ?? title,
             title: title,
             authors: metadata?.author?.values ?? [],
-            summary: metadata?.description.map(AtomFeedDelegate.strippingHTML),
+            summary: metadata?.description.map(CatalogText.strippingHTML),
             publisher: metadata?.publisher?.values.first,
             language: metadata?.language?.values.first,
             subjects: metadata?.subject?.values ?? [],
             coverURL: cover ?? thumbnail,
             thumbnailURL: thumbnail ?? cover,
-            updated: metadata?.modified.flatMap(AtomFeedDelegate.parseDate),
+            updated: metadata?.modified.flatMap(CatalogText.parseDate),
             acquisitions: acquisitions
         )
     }

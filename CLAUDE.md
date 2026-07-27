@@ -80,16 +80,23 @@ UI mutations always go through engine actor methods (`pause/resume/cancel/remove
 - If false, anything that was `downloading` is moved to `paused`.
 - Workers send the recorded `etag` (or `lastModified`) as `If-Range` so a changed file fails-fast instead of corrupting the partial.
 
-### Book catalogs (OPDS)
+### Book catalogs
 
-`Macget/Services/Catalog/` is a self-contained subsystem that adds **no engine work** — an OPDS acquisition link is an ordinary HTTPS URL, so downloading a book is just `engine.add(kind: .httpFile)`.
+`Macget/Services/Catalog/` is a self-contained subsystem that adds **no engine work** — a book acquisition link is an ordinary HTTPS URL, so downloading one is just `engine.add(kind: .httpFile)`.
 
-- `OPDSParser` — pure and synchronous, so every branch is testable against fixtures. Handles both OPDS 1.2 (Atom XML, via a streaming `XMLParser` delegate with namespace processing *off* — element names are matched by stripped local name so `dc:language`/`dcterms:language`/`language` all work) and OPDS 2.0 (JSON). Both paths exist because Gutenberg is retiring its XML feeds in 2027.
-- `OPDSClient` — actor; owns networking only, plus a per-catalog search-template cache (discovering one costs an extra OpenSearch fetch). Sends an explicit `Accept` header: several catalogs content-negotiate and will serve HTML to a client that doesn't ask for OPDS. Resolves relative hrefs against the *final* (post-redirect) URL.
-- `CatalogStore` — persists only *user-added* catalogs and *disabled* built-in IDs to `catalogs.json`. Built-ins come from `CatalogSource.builtIns` at load time, so fixing a built-in's feed URL reaches existing installs instead of being pinned by a stale file.
-- `AcquisitionLink.isDownloadable` is the single gate: direct-download rel, no price, http(s), recognized format. DRM fulfilment documents (`application/vnd.adobe.adept+xml`, LCP) are parsed and displayed but never fetched — the href is a license token, not a book.
+**Three backends, one model.** Everything produces a `CatalogFeed`, and `CatalogService` dispatches on `CatalogSource.kind` so `BookBrowserModel` never branches. Two of the three exist because the obvious OPDS endpoints don't work — verified against the live services, not assumed:
 
-`AppEnvironment.addBook` deliberately bypasses `add(url:)`/`MediaURLClassifier`: a catalog acquisition link is already a known book file, and MacGet names it `Title - Author.epub` because catalogs routinely serve `2701.epub`.
+- **`.gutendex`** → Project Gutenberg. Its *own* OPDS search returns **navigation** entries (one `/ebooks/<id>.opds` sub-feed per result), so getting a download link would cost a request per book — and those per-book feeds were returning 504s. `search.opds2` is a 404. Gutendex returns every format's direct URL inline, which is what a grid needs.
+- **`.archiveOrg`** → Internet Archive. **IA retired its OPDS BookServer; `bookserver.archive.org` no longer resolves at all.** Replaced by `advancedsearch.php?output=json` (browse/search) plus `metadata/<id>/files` (per-item file list). File lists are fetched lazily on selection — resolving them for a 50-result page would mean 50 extra requests. `CatalogService.resolveAcquisitions` is that hook, and is a no-op for the other kinds.
+- **`.opds`** → everything else, including user-added Calibre servers. `OPDSParser` is pure and synchronous so every branch is fixture-testable; it handles OPDS 1.2 (Atom XML, via a streaming `XMLParser` delegate with namespace processing *off* — matched by stripped local name so `dc:language`/`dcterms:language`/`language` all work) and OPDS 2.0 (JSON). `OPDSClient` sends an explicit `Accept` header because several catalogs content-negotiate to HTML otherwise, and resolves relative hrefs against the *final* (post-redirect) URL.
+
+Standard Ebooks ships as a built-in but **disabled**: every one of its OPDS feeds (`/feeds/opds`, `/all`, `/new-releases`) returns 401 to anonymous clients — access is a Patrons Circle donor benefit. Hence `CatalogStore` tracks *both* explicitly-enabled and explicitly-disabled built-in IDs, so a built-in's shipped default applies until the user expresses a preference.
+
+Other invariants:
+
+- `AcquisitionLink.isDownloadable` is the single gate: direct-download rel, no price, http(s), recognized format. DRM fulfilment documents are parsed and displayed but never fetched — the href is a license token, not a book. This matters most on archive.org, which lists `LCP Encrypted EPUB` / `ACS Encrypted PDF` right beside the free files.
+- `URLSessionFactory.metadata` (not `.shared`) backs all catalog requests. `.shared` sets `waitsForConnectivity = true` and `timeoutIntervalForResource = .infinity` — correct for a multi-gigabyte download, but it makes a dead catalog URL spin forever behind a UI spinner.
+- `AppEnvironment.addBook` deliberately bypasses `add(url:)`/`MediaURLClassifier`: a catalog acquisition link is already a known book file, and MacGet names it `Title - Author.epub` because catalogs routinely serve `2701.epub`.
 
 ## Conventions
 

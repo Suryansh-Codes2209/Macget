@@ -30,7 +30,10 @@ actor OPDSClient {
     /// for the process lifetime rather than refetched per keystroke.
     private var searchTemplates: [UUID: String] = [:]
 
-    init(session: URLSession = URLSessionFactory.shared) {
+    /// Uses `URLSessionFactory.metadata`, not `.shared` — a catalog fetch backs a
+    /// spinner and must fail fast, where `.shared` would wait indefinitely for
+    /// connectivity.
+    init(session: URLSession = URLSessionFactory.metadata) {
         self.session = session
     }
 

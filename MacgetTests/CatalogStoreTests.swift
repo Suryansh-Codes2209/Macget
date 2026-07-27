@@ -80,16 +80,40 @@ final class CatalogStoreTests: XCTestCase {
         XCTAssertTrue(CatalogSource.builtIns.allSatisfy { $0.feedURL.scheme == "https" })
     }
 
-    func test_builtIns_haveSearchFallbacks() {
+    func test_builtIns_opdsCatalogsHaveSearchFallbacks() {
         // Gutenberg's mobile feed doesn't advertise OpenSearch, so without these
-        // the search field would be dead for the flagship catalog.
-        for source in CatalogSource.builtIns {
+        // the search field would be dead for the flagship catalog. archive.org is
+        // exempt — it isn't OPDS and builds its own search URLs.
+        for source in CatalogSource.builtIns where source.kind == .opds {
             XCTAssertNotNil(source.fallbackSearchTemplate, "\(source.name) needs a search fallback")
             XCTAssertTrue(
                 source.fallbackSearchTemplate?.contains("{searchTerms}") ?? false,
                 "\(source.name)'s template must contain {searchTerms}"
             )
         }
+    }
+
+    /// Standard Ebooks gates every OPDS feed behind a Patrons Circle donation —
+    /// verified live, all of /feeds/opds, /all, and /new-releases return 401. It
+    /// ships off so new users aren't greeted by an auth error.
+    func test_standardEbooksShipsDisabledWithAnExplanation() throws {
+        let se = try XCTUnwrap(CatalogSource.builtIns.first { $0.name == "Standard Ebooks" })
+        XCTAssertFalse(se.isEnabled)
+        XCTAssertNotNil(se.note)
+    }
+
+    /// IA retired its OPDS BookServer (bookserver.archive.org no longer resolves),
+    /// so this catalog must route through the archive.org JSON client instead.
+    func test_internetArchiveUsesArchiveOrgKind() throws {
+        let ia = try XCTUnwrap(CatalogSource.builtIns.first { $0.name == "Internet Archive" })
+        XCTAssertEqual(ia.kind, .archiveOrg)
+        XCTAssertTrue(ia.isEnabled)
+        XCTAssertNotEqual(ia.feedURL.host, "bookserver.archive.org")
+    }
+
+    func test_enabledByDefaultCatalogsAreReachableKinds() {
+        let enabled = CatalogSource.builtIns.filter(\.isEnabled)
+        XCTAssertFalse(enabled.isEmpty, "At least one catalog must work out of the box")
     }
 
     func test_customSourceHasNoSearchFallback() throws {

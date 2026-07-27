@@ -24,10 +24,13 @@ struct CatalogSettingsView: View {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(catalog.name)
                                     .lineLimit(1)
-                                Text(catalog.feedURL.absoluteString)
+                                // Explicit Color on both branches: a ternary mixing
+                                // `.secondary` (HierarchicalShapeStyle) with a Color
+                                // blows up type inference here.
+                                Text(catalog.note ?? catalog.feedURL.absoluteString)
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                                    .foregroundStyle(catalog.note == nil ? Color.secondary : Color.orange)
+                                    .lineLimit(2)
                                     .truncationMode(.middle)
                             }
                             Spacer()

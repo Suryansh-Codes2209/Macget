@@ -5,9 +5,15 @@ All notable changes to Macget. Format follows [Keep a Changelog](https://keepach
 ## [Unreleased]
 
 ### Added
-- **Book catalog browsing (OPDS).** A new browser (⇧⌘B) searches and browses OPDS catalogs and sends a chosen format straight to the download queue. Project Gutenberg, Standard Ebooks, and the Internet Archive ship as built-ins; any other OPDS feed — including a personal Calibre server — can be added under Settings › Catalogs. Both wire formats are supported: OPDS 1.2 (Atom XML) and OPDS 2.0 (JSON), the latter because Gutenberg has announced it is retiring its XML feeds in 2027.
+- **Book catalog browsing.** A new browser (⇧⌘B) searches and browses book catalogs and sends a chosen format straight to the download queue. **Project Gutenberg** (~75k public-domain titles) and the **Internet Archive** work out of the box; any OPDS feed — including a personal Calibre server — can be added under Settings › Catalogs.
   - Downloads are named `Title - Author.epub` rather than the catalog's own `2701.epub`.
   - DRM-wrapped, priced, and loan-only editions are shown but never fetched — the detail pane explains which of the three applies.
+  - Generic OPDS support covers both wire formats: 1.2 (Atom XML) and 2.0 (JSON).
+  - Standard Ebooks is included but off by default: all of its OPDS feeds return 401 to anonymous clients, since access is a Patrons Circle donor benefit. Patrons can switch it on.
+
+### Notes
+- Project Gutenberg is read through Gutendex rather than Gutenberg's own OPDS feed, whose search results are one sub-feed per book rather than direct download links.
+- The Internet Archive is read through its JSON search/metadata APIs because IA retired its OPDS BookServer — `bookserver.archive.org` no longer resolves.
 
 ## [1.2.0] — 2026-06-26
 

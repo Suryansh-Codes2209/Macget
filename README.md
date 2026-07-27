@@ -45,6 +45,7 @@ MacGet's engine **discovers each host's true capacity at runtime** and adapts:
 - **Persistent queue** — close the app, reopen, in-flight downloads continue.
 - **Drag-and-drop, clipboard watch, NSServices** — paste a URL or drop a file from anywhere.
 - **Live thread adjustment** while a download is running (subject to host caps).
+- **Built-in book catalogs (OPDS)** — browse and search Project Gutenberg, Standard Ebooks, and the Internet Archive from inside the app, then send a book straight to the queue. Add any other OPDS feed, including your own Calibre server.
 - **Auto-updates via Sparkle** — enabled and signature-verified ([details](#updates)).
 - **Native SwiftUI** with proper `@Observable` view models and an actor-based engine.
 - **MIT licensed.** No ads, no telemetry, no payments.
@@ -157,6 +158,7 @@ Macget/
 │   ├── Persistence/              ← DownloadStore (queue.json), HostCapStore (host_caps.json)
 │   ├── Engine/                   ← ★ multi-threaded download engine
 │   ├── Services/                 ← Clipboard watcher, filename resolver, disk check
+│   │   └── Catalog/              ← OPDS parser/client, catalog list (catalogs.json)
 │   ├── Updater/                  ← Sparkle wrapper (gated)
 │   ├── ViewModels/               ← @MainActor @Observable
 │   ├── Views/                    ← SwiftUI

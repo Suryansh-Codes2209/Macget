@@ -2,6 +2,13 @@
 
 All notable changes to Macget. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Book catalog browsing (OPDS).** A new browser (⇧⌘B) searches and browses OPDS catalogs and sends a chosen format straight to the download queue. Project Gutenberg, Standard Ebooks, and the Internet Archive ship as built-ins; any other OPDS feed — including a personal Calibre server — can be added under Settings › Catalogs. Both wire formats are supported: OPDS 1.2 (Atom XML) and OPDS 2.0 (JSON), the latter because Gutenberg has announced it is retiring its XML feeds in 2027.
+  - Downloads are named `Title - Author.epub` rather than the catalog's own `2701.epub`.
+  - DRM-wrapped, priced, and loan-only editions are shown but never fetched — the detail pane explains which of the three applies.
+
 ## [1.2.0] — 2026-06-26
 
 Media downloads, authenticated transfers, smarter organization, and live auto-updates.

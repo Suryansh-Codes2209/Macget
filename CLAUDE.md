@@ -80,6 +80,17 @@ UI mutations always go through engine actor methods (`pause/resume/cancel/remove
 - If false, anything that was `downloading` is moved to `paused`.
 - Workers send the recorded `etag` (or `lastModified`) as `If-Range` so a changed file fails-fast instead of corrupting the partial.
 
+### Book catalogs (OPDS)
+
+`Macget/Services/Catalog/` is a self-contained subsystem that adds **no engine work** — an OPDS acquisition link is an ordinary HTTPS URL, so downloading a book is just `engine.add(kind: .httpFile)`.
+
+- `OPDSParser` — pure and synchronous, so every branch is testable against fixtures. Handles both OPDS 1.2 (Atom XML, via a streaming `XMLParser` delegate with namespace processing *off* — element names are matched by stripped local name so `dc:language`/`dcterms:language`/`language` all work) and OPDS 2.0 (JSON). Both paths exist because Gutenberg is retiring its XML feeds in 2027.
+- `OPDSClient` — actor; owns networking only, plus a per-catalog search-template cache (discovering one costs an extra OpenSearch fetch). Sends an explicit `Accept` header: several catalogs content-negotiate and will serve HTML to a client that doesn't ask for OPDS. Resolves relative hrefs against the *final* (post-redirect) URL.
+- `CatalogStore` — persists only *user-added* catalogs and *disabled* built-in IDs to `catalogs.json`. Built-ins come from `CatalogSource.builtIns` at load time, so fixing a built-in's feed URL reaches existing installs instead of being pinned by a stale file.
+- `AcquisitionLink.isDownloadable` is the single gate: direct-download rel, no price, http(s), recognized format. DRM fulfilment documents (`application/vnd.adobe.adept+xml`, LCP) are parsed and displayed but never fetched — the href is a license token, not a book.
+
+`AppEnvironment.addBook` deliberately bypasses `add(url:)`/`MediaURLClassifier`: a catalog acquisition link is already a known book file, and MacGet names it `Title - Author.epub` because catalogs routinely serve `2701.epub`.
+
 ## Conventions
 
 - Use `Log.app/engine/ui/net` from `Supporting/Logger+MacGet.swift` (subsystem `com.macget`). Don't `print`.

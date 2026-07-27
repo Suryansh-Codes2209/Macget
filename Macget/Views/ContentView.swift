@@ -9,6 +9,7 @@ struct ContentView: View {
     @Bindable var authPrompt: AuthPromptModel
 
     @State private var showingAddSheet = false
+    @State private var showingBookBrowser = false
 
     var body: some View {
         NavigationSplitView {
@@ -25,6 +26,14 @@ struct ContentView: View {
                         }
                         .keyboardShortcut("n", modifiers: .command)
                         .help("Add Download (⌘N)")
+
+                        Button {
+                            showingBookBrowser = true
+                        } label: {
+                            Label("Browse Books", systemImage: "books.vertical")
+                        }
+                        .keyboardShortcut("b", modifiers: [.command, .shift])
+                        .help("Browse Book Catalogs (⇧⌘B)")
 
                         Button { listVM.pauseAll() } label: {
                             Label("Pause All", systemImage: "pause.fill")
@@ -47,6 +56,12 @@ struct ContentView: View {
             AddDownloadSheet(
                 vm: AddDownloadViewModel(environment: appEnvironment, settings: appEnvironment.settings),
                 isPresented: $showingAddSheet
+            )
+        }
+        .sheet(isPresented: $showingBookBrowser) {
+            BookBrowserView(
+                model: appEnvironment.bookBrowser(),
+                isPresented: $showingBookBrowser
             )
         }
         .sheet(isPresented: Binding(

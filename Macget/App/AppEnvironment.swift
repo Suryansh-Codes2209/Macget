@@ -105,6 +105,48 @@ final class AppEnvironment {
         add(url: url)
     }
 
+    // MARK: - Book catalogs
+
+    /// Built on first use so users who never open the browser never construct an
+    /// OPDS client — and so browse position survives closing and reopening the sheet.
+    private var bookBrowserModel: BookBrowserModel?
+
+    func bookBrowser() -> BookBrowserModel {
+        if let existing = bookBrowserModel {
+            // Settings may have added/removed catalogs since the sheet last closed.
+            existing.refreshSources()
+            return existing
+        }
+        let model = BookBrowserModel { [weak self] entry, link in
+            self?.addBook(entry: entry, link: link)
+        }
+        bookBrowserModel = model
+        return model
+    }
+
+    /// Enqueue a book chosen in the catalog browser.
+    ///
+    /// Goes straight to `engine.add` rather than through `add(url:)`: the media
+    /// classifier is for pages that *might* be video, and a catalog acquisition
+    /// link is already a known book file. The filename is ours because catalogs
+    /// routinely serve `2701.epub` or `download?id=84`.
+    func addBook(entry: CatalogEntry, link: AcquisitionLink) {
+        let filename = BookFilename.make(
+            title: entry.title,
+            authors: entry.authors,
+            format: link.format
+        )
+        let dest = settings.defaultDestination
+        Task {
+            await engine.add(
+                url: link.url,
+                destinationFolder: dest,
+                filename: filename,
+                userSpecifiedFilename: true
+            )
+        }
+    }
+
     /// "Download videos" is off by default. When a recognized video URL is added
     /// directly, silently turn it on (decided behavior) so the picker can proceed.
     /// Note: this also starts the shared extension bridge via `updateSettings`.

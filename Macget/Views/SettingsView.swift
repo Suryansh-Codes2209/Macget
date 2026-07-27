@@ -12,10 +12,12 @@ struct SettingsView: View {
                 .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
             networkTab
                 .tabItem { Label("Network", systemImage: "network") }
+            CatalogSettingsView()
+                .tabItem { Label("Catalogs", systemImage: "books.vertical") }
             aboutTab
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 480, height: 320)
+        .frame(width: 480, height: 360)
         .onChange(of: vm.settings) { _, _ in vm.persistAndPropagate() }
     }
 

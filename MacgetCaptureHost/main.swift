@@ -59,8 +59,24 @@ func launchApp() {
     let task = Process()
     task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
     task.arguments = ["-g", "-b", appBundleID]
-    try? task.run()
-    task.waitUntilExit()
+    do {
+        try task.run()
+        task.waitUntilExit()
+        if task.terminationStatus != 0 {
+            logError("`open -g -b \(appBundleID)` exited with status \(task.terminationStatus); "
+                + "Macget may not be registered with LaunchServices yet. The dropped file "
+                + "will be ingested on the next manual launch.")
+        }
+    } catch {
+        logError("Could not run /usr/bin/open to launch Macget: \(error). The dropped file "
+            + "will be ingested on the next manual launch.")
+    }
+}
+
+/// Log to stderr — surfaced in Console.app and captured by the browser when it
+/// spawns the host, so cold-launch failures are diagnosable instead of silent.
+func logError(_ message: String) {
+    FileHandle.standardError.write(Data("MacgetCaptureHost: \(message)\n".utf8))
 }
 
 // MARK: - main

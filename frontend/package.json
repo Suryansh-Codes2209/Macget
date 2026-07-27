@@ -13,9 +13,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "15.1.6",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
+    "next": "15.5.22",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "motion": "^12.0.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.460.0"
@@ -29,6 +29,6 @@
     "postcss": "^8.4.49",
     "typescript": "^5.7.3",
     "eslint": "^9.18.0",
-    "eslint-config-next": "15.1.6"
+    "eslint-config-next": "15.5.22"
   }
 }

@@ -50,7 +50,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         clipboardWatchEnabled: Bool = false,
         startDownloadsAutomatically: Bool = true,
         resumeOnLaunch: Bool = true,
-        browserCaptureEnabled: Bool = false,
+        browserCaptureEnabled: Bool = true,
         mediaExtractionEnabled: Bool = false,
         globalSpeedLimitBytesPerSec: Int? = nil,
         completionNotificationsEnabled: Bool = false,

@@ -29,7 +29,7 @@ struct CatalogSettingsView: View {
                                 // blows up type inference here.
                                 Text(catalog.note ?? catalog.feedURL.absoluteString)
                                     .font(.caption)
-                                    .foregroundStyle(catalog.note == nil ? Color.secondary : Color.orange)
+                                    .foregroundStyle(catalog.note == nil ? Color.secondary : Theme.Palette.paused)
                                     .lineLimit(2)
                                     .truncationMode(.middle)
                             }
@@ -67,7 +67,7 @@ struct CatalogSettingsView: View {
                 if let addError {
                     Text(addError)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Theme.Palette.error)
                 } else {
                     Text("Any OPDS feed works — including your own Calibre server's.")
                         .font(.caption)

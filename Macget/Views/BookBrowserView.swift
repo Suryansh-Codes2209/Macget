@@ -73,6 +73,10 @@ struct BookBrowserView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        // Chrome, so glass is appropriate here — the cover grid below is
+        // content and stays opaque.
+        .glassEffect(.regular, in: .rect)
     }
 
     // MARK: - Shelves
@@ -205,7 +209,7 @@ struct BookBrowserView: View {
     private var footer: some View {
         HStack(spacing: 10) {
             if let status = model.statusMessage {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.success)
                 Text(status).font(.callout).lineLimit(1)
             } else if !model.entries.isEmpty {
                 Text("\(model.entries.count) book\(model.entries.count == 1 ? "" : "s")")

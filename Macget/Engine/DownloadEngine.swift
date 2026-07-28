@@ -558,6 +558,17 @@ actor DownloadEngine {
         return DownloadDiagnostics.report(for: d)
     }
 
+    /// Per-piece progress and concurrency state for one download, for the
+    /// inspector's segment map. Same live-first, persisted-fallback shape as
+    /// `diagnostics(for:)`.
+    func inspection(for id: UUID) async -> DownloadInspection? {
+        if let coord = coordinators[id] {
+            return await coord.inspectionSnapshot()
+        }
+        guard let d = downloads[id] else { return nil }
+        return DownloadInspection(persisted: d)
+    }
+
     /// Change a download's queue priority. Re-runs the scheduler so a newly
     /// high-priority queued item can take a free slot.
     func setPriority(id: UUID, priority: DownloadPriority) async {
@@ -593,8 +604,19 @@ actor DownloadEngine {
         let slots = max(0, settings.maxConcurrentDownloads - activeCount)
         guard slots > 0 else { return }
 
+        // A download stays `.queued` until its coordinator gets past the probe and
+        // reports `.downloading` — a network round-trip later. Status alone
+        // therefore can't tell "waiting for a slot" from "already starting", and
+        // anything that re-runs the scheduler in that window (a pause, a settings
+        // change, a network blip, another download finishing) would start a
+        // second job for the same id. Both then raced for the same partial file:
+        // the winner moved it to the destination, the loser found nothing to move
+        // and overwrote the record with a finalize error — a failed download with
+        // the finished file sitting on disk. The live-job maps are the real
+        // "already started" signal, so they gate the candidate list.
         let queued = insertionOrder.compactMap { id -> Download? in
             guard let d = downloads[id], d.status == .queued else { return nil }
+            guard !hasLiveJob(id) else { return nil }
             return d
         }
         for d in DownloadScheduler.order(queued).prefix(slots) {
@@ -610,6 +632,10 @@ actor DownloadEngine {
     /// message when aria2 isn't installed.
     private func startTorrent(for download: Download) {
         let id = download.id
+        guard !hasLiveJob(id) else {
+            Log.engine.error("Refusing to start a second job for \(download.filename, privacy: .public) — one is already running.")
+            return
+        }
         guard TorrentToolLocator.locate() != nil else {
             var d = download
             d.status = .failed
@@ -640,6 +666,10 @@ actor DownloadEngine {
     /// message if the tools aren't installed.
     private func startExtraction(for download: Download) {
         let id = download.id
+        guard !hasLiveJob(id) else {
+            Log.engine.error("Refusing to start a second job for \(download.filename, privacy: .public) — one is already running.")
+            return
+        }
         guard let tools = MediaToolLocator.locate() else {
             var d = download
             d.status = .failed
@@ -668,8 +698,18 @@ actor DownloadEngine {
         }
     }
 
+    /// Whether some job already owns this download. One id must never have two,
+    /// because they'd share a partial file path and fight over it.
+    private func hasLiveJob(_ id: UUID) -> Bool {
+        coordinators[id] != nil || extractors[id] != nil || torrents[id] != nil
+    }
+
     private func startCoordinator(for download: Download) {
         let id = download.id
+        guard !hasLiveJob(id) else {
+            Log.engine.error("Refusing to start a second job for \(download.filename, privacy: .public) — one is already running.")
+            return
+        }
         let coord = DownloadCoordinator(
             download: download,
             session: session,

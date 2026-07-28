@@ -29,8 +29,8 @@ export function GradientButton({
 
   const variantClasses =
     variant === "primary"
-      ? "bg-frost text-brand-cobalt hover:bg-white hover:-translate-y-0.5 hover:shadow-[0_12px_40px_-8px_rgba(90,200,250,0.6)] active:translate-y-0"
-      : "border border-line bg-white/[0.04] text-frost hover:bg-white/[0.08] hover:border-white/20";
+      ? "bg-cream text-brand-umber hover:bg-white hover:-translate-y-0.5 hover:shadow-[0_12px_40px_-8px_rgba(247,196,94,0.6)] active:translate-y-0"
+      : "border border-line bg-white/[0.04] text-cream hover:bg-white/[0.08] hover:border-white/20";
 
   return (
     <a

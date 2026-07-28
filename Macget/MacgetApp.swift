@@ -7,17 +7,20 @@ struct MacgetApp: App {
     @State private var environment: AppEnvironment
     @State private var listVM: DownloadListViewModel
     @State private var settingsVM: SettingsViewModel
+    @State private var inspector: InspectorModel
 
     init() {
         let env = AppEnvironment()
+        let list = DownloadListViewModel(engine: env.engine)
         _environment = State(initialValue: env)
-        _listVM = State(initialValue: DownloadListViewModel(engine: env.engine))
+        _listVM = State(initialValue: list)
         _settingsVM = State(initialValue: SettingsViewModel(environment: env, initial: env.settings))
+        _inspector = State(initialValue: InspectorModel(engine: env.engine, list: list))
     }
 
     var body: some Scene {
         WindowGroup {
-            ContentView(listVM: listVM, appEnvironment: environment, mediaPick: environment.mediaPick, authPrompt: environment.authPrompt)
+            ContentView(listVM: listVM, appEnvironment: environment, mediaPick: environment.mediaPick, authPrompt: environment.authPrompt, inspector: inspector)
                 .frame(minWidth: 720, minHeight: 420)
                 .task {
                     appDelegate.environment = environment

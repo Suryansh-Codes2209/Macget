@@ -60,4 +60,57 @@ final class ChunkPlannerTests: XCTestCase {
                            "Chunks must cover the file with no gaps or overlaps")
         }
     }
+
+    // MARK: - Work-stealing pieces
+
+    func test_workStealingSlicesFinerThanThreads() {
+        // 200 MB at the 8 MB target: 25 pieces for 8 workers, so a worker that
+        // finishes early always has something left to steal.
+        let chunks = ChunkPlanner.plan(
+            totalBytes: 200 * 1024 * 1024,
+            requestedThreads: 8,
+            maxPieceBytes: ChunkPlanner.defaultTargetPieceBytes
+        )
+        XCTAssertEqual(chunks.count, 25)
+    }
+
+    func test_largeFileIsCappedAtMaxPieces() {
+        // A 40 GB file wants 5,000 pieces at the 8 MB target; the cap decides.
+        // Regression guard for the old cap of 64, which left 640 MB pieces.
+        let total: Int64 = 40 * 1024 * 1024 * 1024
+        let chunks = ChunkPlanner.plan(
+            totalBytes: total,
+            requestedThreads: 8,
+            maxPieceBytes: ChunkPlanner.defaultTargetPieceBytes
+        )
+        XCTAssertEqual(chunks.count, ChunkPlanner.maxPieces)
+        XCTAssertLessThanOrEqual(chunks[0].totalBytes, 200 * 1024 * 1024,
+                                 "Pieces this large defeat work-stealing on a big file")
+    }
+
+    func test_workStealingPiecesStayContiguousAndCoverTheFile() {
+        let total: Int64 = 40 * 1024 * 1024 * 1024 + 12_345
+        let chunks = ChunkPlanner.plan(
+            totalBytes: total,
+            requestedThreads: 8,
+            maxPieceBytes: ChunkPlanner.defaultTargetPieceBytes
+        )
+        XCTAssertEqual(chunks[0].startByte, 0)
+        XCTAssertEqual(chunks.last?.endByte, total - 1)
+        XCTAssertEqual(chunks.reduce(Int64(0)) { $0 + $1.totalBytes }, total)
+        for i in 1..<chunks.count {
+            XCTAssertEqual(chunks[i].startByte, chunks[i - 1].endByte + 1)
+        }
+    }
+
+    func test_pieceCountNeverDropsBelowThreadCount() {
+        // A small file with the piece target on still needs one piece per worker,
+        // or the extra connections have nothing to do.
+        let chunks = ChunkPlanner.plan(
+            totalBytes: 4 * 1024 * 1024,
+            requestedThreads: 8,
+            maxPieceBytes: ChunkPlanner.defaultTargetPieceBytes
+        )
+        XCTAssertEqual(chunks.count, 8)
+    }
 }

@@ -7,23 +7,35 @@ struct ContentView: View {
     let appEnvironment: AppEnvironment
     @Bindable var mediaPick: MediaPickModel
     @Bindable var authPrompt: AuthPromptModel
+    let inspector: InspectorModel
 
     @State private var showingAddSheet = false
     @State private var showingBookBrowser = false
+    /// Lives here rather than in `DownloadListView` so the Sort menu can sit in
+    /// the window toolbar alongside the other actions.
+    @State private var sortMode: DownloadSortMode = .queue
+    /// Hoisted out of the list for the same reason as `sortMode`, plus one more:
+    /// the inspector shows whatever is selected, so the selection can't be
+    /// private to the list any more.
+    @State private var selection: Set<UUID> = []
+    @State private var showingInspector = false
 
     var body: some View {
         NavigationSplitView {
             sidebar
         } detail: {
-            DownloadListView(vm: listVM)
+            DownloadListView(vm: listVM, sortMode: $sortMode, selection: $selection)
                 .navigationTitle("Macget")
                 .toolbar {
+                    // Grouped rather than one undifferentiated run of five
+                    // buttons: create, then bulk transport, then list hygiene.
                     ToolbarItemGroup {
                         Button {
                             showingAddSheet = true
                         } label: {
                             Label("Add Download", systemImage: "plus")
                         }
+                        .buttonStyle(.glassProminent)
                         .keyboardShortcut("n", modifiers: .command)
                         .help("Add Download (⌘N)")
 
@@ -34,7 +46,11 @@ struct ContentView: View {
                         }
                         .keyboardShortcut("b", modifiers: [.command, .shift])
                         .help("Browse Book Catalogs (⇧⌘B)")
+                    }
 
+                    ToolbarSpacer(.fixed)
+
+                    ToolbarItemGroup {
                         Button { listVM.pauseAll() } label: {
                             Label("Pause All", systemImage: "pause.fill")
                         }
@@ -44,12 +60,39 @@ struct ContentView: View {
                             Label("Resume All", systemImage: "play.fill")
                         }
                         .help("Resume All Paused Downloads")
+                    }
+
+                    ToolbarSpacer(.flexible)
+
+                    ToolbarItemGroup {
+                        // Where the table's column-header sorting went.
+                        Menu {
+                            Picker("Sort By", selection: $sortMode) {
+                                ForEach(DownloadSortMode.allCases) { mode in
+                                    Label(mode.displayName, systemImage: mode.symbol)
+                                        .tag(mode)
+                                }
+                            }
+                            .pickerStyle(.inline)
+                        } label: {
+                            Label("Sort", systemImage: "arrow.up.arrow.down")
+                        }
+                        .help("Change List Order")
 
                         Button { listVM.clearCompleted() } label: {
                             Label("Clear Completed", systemImage: "checkmark.circle")
                         }
                         .help("Remove Completed Downloads From the List")
+
+                        Button { showingInspector.toggle() } label: {
+                            Label("Activity", systemImage: "chart.bar.xaxis.ascending")
+                        }
+                        .keyboardShortcut("i", modifiers: [.command, .option])
+                        .help("Show Speed and Piece Activity (⌥⌘I)")
                     }
+                }
+                .inspector(isPresented: $showingInspector) {
+                    DownloadInspectorView(model: inspector)
                 }
         }
         .sheet(isPresented: $showingAddSheet) {
@@ -85,6 +128,15 @@ struct ContentView: View {
         .searchable(text: $listVM.searchText, prompt: "Search downloads")
         .onChange(of: listVM.searchText) { _, _ in listVM.filterRefreshed() }
         .onChange(of: listVM.selectedFilter) { _, _ in listVM.filterRefreshed() }
+        // The panel polls the engine, so it only samples while it's on screen.
+        .onChange(of: showingInspector, initial: true) { _, shown in
+            inspector.isPresented = shown
+        }
+        // A multi-selection has no single subject; the panel falls back to the
+        // aggregate view rather than picking one arbitrarily.
+        .onChange(of: selection, initial: true) { _, ids in
+            inspector.setTarget(ids.count == 1 ? ids.first : nil)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openAddDownload)) { _ in
             showingAddSheet = true
         }
@@ -130,18 +182,36 @@ struct ContentView: View {
     @ViewBuilder
     private var sidebar: some View {
         List(StatusFilter.allCases, selection: $listVM.selectedFilter) { filter in
-            HStack {
-                Label(filter.displayName, systemImage: icon(for: filter))
-                Spacer()
-                Text("\(listVM.count(for: filter))")
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+            let isSelected = listVM.selectedFilter == filter
+            HStack(spacing: 8) {
+                Image(systemName: icon(for: filter))
+                    .foregroundStyle(isSelected ? Theme.Palette.amber : .secondary)
+                    .frame(width: 18)
+                Text(filter.displayName)
+                Spacer(minLength: 6)
+                countPill(listVM.count(for: filter), isSelected: isSelected)
             }
             .tag(filter)
         }
         .navigationTitle("Filter")
         .listStyle(.sidebar)
-        .frame(minWidth: 160)
+        .frame(minWidth: 170)
+    }
+
+    /// Count badge on a filter row. Reads as a quiet chip at rest and picks up
+    /// the accent on the active filter.
+    private func countPill(_ count: Int, isSelected: Bool) -> some View {
+        Text("\(count)")
+            .font(.caption.weight(.medium))
+            .monospacedDigit()
+            .foregroundStyle(isSelected ? Color.white : Color.secondary)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(
+                isSelected ? AnyShapeStyle(Theme.Palette.amber)
+                           : AnyShapeStyle(Theme.Palette.stroke),
+                in: Capsule(style: .continuous)
+            )
     }
 
     private func icon(for filter: StatusFilter) -> String {

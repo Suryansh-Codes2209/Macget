@@ -79,7 +79,7 @@ struct MediaPickSheet: View {
 
         case .failed(let message):
             HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.Palette.paused)
                 Text(message).font(.callout).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

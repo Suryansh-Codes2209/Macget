@@ -26,6 +26,7 @@ export const siteConfig = {
 
   nav: [
     { label: "Features", href: "/#features" },
+    { label: "Inspector", href: "/#inspector" },
     { label: "How it works", href: "/#how" },
     { label: "Docs", href: "/docs" },
     { label: "Install", href: "/install" },
@@ -37,6 +38,7 @@ export const siteConfig = {
       title: "Product",
       links: [
         { label: "Features", href: "/#features" },
+        { label: "Inspector", href: "/#inspector" },
         { label: "How it works", href: "/#how" },
         { label: "Changelog", href: "/changelog" },
         { label: "FAQ", href: "/#faq" },
@@ -75,6 +77,12 @@ export const siteConfig = {
       blurb:
         "HTTP-Range requests split each file across as many connections as the host allows. Work-stealing hands finished workers the next outstanding piece, so one slow chunk never holds up the file.",
       icon: "Layers",
+    },
+    {
+      title: "Watch it happen, live",
+      blurb:
+        "An inspector panel charts throughput over a rolling 30-second window and draws the file as its actual pieces — cells filling in file order, the ones a worker holds pulsing. One bar creeping right looks the same whether you have 1 connection or 16; this doesn't.",
+      icon: "Gauge",
     },
     {
       title: "Adapts to throttled hosts",

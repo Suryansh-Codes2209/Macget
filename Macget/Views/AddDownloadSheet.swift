@@ -26,8 +26,9 @@ struct AddDownloadSheet: View {
                         .lineLimit(1).truncationMode(.middle)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(6)
-                        .background(.quaternary)
-                        .cornerRadius(4)
+                        .background(Theme.Palette.stroke,
+                                    in: RoundedRectangle(cornerRadius: Theme.Radius.control,
+                                                         style: .continuous))
                     Button("Choose…") { vm.chooseFolder() }
                 }
             }
@@ -38,7 +39,7 @@ struct AddDownloadSheet: View {
                     .textFieldStyle(.roundedBorder)
                 if !vm.checksumIsAcceptable {
                     Text("Not a valid SHA-256 or MD5 digest.")
-                        .font(.caption).foregroundStyle(.red)
+                        .font(.caption).foregroundStyle(Theme.Palette.error)
                 }
             }
 
@@ -68,6 +69,7 @@ struct AddDownloadSheet: View {
                         }
                     }
                 }
+                .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!vm.isValid || !vm.checksumIsAcceptable)
             }

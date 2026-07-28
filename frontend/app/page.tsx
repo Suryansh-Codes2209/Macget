@@ -1,6 +1,7 @@
 import { Nav } from "@/components/nav/Nav";
 import { Hero } from "@/components/hero/Hero";
 import { Features } from "@/components/features/Features";
+import { Showcase } from "@/components/showcase/Showcase";
 import { FirstLaunchStrip } from "@/components/install/FirstLaunchStrip";
 import { HowItWorks } from "@/components/how/HowItWorks";
 import { FAQ } from "@/components/faq/FAQ";
@@ -16,6 +17,7 @@ export default function HomePage() {
       <Nav />
       <main id="top" className="relative">
         <Hero />
+        <Showcase />
         <Features />
         <FirstLaunchStrip />
         <HowItWorks />

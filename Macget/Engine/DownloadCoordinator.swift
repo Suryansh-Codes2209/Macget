@@ -185,6 +185,28 @@ actor DownloadCoordinator {
         )
     }
 
+    /// Live per-piece state for the inspector panel. Cheap enough to poll a few
+    /// times a second: it maps the existing chunk array and reads two counters,
+    /// with no I/O and no allocation beyond the projection itself.
+    func inspectionSnapshot() -> DownloadInspection {
+        DownloadInspection(
+            id: download.id,
+            totalBytes: download.totalBytes,
+            bytesDownloaded: download.bytesDownloaded,
+            supportsRange: download.supportsRange,
+            segments: download.chunks.map {
+                SegmentInfo(chunk: $0, isActive: inFlight[$0.id] != nil)
+            },
+            activeWorkers: inFlight.count,
+            effectiveThreads: effectiveThreadCount(),
+            requestedThreads: download.threadCount,
+            adaptiveCeiling: adaptiveCeiling,
+            perHostCap: perHostCap,
+            demotedTo: demotedThreadCount,
+            isLive: download.status == .downloading
+        )
+    }
+
     // MARK: - Public lifecycle
 
     func start() {
@@ -761,8 +783,24 @@ actor DownloadCoordinator {
         download.status = .completed
         download.completedAt = Date()
         download.error = nil
+        collapseChunksForCompletion()
         await publishSnapshot()
         await onStateChange(download)
+    }
+
+    /// Replace the per-piece array with a single complete chunk once the file has
+    /// been finalized.
+    ///
+    /// The pieces only exist to drive resume, and a finished download can't
+    /// resume. Keeping up to `ChunkPlanner.maxPieces` of them forever costs ~33 KB
+    /// of JSON *per completed download* in a queue file the store rewrites whole.
+    /// The replacement preserves `bytesDownloaded` exactly — it's derived by
+    /// summing `bytesWritten`, so the collapsed chunk has to carry the same total.
+    private func collapseChunksForCompletion() {
+        guard download.chunks.count > 1 else { return }
+        let total = download.bytesDownloaded
+        guard total > 0 else { return }
+        download.chunks = [Chunk(startByte: 0, endByte: total - 1, bytesWritten: total)]
     }
 
     /// The folder the completed file should land in: a type-based subfolder when

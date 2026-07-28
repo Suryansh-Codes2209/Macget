@@ -20,7 +20,7 @@ struct TorrentSettingsView: View {
 
                 HStack(spacing: 6) {
                     Image(systemName: aria2Installed ? "checkmark.circle.fill" : "exclamationmark.circle")
-                        .foregroundStyle(aria2Installed ? Color.green : Color.orange)
+                        .foregroundStyle(aria2Installed ? Theme.Palette.success : Theme.Palette.paused)
                     Text(aria2Installed
                          ? "aria2 engine installed"
                          : "aria2 engine not installed — needed for torrents")

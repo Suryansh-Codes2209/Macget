@@ -3,6 +3,41 @@
     <channel>
         <title>Macget</title>
         <item>
+            <title>1.3.0</title>
+            <pubDate>Wed, 29 Jul 2026 03:58:03 +0530</pubDate>
+            <link>https://macget.suryansh.work/</link>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[Book catalogs, BitTorrent, a reworked browser extension, and an engine that backs off on evidence instead of guesswork.
+
+### Added
+- **Book catalog browsing** (⇧⌘B) — search and browse **Project Gutenberg** (~75k public-domain titles) and the **Internet Archive**, then send a format straight to the queue. Any OPDS feed can be added under Settings › Catalogs, including your own Calibre server. Downloads are named `Title - Author.epub`, not the catalog's `2701.epub`. DRM-wrapped, priced, and loan-only editions are shown but never fetched.
+- **BitTorrent downloads** — magnet links and `.torrent` files run in the same queue as everything else, with the same concurrency limit, pause/resume/cancel, and quiet-hours scheduling. **Off by default**; enabling it explains that BitTorrent uploads as well as downloads. Seeding is bounded (ratio 1.0 or 60 minutes by default). MacGet does not search for or index torrents.
+- **The browser extension talks back** — now on the [Chrome Web Store](https://chromewebstore.google.com/detail/ldmhmgglgemkoogpokfcgplbpfokcejl). A real toolbar popup shows whether MacGet is actually reachable, plus recent activity, context-menu capture, a toolbar badge, and optional notifications.
+- **Folder-grouped download list** — downloads collapse into per-category folders that expand in place.
+- **Live speed chart and chunk view in the inspector**, so a stalled connection is visible rather than inferred.
+- **Warm color theme** and a new app icon, tuned for light and dark.
+
+### Changed
+- **Connections open at full width immediately.** The old adaptive probe started at 4 and kept each added connection only on a ≥15% throughput gain — but "no improvement" is the expected reading once the link is saturated, so it settled low precisely when the extra connections were free.
+- **Backing off is now evidence-driven** — the worker count halves after 4 no-progress attempts in 10s, *and only while bytes are still flowing*, which separates a hostile host from a dead local link.
+- **Endgame chunk splitting** — a freed worker splits the largest in-flight piece instead of idling, so the last slow chunk no longer sets the finish time.
+- **Learned per-host caps expire after 7 days** and can be cleared from Settings › Network.
+
+### Fixed
+- **Media downloads from authenticated pages no longer 403.** Cookies now go through a domain-scoped jar instead of a global `Cookie` header, which YouTube's CDN rejects.
+- A backgrounded extension worker no longer silently drops downloads started in a background tab.
+- Selected rows stay readable in light mode.
+- No more permanent repositioning timer on every page the extension visits.
+
+---
+**First launch:** this build is free and un-notarized — on first open, use **System Settings → Privacy & Security → Open Anyway** (one time). See the README's *First launch on macOS* section.
+]]></description>
+            <enclosure url="https://github.com/Suryansh-Codes2209/Macget/releases/download/v1.3.0/macget.dmg" length="139184623" type="application/octet-stream" sparkle:edSignature="YMgr/JzFWQFumcSxrw/+QbV9Wpu/M3K2yLd+rbucp40lqEBQMAgtExY9ZnqXLpjPE8ujpZDkXf+Apg0WUx/1Ag=="/>
+        </item>
+        <item>
             <title>1.2.0</title>
             <pubDate>Fri, 26 Jun 2026 16:59:19 +0530</pubDate>
             <sparkle:version>3</sparkle:version>

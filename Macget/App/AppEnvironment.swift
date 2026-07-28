@@ -81,6 +81,23 @@ final class AppEnvironment {
              checksum: ChecksumSpec? = nil,
              title: String? = nil) {
         let dest = destinationFolder ?? settings.defaultDestination
+        // Magnets are checked before everything else — they aren't http(s), so no
+        // other path would know what to do with them.
+        if url.scheme?.lowercased() == "magnet" {
+            addTorrent(magnet: url, destinationFolder: dest)
+            return
+        }
+        if url.pathExtension.lowercased() == "torrent" {
+            if url.isFileURL {
+                addTorrent(torrentFile: url, destinationFolder: dest)
+            } else {
+                // A remote .torrent (archive.org's per-item file, a tracker link)
+                // is metainfo, not content — fetching it as a plain download would
+                // just leave a .torrent sitting in Downloads.
+                addTorrent(remoteTorrent: url, destinationFolder: dest)
+            }
+            return
+        }
         if MediaURLClassifier.isMediaURL(url) {
             enableMediaExtractionIfNeeded()
             startMediaPick(pageURL: url, destinationFolder: dest, title: title, headers: requestHeaders)
@@ -105,6 +122,101 @@ final class AppEnvironment {
         add(url: url)
     }
 
+    // MARK: - Torrents
+
+    /// Drives the "turn on torrent support" acknowledgement + aria2 install.
+    let torrentSetup = TorrentSetupModel()
+
+    /// Enqueue a magnet link. Gated behind the (off-by-default) torrent setting,
+    /// because starting a torrent also uploads and opens a listening port — the
+    /// user has to opt in first.
+    func addTorrent(magnet: URL, destinationFolder: URL? = nil) {
+        let dest = destinationFolder ?? settings.defaultDestination
+        let name = MagnetLink.parse(magnet)?.provisionalName
+        requireTorrentSupport { [weak self] in
+            guard let self else { return }
+            Task {
+                await self.engine.addTorrent(
+                    magnet: magnet,
+                    destinationFolder: dest,
+                    suggestedName: name
+                )
+            }
+        }
+    }
+
+    /// Enqueue a `.torrent` file from disk. The bytes are read now and persisted
+    /// on the download, so a resume after relaunch doesn't need the original file
+    /// to still be there.
+    func addTorrent(torrentFile url: URL, destinationFolder: URL? = nil) {
+        let dest = destinationFolder ?? settings.defaultDestination
+        // A security-scoped resource is needed for files chosen via a panel/drop.
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else {
+            Log.app.error("Could not read torrent file at \(url.path, privacy: .public)")
+            return
+        }
+        let name = url.deletingPathExtension().lastPathComponent
+        requireTorrentSupport { [weak self] in
+            guard let self else { return }
+            Task {
+                await self.engine.addTorrent(
+                    torrentData: data,
+                    destinationFolder: dest,
+                    suggestedName: name
+                )
+            }
+        }
+    }
+
+    /// Fetch a `.torrent` over HTTP and enqueue it. Used for archive.org's
+    /// per-item torrents and for any `.torrent` link the user adds.
+    func addTorrent(remoteTorrent url: URL, destinationFolder: URL? = nil) {
+        let dest = destinationFolder ?? settings.defaultDestination
+        let name = url.deletingPathExtension().lastPathComponent
+        requireTorrentSupport { [weak self] in
+            guard let self else { return }
+            Task {
+                do {
+                    // Metadata session: a .torrent is a few KB and backs a UI
+                    // action, so it must fail fast rather than wait for network.
+                    let (data, response) = try await URLSessionFactory.metadata.data(from: url)
+                    if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                        Log.app.error("Torrent fetch failed: HTTP \(http.statusCode)")
+                        return
+                    }
+                    await self.engine.addTorrent(
+                        torrentData: data,
+                        destinationFolder: dest,
+                        suggestedName: name
+                    )
+                } catch {
+                    Log.app.error("Could not fetch torrent \(url.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+    }
+
+    /// Run `action` once torrents are enabled and aria2 is present, prompting for
+    /// both if needed. Unlike media extraction — which is silently switched on —
+    /// this always asks, because BitTorrent uploads on the user's connection.
+    private func requireTorrentSupport(then action: @escaping () -> Void) {
+        if settings.torrentsEnabled, TorrentToolInstaller.isInstalled {
+            action()
+            return
+        }
+        torrentSetup.present(alreadyAcknowledged: settings.torrentsEnabled) { [weak self] in
+            guard let self else { return }
+            if !self.settings.torrentsEnabled {
+                var updated = self.settings
+                updated.torrentsEnabled = true
+                self.updateSettings(updated)
+            }
+            action()
+        }
+    }
+
     // MARK: - Book catalogs
 
     /// Built on first use so users who never open the browser never construct an
@@ -119,6 +231,11 @@ final class AppEnvironment {
         }
         let model = BookBrowserModel { [weak self] entry, link in
             self?.addBook(entry: entry, link: link)
+        }
+        // Internet Archive items expose a per-item .torrent covering every file —
+        // the one place the catalog and torrent features meet.
+        model.onDownloadTorrent = { [weak self] _, torrentURL in
+            self?.add(url: torrentURL)
         }
         bookBrowserModel = model
         return model

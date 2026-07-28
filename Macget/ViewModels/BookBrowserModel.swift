@@ -74,6 +74,9 @@ final class BookBrowserModel {
 
     private let service: CatalogService
     private let onDownload: (CatalogEntry, AcquisitionLink) -> Void
+    /// Set by `AppEnvironment` so an Internet Archive item can be fetched over
+    /// BitTorrent instead of HTTP. nil leaves the action hidden.
+    var onDownloadTorrent: ((CatalogEntry, URL) -> Void)?
     private let log = Logger(subsystem: "com.macget", category: "BookBrowser")
 
     /// Generation counter so a slow in-flight response can't overwrite the feed
@@ -302,6 +305,23 @@ final class BookBrowserModel {
             let right = rhs.format?.preferenceRank ?? 99
             return left < right
         }
+    }
+
+    /// The per-item `.torrent` the Internet Archive generates for every item,
+    /// when this entry is one. Covers every file in the item, which is the point:
+    /// large public-domain collections come down over BitTorrent instead of
+    /// hammering IA's HTTP endpoints.
+    func archiveTorrentURL(for entry: CatalogEntry) -> URL? {
+        guard onDownloadTorrent != nil else { return nil }
+        guard selectedSource?.kind == .archiveOrg else { return nil }
+        guard let itemID = entry.archiveItemID ?? (entry.id.isEmpty ? nil : entry.id) else { return nil }
+        return ArchiveOrgItem.torrentURL(itemID: itemID)
+    }
+
+    func downloadTorrent(_ entry: CatalogEntry) {
+        guard let url = archiveTorrentURL(for: entry) else { return }
+        onDownloadTorrent?(entry, url)
+        show(status: "Sent \u{201C}\(entry.title)\u{201D} to downloads as a torrent.")
     }
 
     func download(_ entry: CatalogEntry, link: AcquisitionLink) {

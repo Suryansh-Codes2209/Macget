@@ -46,6 +46,7 @@ MacGet's engine **discovers each host's true capacity at runtime** and adapts:
 - **Drag-and-drop, clipboard watch, NSServices** — paste a URL or drop a file from anywhere.
 - **Live thread adjustment** while a download is running (subject to host caps).
 - **Built-in book catalogs** — browse and search Project Gutenberg and the Internet Archive from inside the app, then send a book straight to the queue. Add any OPDS feed too, including your own Calibre server.
+- **BitTorrent** — magnet links and `.torrent` files download in the same queue as everything else, several at once. Off by default; seeding is bounded by a ratio and time limit you control. MacGet doesn't search for or index torrents.
 - **Auto-updates via Sparkle** — enabled and signature-verified ([details](#updates)).
 - **Native SwiftUI** with proper `@Observable` view models and an actor-based engine.
 - **MIT licensed.** No ads, no telemetry, no payments.

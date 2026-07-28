@@ -11,6 +11,19 @@ struct DownloadSnapshot: Sendable, Equatable {
     let etaSeconds: TimeInterval?
     /// Media (yt-dlp) lifecycle phase; `nil` for normal HTTP downloads.
     var phase: MediaPhase? = nil
+    /// Torrent-only live stats; `nil` for every other kind.
+    var uploadSpeedBytesPerSec: Double? = nil
+    var uploadedBytes: Int64? = nil
+    var seeders: Int? = nil
+    var peers: Int? = nil
+    /// True once a torrent has finished downloading and is only seeding.
+    var isSeeding: Bool = false
+
+    /// Share ratio, or nil when nothing has been downloaded yet.
+    var ratio: Double? {
+        guard let uploadedBytes, bytesDownloaded > 0 else { return nil }
+        return Double(uploadedBytes) / Double(bytesDownloaded)
+    }
 }
 
 enum CoordinatorError: Error, LocalizedError {

@@ -45,6 +45,18 @@
 				<string>macget</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.suryansh.Macget.magnet</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>magnet</string>
+			</array>
+			<!-- Alternate, not Owner: MacGet offers to handle magnets but must not
+			     hijack the association from a user's existing torrent client. -->
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
 	</array>
 	<key>NSServices</key>
 	<array>

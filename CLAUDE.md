@@ -80,6 +80,17 @@ UI mutations always go through engine actor methods (`pause/resume/cancel/remove
 - If false, anything that was `downloading` is moved to `paused`.
 - Workers send the recorded `etag` (or `lastModified`) as `If-Range` so a changed file fails-fast instead of corrupting the partial.
 
+### BitTorrent (`Macget/Engine/Torrent/`)
+
+The third `DownloadKind`. `TorrentJob` is the structural twin of `MediaExtractionJob` — it drives an external process and reports through the same `onStateChange`/`onSnapshot` callbacks, so the list view renders torrent rows with no restructuring. Progress rides on a single synthetic `Chunk`, exactly as media does.
+
+- **aria2 is not bundled.** Unlike the static `ffmpeg`/`yt-dlp` builds in `Vendor/bin`, aria2 links against `openssl@3`, `libssh2`, `c-ares`, `sqlite`, and `gettext`, so vendoring it would mean re-pathing and notarizing five dylibs. `TorrentToolLocator` finds a system copy and `TorrentToolInstaller` installs one via Homebrew on demand. Side benefit: MacGet never redistributes aria2, so its GPL carries no obligation here.
+- **One daemon for all torrents.** `Aria2Daemon` is a singleton actor: lazy start on the first torrent, `aria2.shutdown` when the last goes inactive and at app termination (wired into `suspendAllForShutdown`). RPC binds to **loopback only** on an ephemeral port with a fresh 256-bit secret per launch.
+- **MacGet owns the queue, not aria2.** `--save-session`/`--input-file` are deliberately absent: `queue.json` is the source of truth and MacGet re-adds torrents itself, so letting aria2 restore its own session would register each info hash twice and aria2 fails the duplicate outright. Resume comes from `--continue=true` plus the `.aria2` control file, with `--bt-save-metadata` so a resumed magnet needn't re-fetch metadata.
+- **Magnets have a metadata phase.** The first GID downloads only the metainfo (a few hundred KB) and reaches `complete` with `completedLength == totalLength` — indistinguishable from a finished download. `isAwaitingMetadata` suppresses completion and byte reporting until `followedBy` hands off to the real GID; the metainfo totals are then cleared so the child's real size replaces them. Getting this wrong marks a 6 GB torrent "Completed" at 500 KB.
+- **Ports are ranges, not single values** (`6881-6890`). A single value makes aria2 fail with "Errors occurred while binding port" whenever another client holds it.
+- Torrents are gated behind `AppSettings.torrentsEnabled` (off by default) and a first-run acknowledgement — unlike media extraction, which is switched on silently. BitTorrent uploads on the user's connection, so it always asks.
+
 ### Book catalogs
 
 `Macget/Services/Catalog/` is a self-contained subsystem that adds **no engine work** — a book acquisition link is an ordinary HTTPS URL, so downloading one is just `engine.add(kind: .httpFile)`.

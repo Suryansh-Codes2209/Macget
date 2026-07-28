@@ -76,13 +76,19 @@ struct ContentView: View {
         )) {
             AuthPromptSheet(model: authPrompt)
         }
+        .sheet(isPresented: Binding(
+            get: { appEnvironment.torrentSetup.isPresented },
+            set: { if !$0 { appEnvironment.torrentSetup.cancel() } }
+        )) {
+            TorrentSetupSheet(model: appEnvironment.torrentSetup)
+        }
         .searchable(text: $listVM.searchText, prompt: "Search downloads")
         .onChange(of: listVM.searchText) { _, _ in listVM.filterRefreshed() }
         .onChange(of: listVM.selectedFilter) { _, _ in listVM.filterRefreshed() }
         .onReceive(NotificationCenter.default.publisher(for: .openAddDownload)) { _ in
             showingAddSheet = true
         }
-        .onDrop(of: [.url, .text], isTargeted: nil) { providers in
+        .onDrop(of: [.fileURL, .url, .text], isTargeted: nil) { providers in
             handleDroppedProviders(providers)
         }
     }
@@ -94,14 +100,24 @@ struct ContentView: View {
         for provider in providers {
             if provider.canLoadObject(ofClass: URL.self) {
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                    if let url, let valid = URLValidation.parsePlausibleHTTPURL(url.absoluteString) {
+                    guard let url else { return }
+                    // A dropped .torrent file is a local file, not an http URL, so
+                    // it has to be recognized before the http validation below.
+                    if url.isFileURL, url.pathExtension.lowercased() == "torrent" {
+                        Task { @MainActor in appEnvironment.addTorrent(torrentFile: url) }
+                    } else if let valid = URLValidation.parsePlausibleHTTPURL(url.absoluteString) {
                         Task { @MainActor in appEnvironment.enqueue(url: valid) }
                     }
                 }
                 enqueuedAny = true
             } else if provider.canLoadObject(ofClass: NSString.self) {
                 _ = provider.loadObject(ofClass: NSString.self) { str, _ in
-                    if let s = str as? String, let valid = URLValidation.parsePlausibleHTTPURL(s) {
+                    guard let s = str as? String else { return }
+                    // Magnets arrive as plain text far more often than as URLs.
+                    if let magnet = URL(string: s.trimmingCharacters(in: .whitespacesAndNewlines)),
+                       magnet.scheme?.lowercased() == "magnet" {
+                        Task { @MainActor in appEnvironment.addTorrent(magnet: magnet) }
+                    } else if let valid = URLValidation.parsePlausibleHTTPURL(s) {
                         Task { @MainActor in appEnvironment.enqueue(url: valid) }
                     }
                 }

@@ -9,6 +9,10 @@ final class SettingsViewModel {
 
     private let environment: AppEnvironment
 
+    /// Shared with the main window so the acknowledgement flow is the same
+    /// wherever torrents get switched on.
+    var torrentSetup: TorrentSetupModel { environment.torrentSetup }
+
     init(environment: AppEnvironment, initial: AppSettings) {
         self.environment = environment
         self.settings = initial

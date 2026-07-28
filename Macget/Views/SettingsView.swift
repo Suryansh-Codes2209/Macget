@@ -14,11 +14,21 @@ struct SettingsView: View {
                 .tabItem { Label("Network", systemImage: "network") }
             CatalogSettingsView()
                 .tabItem { Label("Catalogs", systemImage: "books.vertical") }
+            TorrentSettingsView(vm: vm, setup: vm.torrentSetup)
+                .tabItem { Label("Torrents", systemImage: "arrow.up.arrow.down.circle") }
             aboutTab
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 480, height: 360)
+        .frame(width: 480, height: 400)
         .onChange(of: vm.settings) { _, _ in vm.persistAndPropagate() }
+        // The Settings window is separate from the main one, so it needs its own
+        // presentation of the shared setup sheet.
+        .sheet(isPresented: Binding(
+            get: { vm.torrentSetup.isPresented },
+            set: { if !$0 { vm.torrentSetup.cancel() } }
+        )) {
+            TorrentSetupSheet(model: vm.torrentSetup)
+        }
     }
 
     private var generalTab: some View {

@@ -7,4 +7,6 @@ import Foundation
 enum DownloadKind: String, Codable, Sendable {
     case httpFile
     case media
+    /// BitTorrent, handled by `TorrentJob` via the shared `aria2c` daemon.
+    case torrent
 }

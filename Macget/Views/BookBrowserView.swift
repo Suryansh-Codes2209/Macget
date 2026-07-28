@@ -356,7 +356,29 @@ private struct BookDetailPane: View {
                     }
                     .buttonStyle(.bordered)
                 }
+                archiveTorrentButton
             }
+        }
+    }
+
+    /// Internet Archive generates a .torrent per item covering every file in it —
+    /// the polite way to pull large public-domain collections.
+    @ViewBuilder
+    private var archiveTorrentButton: some View {
+        if model.archiveTorrentURL(for: entry) != nil {
+            Divider().padding(.vertical, 2)
+            Button {
+                model.downloadTorrent(entry)
+            } label: {
+                HStack {
+                    Image(systemName: "arrow.up.arrow.down.circle")
+                    Text("Whole item via torrent")
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.bordered)
+            .help("Download every file in this archive.org item over BitTorrent")
         }
     }
 

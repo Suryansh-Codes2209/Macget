@@ -38,9 +38,21 @@ struct DownloadListView: View {
                     .width(min: 70, ideal: 90)
 
                     TableColumn("Speed", value: \.speedBytesPerSec) { row in
-                        Text(row.status == .downloading ? ByteFormatter.speedString(row.speedBytesPerSec) : "—")
+                        if row.isTorrent, row.uploadSpeedBytesPerSec > 0 {
+                            // Torrents move bytes both ways; showing only the
+                            // download rate hides half of what's going on.
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text("↓ " + ByteFormatter.speedString(row.speedBytesPerSec))
+                                Text("↑ " + ByteFormatter.speedString(row.uploadSpeedBytesPerSec))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .font(.caption)
                             .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                        } else {
+                            Text(row.status == .downloading ? ByteFormatter.speedString(row.speedBytesPerSec) : "—")
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .width(min: 80, ideal: 100)
 
@@ -148,7 +160,22 @@ struct DownloadListView: View {
     private func progressCell(for row: DownloadRowItem) -> some View {
         switch row.status {
         case .completed:
-            Text("Completed").foregroundStyle(.green)
+            // A finished torrent keeps uploading until it hits the seed limit, so
+            // "Completed" alone would look like nothing is happening.
+            if row.isTorrent, row.isSeeding, row.uploadSpeedBytesPerSec > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.up.circle.fill").foregroundStyle(.blue)
+                    Text("Seeding")
+                    if let ratio = row.ratio {
+                        Text(String(format: "· %.2f", ratio))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .help("Uploading to peers until the seed ratio or time limit in Settings is reached")
+            } else {
+                Text("Completed").foregroundStyle(.green)
+            }
         case .failed:
             Text(row.error ?? "Failed")
                 .foregroundStyle(.red)

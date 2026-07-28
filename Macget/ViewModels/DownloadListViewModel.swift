@@ -41,10 +41,26 @@ struct DownloadRowItem: Identifiable, Equatable {
     let supportsRange: Bool        // false → multi-thread is a no-op
     let priority: DownloadPriority
     let phase: MediaPhase?         // media lifecycle phase; nil for HTTP downloads
+    let kind: DownloadKind
+    // Torrent-only live stats; nil/zero for every other kind.
+    let uploadSpeedBytesPerSec: Double
+    let uploadedBytes: Int64?
+    let seeders: Int?
+    let peers: Int?
+    /// True once a torrent has finished downloading and is only uploading.
+    let isSeeding: Bool
 
     var fractionComplete: Double {
         guard let total = totalBytes, total > 0 else { return 0 }
         return min(1.0, Double(bytesDownloaded) / Double(total))
+    }
+
+    var isTorrent: Bool { kind == .torrent }
+
+    /// Share ratio for a torrent row, or nil before anything is downloaded.
+    var ratio: Double? {
+        guard let uploadedBytes, bytesDownloaded > 0 else { return nil }
+        return Double(uploadedBytes) / Double(bytesDownloaded)
     }
 }
 
@@ -128,7 +144,13 @@ final class DownloadListViewModel {
                 threadCount: d.threadCount,
                 supportsRange: d.supportsRange,
                 priority: d.priority,
-                phase: snap?.phase
+                phase: snap?.phase,
+                kind: d.kind,
+                uploadSpeedBytesPerSec: snap?.uploadSpeedBytesPerSec ?? 0,
+                uploadedBytes: snap?.uploadedBytes ?? d.uploadedBytes,
+                seeders: snap?.seeders,
+                peers: snap?.peers,
+                isSeeding: snap?.isSeeding ?? false
             )
         }
         rows = filtered(items)

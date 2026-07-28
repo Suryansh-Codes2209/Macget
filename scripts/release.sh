@@ -88,6 +88,12 @@ sh "${ROOT}/scripts/fetch-media-tools.sh"
 echo "==> Building Release with Xcode…"
 BUILD_DIR="$(mktemp -d)"
 # In free mode, force ad-hoc signing so the build doesn't require a Developer ID cert.
+#
+# Expanded below as `${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"}`, not `"${SIGN_ARGS[@]}"`.
+# macOS ships bash 3.2, where expanding an *empty* array under `set -u` is an
+# "unbound variable" error — so the plain form aborts the notarized path (the
+# only path that leaves this array empty) before xcodebuild ever runs. Bash 4.4+
+# fixed that, which is why it looks fine everywhere but the machine that matters.
 SIGN_ARGS=()
 if [[ "$NOTARIZE" == "0" ]]; then
   SIGN_ARGS=(CODE_SIGN_IDENTITY="-" CODE_SIGN_STYLE=Manual CODE_SIGNING_REQUIRED=NO)
@@ -97,7 +103,7 @@ xcodebuild \
   -scheme "$SCHEME" \
   -configuration Release \
   -derivedDataPath "$BUILD_DIR" \
-  "${SIGN_ARGS[@]}" \
+  ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} \
   clean build
 
 APP_BUILD_PATH="$BUILD_DIR/Build/Products/Release/${SCHEME}.app"

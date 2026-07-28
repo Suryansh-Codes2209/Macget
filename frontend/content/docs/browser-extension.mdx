@@ -55,6 +55,12 @@ you move it and don't relaunch, capture stops working.
 
 ### Chrome, Edge, and Brave
 
+Install it from the
+[Chrome Web Store](https://chromewebstore.google.com/detail/ldmhmgglgemkoogpokfcgplbpfokcejl).
+The same listing works on Edge and Brave.
+
+To run it from a clone of the repository instead:
+
 1. Open `chrome://extensions` (or `edge://extensions`, `brave://extensions`).
 2. Enable **Developer mode**.
 3. Choose **Load unpacked** and select the `chromium/` folder from the
@@ -62,10 +68,11 @@ you move it and don't relaunch, capture stops working.
 4. Confirm the extension ID is `knccbiljmilfmhfellkfbdmilpbdkgni`.
 
 <Callout title="The ID is not cosmetic">
-That ID is pinned by the `key` field in the extension's manifest, and the
-native-messaging host manifest only trusts that exact ID. If the ID differs, the
-host will refuse the connection — which is the point: it stops any other
-extension on your machine from talking to MacGet.
+MacGet's native-messaging host manifest trusts exactly two extension IDs and no
+wildcards: `ldmhmgglgemkoogpokfcgplbpfokcejl` (the published Web Store build)
+and `knccbiljmilfmhfellkfbdmilpbdkgni` (an unpacked clone, pinned by the `key`
+field in its manifest). Any other ID is refused — which is the point: it stops
+another extension on your machine from talking to MacGet.
 </Callout>
 
 ### Firefox

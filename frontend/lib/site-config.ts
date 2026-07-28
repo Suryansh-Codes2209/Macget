@@ -1,5 +1,15 @@
 const REPO = "https://github.com/Suryansh-Codes2209/Macget";
 
+/**
+ * The published listing. The store also accepts a `/detail/<slug>/<id>` form,
+ * but the bare id is what redirects reliably and is what the app's Help menu
+ * opens (`AppDelegate.openExtensionPage`) — keep the two in sync.
+ */
+const CHROME_WEB_STORE =
+  "https://chromewebstore.google.com/detail/ldmhmgglgemkoogpokfcgplbpfokcejl";
+
+const LINKEDIN = "https://www.linkedin.com/company/macget-app";
+
 export const siteConfig = {
   name: "MacGet",
   binary: "Macget",
@@ -19,6 +29,8 @@ export const siteConfig = {
   licenseUrl: `${REPO}/blob/main/LICENSE`,
   issuesUrl: `${REPO}/issues`,
   securityUrl: `${REPO}/blob/main/SECURITY.md`,
+  chromeWebStoreUrl: CHROME_WEB_STORE,
+  linkedinUrl: LINKEDIN,
   contactEmail: "suryansh.codes2001@gmail.com",
 
   disclaimer:
@@ -39,6 +51,7 @@ export const siteConfig = {
       links: [
         { label: "Features", href: "/#features" },
         { label: "Inspector", href: "/#inspector" },
+        { label: "Browser capture", href: "/#extension" },
         { label: "How it works", href: "/#how" },
         { label: "Changelog", href: "/changelog" },
         { label: "FAQ", href: "/#faq" },
@@ -57,6 +70,8 @@ export const siteConfig = {
       title: "Project",
       links: [
         { label: "GitHub", href: REPO, external: true },
+        { label: "Chrome Web Store", href: CHROME_WEB_STORE, external: true },
+        { label: "LinkedIn", href: LINKEDIN, external: true },
         { label: "Releases", href: `${REPO}/releases`, external: true },
         { label: "Report an issue", href: `${REPO}/issues`, external: true },
         { label: "MIT License", href: `${REPO}/blob/main/LICENSE`, external: true },
@@ -145,6 +160,42 @@ export const siteConfig = {
       icon: "Lock",
     },
   ],
+
+  /**
+   * The browser-capture section. `payload` mirrors the fields the extension
+   * actually sends (`BrowserExtension/chromium/background.js` → `captureItem`),
+   * so it stays a manifest rather than a marketing list. If a field is added or
+   * dropped there, change it here too.
+   */
+  extension: {
+    payload: [
+      {
+        field: "url",
+        note: "The file's own address — not the page you were reading.",
+      },
+      {
+        field: "cookie",
+        note: "Scoped to that URL's domain, so a file behind a login still downloads.",
+      },
+      {
+        field: "referer",
+        note: "Hotlink protection sees the page you came from and lets it through.",
+      },
+      {
+        field: "userAgent",
+        note: "Your browser's, verbatim. The request looks the same as the one it replaces.",
+      },
+      {
+        field: "filename",
+        note: "The name your browser resolved, not the id sitting in the URL.",
+      },
+      {
+        field: "size",
+        note: "The queue shows the real total before the first byte lands.",
+      },
+    ],
+    browsers: ["Chrome", "Edge", "Brave", "Firefox"],
+  },
 
   pipeline: [
     {

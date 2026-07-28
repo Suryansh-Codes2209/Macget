@@ -24,13 +24,22 @@ missing/disabled host never makes a download disappear.
    the host path is re-stamped each launch, so moving `Macget.app` and relaunching
    is fine, but the manifests point at wherever Macget last ran.
 
+### Chrome / Edge / Brave (Web Store)
+
+Published at
+<https://chromewebstore.google.com/detail/ldmhmgglgemkoogpokfcgplbpfokcejl> —
+the same listing installs on Edge and Brave.
+
 ### Chrome / Edge / Brave (unpacked)
 
 1. Go to `chrome://extensions` (or `edge://extensions`, `brave://extensions`).
 2. Enable **Developer mode**.
 3. **Load unpacked** → select the `chromium/` folder.
 4. The extension ID must be `knccbiljmilfmhfellkfbdmilpbdkgni` (pinned by the
-   `key` in `manifest.json`; the host manifest only trusts this ID).
+   `key` in `manifest.json`).
+
+`NativeMessagingInstaller.chromiumExtensionIDs` lists both the Web Store ID and
+the unpacked ID; the host manifest trusts those two and nothing else.
 
 ### Firefox (temporary add-on)
 

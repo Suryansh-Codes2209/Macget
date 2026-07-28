@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Github } from "lucide-react";
+import { Github, Linkedin } from "lucide-react";
 import { siteConfig } from "@/lib/site-config";
 
 export function Footer() {
@@ -29,15 +29,26 @@ export function Footer() {
             <p className="max-w-xs text-sm leading-relaxed text-mute">
               {siteConfig.tagline}
             </p>
-            <a
-              href={siteConfig.repoUrl}
-              target="_blank"
-              rel="noreferrer noopener"
-              className="inline-flex w-fit items-center gap-2 rounded-pill border border-line bg-white/[0.04] px-4 py-2 text-sm text-cream-dim transition-colors hover:border-white/20 hover:text-cream"
-            >
-              <Github className="size-4" />
-              GitHub
-            </a>
+            <div className="flex flex-wrap gap-2">
+              <a
+                href={siteConfig.repoUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex w-fit items-center gap-2 rounded-pill border border-line bg-white/[0.04] px-4 py-2 text-sm text-cream-dim transition-colors hover:border-white/20 hover:text-cream"
+              >
+                <Github className="size-4" />
+                GitHub
+              </a>
+              <a
+                href={siteConfig.linkedinUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="inline-flex w-fit items-center gap-2 rounded-pill border border-line bg-white/[0.04] px-4 py-2 text-sm text-cream-dim transition-colors hover:border-white/20 hover:text-cream"
+              >
+                <Linkedin className="size-4" />
+                LinkedIn
+              </a>
+            </div>
           </div>
 
           {siteConfig.footerNav.map((group) => (

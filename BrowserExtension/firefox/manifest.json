@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MacGet Download Capture",
-  "version": "1.1",
+  "version": "1.2",
   "description": "Sends downloads started in Firefox to the Macget download manager.",
   "browser_specific_settings": {
     "gecko": {

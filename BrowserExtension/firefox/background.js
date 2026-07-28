@@ -482,13 +482,28 @@ const MENUS = [
   { id: "macget-page", title: "Send this page's video to MacGet", contexts: ["page"] },
 ];
 
+/**
+ * Chrome's contextMenus.removeAll takes a callback and returns undefined;
+ * Firefox's returns a Promise and ignores the callback. Handling only one of
+ * those means the menus never appear on the other browser, so handle both and
+ * guard against being run twice.
+ */
 function installMenus() {
   if (!api.contextMenus) return;
-  api.contextMenus.removeAll(() => {
+  let created = false;
+  const create = () => {
+    if (created) return;
+    created = true;
     for (const m of MENUS) {
       try { api.contextMenus.create(m); } catch (_) {}
     }
-  });
+  };
+  try {
+    const pending = api.contextMenus.removeAll(create);
+    if (pending && typeof pending.then === "function") pending.then(create, create);
+  } catch (_) {
+    create();
+  }
 }
 
 api.runtime.onInstalled.addListener(installMenus);

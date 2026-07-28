@@ -28,7 +28,13 @@
     const now = Date.now();
     if (now - lastGestureSent < 400) return; // throttle chatter
     lastGestureSent = now;
-    try { api.runtime.sendMessage({ type: "macget-gesture" }); } catch (_) {}
+    // Fire-and-forget. The background sends no reply, which on Firefox settles
+    // as a rejected promise — swallow it rather than leaving unhandled
+    // rejections on every click of every page.
+    try {
+      const pending = api.runtime.sendMessage({ type: "macget-gesture" });
+      if (pending && typeof pending.catch === "function") pending.catch(() => {});
+    } catch (_) {}
   }
   window.addEventListener("pointerdown", markGesture, true);
   window.addEventListener("keydown", markGesture, true);

@@ -2,9 +2,9 @@ import Foundation
 
 /// Builds a human-readable diagnostics report for a download: per-chunk progress,
 /// attempt counts, last errors, and the live concurrency state (effective worker
-/// count, learned host cap, demotion, adaptive ceiling). Surfaced via the list's
-/// "Copy Diagnostics" action so server-specific failures are debuggable without
-/// attaching a debugger — and so the adaptive concurrency decisions are visible.
+/// count, learned host cap, demotion, which limit binds, endgame splits).
+/// Surfaced via the list's "Copy Diagnostics" action so server-specific failures
+/// are debuggable without attaching a debugger.
 enum DownloadDiagnostics {
     static func report(
         for d: Download,
@@ -12,7 +12,8 @@ enum DownloadDiagnostics {
         effectiveThreads: Int? = nil,
         demotedTo: Int? = nil,
         perHostCap: Int? = nil,
-        adaptiveCeiling: Int? = nil
+        limitedBy: ThreadLimitReason? = nil,
+        splitCount: Int? = nil
     ) -> String {
         var lines: [String] = []
         lines.append("Macget download diagnostics")
@@ -28,9 +29,10 @@ enum DownloadDiagnostics {
         lines.append("Threads (user-requested): \(d.threadCount)")
         if let effectiveThreads { lines.append("Threads (effective now): \(effectiveThreads)") }
         if let activeWorkers { lines.append("Active workers: \(activeWorkers)") }
-        if let adaptiveCeiling { lines.append("Adaptive ceiling: \(adaptiveCeiling)") }
         if let perHostCap { lines.append("Learned host cap: \(perHostCap)") }
         if let demotedTo { lines.append("Demoted (anti-leech) to: \(demotedTo)") }
+        if let limitedBy { lines.append("Limited by: \(limitedBy.rawValue)") }
+        if let splitCount { lines.append("Endgame splits: \(splitCount)") }
         if let etag = d.etag { lines.append("ETag: \(etag)") }
         if let lm = d.lastModified { lines.append("Last-Modified: \(lm)") }
         if let cs = d.expectedChecksum, let alg = d.checksumAlgorithm {

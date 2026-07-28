@@ -21,6 +21,17 @@ struct SpeedChartView: View {
     /// Shown under the current-speed numeral, e.g. the filename or "All active".
     var caption: String?
 
+    /// Connection count sampled on the same cadence, overlaid on its own axis.
+    /// nil hides it.
+    ///
+    /// Shares the speed curve's x-axis deliberately: the question this answers is
+    /// whether throughput actually tracked connection count, and that is only
+    /// legible when the two are read against the same time base.
+    var workers: SpeedSeries?
+    /// Top of the worker axis — the effective thread count, so the line reads as
+    /// a fraction of the parallelism actually allowed.
+    var workerScale: Int = 1
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
@@ -80,6 +91,9 @@ struct SpeedChartView: View {
             VStack(alignment: .trailing, spacing: 1) {
                 statLabel("PEAK", ByteFormatter.speedString(series.peak))
                 statLabel("AVG", ByteFormatter.speedString(series.average))
+                if let workers, !workers.isEmpty {
+                    statLabel("CONNS", "\(Int(workers.current)) / \(workerScale)")
+                }
             }
         }
     }
@@ -137,9 +151,48 @@ struct SpeedChartView: View {
             endPoint: CGPoint(x: size.width, y: 0)
         ), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
 
+        drawWorkerOverlay(in: &context, size: size, step: step, shift: shift)
+
         if isLive {
             drawLeadingDot(at: point(values.count - 1), in: &context)
         }
+    }
+
+    /// Connection count as a stepped line on a secondary axis.
+    ///
+    /// Raw samples, not `smoothed` — worker count is a step function, and the
+    /// 3-wide moving average that flatters the speed curve would invent
+    /// fractional connections that never existed. Drawn thin and dashed so it
+    /// annotates the throughput curve rather than competing with it.
+    private func drawWorkerOverlay(
+        in context: inout GraphicsContext,
+        size: CGSize,
+        step: CGFloat,
+        shift: CGFloat
+    ) {
+        guard let workers else { return }
+        let samples = workers.samples
+        guard samples.count >= 2, workerScale > 0 else { return }
+
+        let scale = Double(workerScale)
+        func point(_ i: Int) -> CGPoint {
+            let x = size.width - CGFloat(samples.count - 1 - i) * step + shift
+            let normalized = min(1, max(0, samples[i] / scale))
+            return CGPoint(x: x, y: size.height - CGFloat(normalized) * (size.height - 4) - 2)
+        }
+
+        var line = Path()
+        line.move(to: point(0))
+        for i in 1..<samples.count {
+            // Hold the previous level across the interval, then jump — a
+            // connection is held for the whole sample, not ramped into.
+            let next = point(i)
+            line.addLine(to: CGPoint(x: next.x, y: line.currentPoint?.y ?? next.y))
+            line.addLine(to: next)
+        }
+
+        context.stroke(line, with: .color(Theme.Palette.honey.opacity(0.55)),
+                       style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [3, 2]))
     }
 
     /// Faint horizontal rules at thirds. Unlabeled on purpose — the numbers are

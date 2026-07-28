@@ -3,6 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var vm: SettingsViewModel
     @State private var mediaToolStatus: String?
+    /// nil until the first read of `HostCapStore` lands.
+    @State private var learnedHostCount: Int?
 
     var body: some View {
         TabView {
@@ -261,8 +263,40 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                HStack {
+                    Text(learnedHostCountLabel)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reset") {
+                        Task {
+                            await HostCapStore.shared.clearAll()
+                            await HostCapStore.shared.flushNow()
+                            learnedHostCount = await HostCapStore.shared.learnedHostCount()
+                        }
+                    }
+                    .disabled((learnedHostCount ?? 0) == 0)
+                }
+            } header: {
+                Text("Learned connection limits")
+            } footer: {
+                Text("When a server refuses extra connections, Macget remembers a lower limit for it and reuses that next time. Limits are forgotten after a week; reset them here if a site has since been fixed or one was recorded during a network outage.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(20)
+        .task { learnedHostCount = await HostCapStore.shared.learnedHostCount() }
+    }
+
+    private var learnedHostCountLabel: String {
+        switch learnedHostCount {
+        case .none:   return "Checking…"
+        case 0:       return "No hosts have learned limits"
+        case 1:       return "1 host has a learned limit"
+        case .some(let n): return "\(n) hosts have learned limits"
+        }
     }
 
     private var aboutTab: some View {

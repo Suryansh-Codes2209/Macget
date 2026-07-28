@@ -23,6 +23,12 @@ final class InspectorModel {
     /// there's no selection.
     private(set) var totalSeries = SpeedSeries()
 
+    /// Connection count for the selected download, sampled on the same tick as
+    /// `selectedSeries` so the two can be read against one time base. This is
+    /// what makes the ramp visible: whether the download actually opened the
+    /// connections it was allowed, and how quickly.
+    private(set) var workerSeries = SpeedSeries()
+
     /// Whether the panel is on screen. Polling only runs while it is.
     var isPresented = false {
         didSet {
@@ -51,6 +57,7 @@ final class InspectorModel {
         guard id != targetID else { return }
         targetID = id
         selectedSeries.reset()
+        workerSeries.reset()
         inspection = nil
         if isPresented { Task { await tick() } }
     }
@@ -96,6 +103,8 @@ final class InspectorModel {
             return
         }
         selectedSeries.append(targetRow?.speedBytesPerSec ?? 0)
-        inspection = await engine.inspection(for: targetID)
+        let snapshot = await engine.inspection(for: targetID)
+        workerSeries.append(Double(snapshot?.activeWorkers ?? 0))
+        inspection = snapshot
     }
 }

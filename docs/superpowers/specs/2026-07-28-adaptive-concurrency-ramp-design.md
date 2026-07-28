@@ -134,6 +134,12 @@ The splitting arm is lifted verbatim from the existing loop in `adjustThreadCoun
 
 Logging: one debug-level line per split. Demotion already logs at warning.
 
+## Found during implementation
+
+**`fillWorkersUpToTarget` checked the cap before its stagger sleep, not after.** The loop read `inFlight.count >= target`, then awaited 100 ms, then spawned unconditionally. A worker finishing inside that window lets `chunkFinished` → `fillIdleSlots` take the last slot, and the pending spawn then overshoots. Fixed by re-checking the cap (and the chunk's own state) after the await.
+
+**Concurrency transiently reaches cap + 1 during an endgame split.** `applySplit` cancels one connection and opens two halves immediately, but the cancelled socket's teardown is asynchronous. The overlap is exactly one connection and lasts milliseconds. Not worth serializing the split around a teardown wait — that would stall the tail this feature exists to shorten — but it does mean concurrency assertions must allow it.
+
 ## Deliberate simplifications
 
 **`ChunkSplitter.nextSplit` selects by bytes remaining, not time remaining.** These diverge — a fast worker that started late can hold more bytes than a slow worker nearly done, and the wrong piece gets split. Fixing it properly requires per-chunk speed tracking on the hot path. IDM ships the bytes heuristic, and at the tail the two measures largely agree because the slow piece is the one still large. Revisit only if `splitCount` shows healthy workers being split.
@@ -145,7 +151,7 @@ The codebase's established pattern is pure decision logic (`ChunkSplitter`, `Ret
 **New pure units:**
 
 - `SlotFiller.nextAction(chunks:assigned:cap:) -> .spawn(UUID) | .split(ChunkSplitDecision) | .none` — the Section 3 loop body. Tests: prefers an unassigned piece over a split; splits only when no unassigned piece remains; honors the worker cap, the `minimumSplitBytes` floor, and the 512-piece ceiling.
-- `DemotionPolicy.shouldDemote(failureCount:anyWorkerProgressed:) -> Bool` — the Section 2.1 gate. Tests: demotes at threshold *with* concurrent progress; does **not** demote when nothing progressed (the Wi-Fi-drop case); no demotion below threshold.
+- `DemotionPolicy.shouldDemote(failureCount:throughputBytesPerSecond:) -> Bool` — the Section 2.1 gate. Aggregate throughput (from the existing `SpeedMeter`) is the concrete form the "did anything progress?" signal took: it must clear `healthyThroughputBytesPerSecond` (16 KB/s), so a dying trickle doesn't read as a healthy host. Tests: demotes at threshold *with* bytes flowing; does **not** demote when throughput has collapsed (the Wi-Fi-drop case); no demotion below threshold.
 
 `fillIdleSlots` and `noteRapidFailure` shrink to plumbing around these.
 

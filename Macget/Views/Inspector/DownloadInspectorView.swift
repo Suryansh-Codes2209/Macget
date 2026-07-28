@@ -39,7 +39,9 @@ struct DownloadInspectorView: View {
         SpeedChartView(
             series: model.selectedSeries,
             isLive: row.status == .downloading,
-            caption: row.filename
+            caption: row.filename,
+            workers: model.inspection?.isLive == true ? model.workerSeries : nil,
+            workerScale: model.inspection?.effectiveThreads ?? 1
         )
 
         if let inspection = model.inspection, !inspection.segments.isEmpty {
@@ -104,11 +106,10 @@ struct DownloadInspectorView: View {
         if i.isLive { stats.append(Stat(label: "Active now", value: "\(i.activeWorkers)")) }
         stats.append(Stat(label: "Effective", value: "\(i.effectiveThreads)"))
         stats.append(Stat(label: "Requested", value: "\(i.requestedThreads)"))
-        if i.isLive, let ceiling = i.adaptiveCeiling {
-            stats.append(Stat(label: "Adaptive ceiling", value: "\(ceiling)"))
-        }
         if let cap = i.perHostCap { stats.append(Stat(label: "Host cap", value: "\(cap)")) }
         if let demoted = i.demotedTo { stats.append(Stat(label: "Demoted to", value: "\(demoted)")) }
+        if i.isLive { stats.append(Stat(label: "Limited by", value: i.limitedBy.displayText)) }
+        if i.splitCount > 0 { stats.append(Stat(label: "Endgame splits", value: "\(i.splitCount)")) }
         if !i.supportsRange { stats.append(Stat(label: "Range support", value: "No — single stream")) }
         return stats
     }

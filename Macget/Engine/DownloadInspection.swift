@@ -38,6 +38,28 @@ struct SegmentInfo: Sendable, Equatable, Identifiable {
     }
 }
 
+/// Why the effective worker count is what it is.
+///
+/// Answers the inspector's "why am I only getting N connections?" — the question
+/// that matters most when a learned cap is holding a host down, because the user
+/// can then clear it from Settings ▸ Network.
+enum ThreadLimitReason: String, Sendable, Equatable {
+    /// Running at the user's configured thread count — nothing is holding it back.
+    case userSetting
+    /// A cap learned from a previous session's demotion against this host.
+    case learnedHostCap
+    /// This download demoted itself after the host started refusing connections.
+    case demoted
+
+    var displayText: String {
+        switch self {
+        case .userSetting:    return "Running at your configured limit"
+        case .learnedHostCap: return "Limited by a learned host limit"
+        case .demoted:        return "Limited after this host refused connections"
+        }
+    }
+}
+
 /// Everything the inspector panel shows that isn't already in `DownloadSnapshot`.
 ///
 /// Pulled on demand rather than pushed through `EngineEvent`: the segment array
@@ -57,12 +79,16 @@ struct DownloadInspection: Sendable, Equatable {
     let effectiveThreads: Int
     /// What the user asked for.
     let requestedThreads: Int
-    /// How high the adaptive probe has climbed, or nil when not running.
-    let adaptiveCeiling: Int?
     /// Cap learned for this host in a previous session, if any.
     let perHostCap: Int?
     /// In-session anti-leech demotion, if it fired.
     let demotedTo: Int?
+    /// Which of the three caps above is actually binding right now.
+    let limitedBy: ThreadLimitReason
+    /// Endgame splits performed on this download. Zero for anything that never
+    /// hit the tail — a non-zero count on a download that finished evenly means
+    /// the splitter is picking healthy workers rather than the slow one.
+    let splitCount: Int
     /// False when this was rebuilt from the persisted record because no
     /// coordinator is live (paused, queued, completed).
     let isLive: Bool
@@ -86,9 +112,10 @@ struct DownloadInspection: Sendable, Equatable {
         self.activeWorkers = 0
         self.effectiveThreads = d.threadCount
         self.requestedThreads = d.threadCount
-        self.adaptiveCeiling = nil
         self.perHostCap = nil
         self.demotedTo = nil
+        self.limitedBy = .userSetting
+        self.splitCount = 0
         self.isLive = false
     }
 
@@ -101,9 +128,10 @@ struct DownloadInspection: Sendable, Equatable {
         activeWorkers: Int,
         effectiveThreads: Int,
         requestedThreads: Int,
-        adaptiveCeiling: Int?,
         perHostCap: Int?,
         demotedTo: Int?,
+        limitedBy: ThreadLimitReason,
+        splitCount: Int,
         isLive: Bool
     ) {
         self.id = id
@@ -114,9 +142,10 @@ struct DownloadInspection: Sendable, Equatable {
         self.activeWorkers = activeWorkers
         self.effectiveThreads = effectiveThreads
         self.requestedThreads = requestedThreads
-        self.adaptiveCeiling = adaptiveCeiling
         self.perHostCap = perHostCap
         self.demotedTo = demotedTo
+        self.limitedBy = limitedBy
+        self.splitCount = splitCount
         self.isLive = isLive
     }
 }

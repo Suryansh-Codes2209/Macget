@@ -15,13 +15,42 @@ final class ChunkSplitterTests: XCTestCase {
     }
 
     func test_returnsNilWhenChunkTooSmallToSplit() {
-        // remainingBytes < 2 * minimumChunkBytes (128 KB) — can't halve cleanly.
         let small = Chunk(startByte: 0, endByte: ChunkPlanner.minimumChunkBytes - 1)
         XCTAssertNil(ChunkSplitter.nextSplit(chunks: [small]))
 
-        // exactly 2 * min: 128KB total, splittable into two 64KB halves.
-        let exact = Chunk(startByte: 0, endByte: 2 * ChunkPlanner.minimumChunkBytes - 1)
-        XCTAssertNotNil(ChunkSplitter.nextSplit(chunks: [exact]))
+        // 128 KB clears the planner's floor but not the split floor: halving it
+        // would cancel a live connection to rescue 64 KB, and the reconnect
+        // costs more than the tail is worth.
+        let planFloor = Chunk(startByte: 0, endByte: 2 * ChunkPlanner.minimumChunkBytes - 1)
+        XCTAssertNil(ChunkSplitter.nextSplit(chunks: [planFloor]))
+    }
+
+    func test_defaultFloorIsTheSplitFloorNotThePlanningFloor() {
+        let justUnder = Chunk(startByte: 0, endByte: ChunkSplitter.defaultMinimumSplitBytes - 2)
+        XCTAssertNil(ChunkSplitter.nextSplit(chunks: [justUnder]))
+
+        let atFloor = Chunk(startByte: 0, endByte: ChunkSplitter.defaultMinimumSplitBytes - 1)
+        XCTAssertNotNil(ChunkSplitter.nextSplit(chunks: [atFloor]))
+    }
+
+    func test_explicitFloorIsHonored() {
+        let chunk = Chunk(startByte: 0, endByte: 4 * 1024 * 1024 - 1)  // 4 MB
+        XCTAssertNotNil(ChunkSplitter.nextSplit(chunks: [chunk], minimumSplitBytes: 1024 * 1024))
+        XCTAssertNil(ChunkSplitter.nextSplit(chunks: [chunk], minimumSplitBytes: 8 * 1024 * 1024))
+    }
+
+    func test_plannerFloorStillBindsWhenExplicitFloorIsLower() {
+        // A caller asking for a 1-byte floor must not get sub-64KB halves — the
+        // planner's minimum is a hard lower bound on either side of the split.
+        let tiny = Chunk(startByte: 0, endByte: ChunkPlanner.minimumChunkBytes - 1)
+        XCTAssertNil(ChunkSplitter.nextSplit(chunks: [tiny], minimumSplitBytes: 1))
+    }
+
+    func test_splitFloorMeasuresRemainingNotTotal() {
+        // A 100 MB piece that's all but done has nothing worth splitting left.
+        var nearlyDone = Chunk(startByte: 0, endByte: 100 * 1024 * 1024 - 1)
+        nearlyDone.bytesWritten = 100 * 1024 * 1024 - 1024
+        XCTAssertNil(ChunkSplitter.nextSplit(chunks: [nearlyDone]))
     }
 
     func test_picksLargestRemainingChunk() {

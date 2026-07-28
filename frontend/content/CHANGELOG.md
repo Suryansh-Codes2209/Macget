@@ -2,6 +2,27 @@
 
 All notable changes to Macget. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Book catalog browsing.** A new browser (⇧⌘B) searches and browses book catalogs and sends a chosen format straight to the download queue. **Project Gutenberg** (~75k public-domain titles) and the **Internet Archive** work out of the box; any OPDS feed — including a personal Calibre server — can be added under Settings › Catalogs.
+  - Downloads are named `Title - Author.epub` rather than the catalog's own `2701.epub`.
+  - DRM-wrapped, priced, and loan-only editions are shown but never fetched — the detail pane explains which of the three applies.
+  - Generic OPDS support covers both wire formats: 1.2 (Atom XML) and 2.0 (JSON).
+  - Standard Ebooks is included but off by default: all of its OPDS feeds return 401 to anonymous clients, since access is a Patrons Circle donor benefit. Patrons can switch it on.
+
+- **BitTorrent downloads.** Magnet links and `.torrent` files download through the queue alongside everything else, several at once, sharing the same concurrency limit, pause/resume/cancel, and quiet-hours scheduling. Add them via ⌘N, drag-and-drop, or the `magnet:` handler.
+  - **Off by default.** Enabling it shows a one-time explanation: BitTorrent uploads as well as downloads, opens a listening port, and makes your IP visible to the swarm.
+  - **Seeding is bounded** — ratio 1.0 or 60 minutes by default, whichever comes first, both configurable in Settings › Torrents along with an upload cap, the listening port, and DHT.
+  - Rows show download *and* upload rate, and a live share ratio while seeding.
+  - Internet Archive items can be fetched as a single torrent covering every file in the item — much kinder to IA than pulling files over HTTP.
+  - MacGet does not search for or index torrents.
+
+### Notes
+- Torrents use aria2 as the engine. It is **not** bundled: unlike the static `ffmpeg`/`yt-dlp` builds, aria2 links against five system libraries, so MacGet installs it via Homebrew on first use instead (which also means MacGet never redistributes GPL software).
+- Project Gutenberg is read through Gutendex rather than Gutenberg's own OPDS feed, whose search results are one sub-feed per book rather than direct download links.
+- The Internet Archive is read through its JSON search/metadata APIs because IA retired its OPDS BookServer — `bookserver.archive.org` no longer resolves.
+
 ## [1.2.0] — 2026-06-26
 
 Media downloads, authenticated transfers, smarter organization, and live auto-updates.

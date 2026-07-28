@@ -10,6 +10,8 @@ struct DownloadListView: View {
     /// equivalent). Clicking a column header switches to that column's sort; the
     /// "Queue Order" action — and any move — switches back.
     @State private var useManualOrder = true
+    /// Torrent whose file-selection sheet is open, if any.
+    @State private var filePickerRow: DownloadRowItem?
 
     /// Rows in the order they should be displayed: manual queue order, or the
     /// active column sort.
@@ -85,6 +87,19 @@ struct DownloadListView: View {
                 // A column-header click means the user wants that column's sort, so
                 // leave manual queue order.
                 .onChange(of: sortOrder) { useManualOrder = false }
+                .sheet(item: $filePickerRow) { row in
+                    TorrentFilePickerSheet(
+                        filename: row.filename,
+                        files: row.torrentFiles ?? [],
+                        isPresented: Binding(
+                            get: { filePickerRow != nil },
+                            set: { if !$0 { filePickerRow = nil } }
+                        ),
+                        onApply: { indices in
+                            vm.updateTorrentFileSelection(row.id, selectedIndices: indices)
+                        }
+                    )
+                }
             }
 
             statusBar
@@ -253,6 +268,12 @@ struct DownloadListView: View {
     @ViewBuilder
     private func contextMenuItems(for ids: Set<UUID>) -> some View {
         let rows = vm.rows.filter { ids.contains($0.id) }
+        // Only offered once metadata has resolved and there's actually a choice
+        // to make — a single-file torrent has nothing to pick.
+        if rows.count == 1, let row = rows.first, row.isTorrent, (row.torrentFiles?.count ?? 0) > 1 {
+            Button("Choose Files…") { filePickerRow = row }
+            Divider()
+        }
         if rows.contains(where: { $0.status == .downloading || $0.status == .queued }) {
             Button("Pause") {
                 rows.forEach { vm.pause($0.id) }

@@ -49,6 +49,8 @@ struct DownloadRowItem: Identifiable, Equatable {
     let peers: Int?
     /// True once a torrent has finished downloading and is only uploading.
     let isSeeding: Bool
+    /// Files inside a multi-file torrent, once aria2 has resolved metadata.
+    let torrentFiles: [TorrentFileEntry]?
 
     var fractionComplete: Double {
         guard let total = totalBytes, total > 0 else { return 0 }
@@ -150,7 +152,8 @@ final class DownloadListViewModel {
                 uploadedBytes: snap?.uploadedBytes ?? d.uploadedBytes,
                 seeders: snap?.seeders,
                 peers: snap?.peers,
-                isSeeding: snap?.isSeeding ?? false
+                isSeeding: snap?.isSeeding ?? false,
+                torrentFiles: d.torrentFiles
             )
         }
         rows = filtered(items)
@@ -216,6 +219,12 @@ final class DownloadListViewModel {
 
     func cancel(_ id: UUID) {
         Task { await engine.cancel(id) }
+    }
+
+    /// Apply a new file selection to a multi-file torrent. The engine restarts it
+    /// so aria2 picks up the new `--select-file`.
+    func updateTorrentFileSelection(_ id: UUID, selectedIndices: Set<Int>) {
+        Task { await engine.updateTorrentFileSelection(id, selectedIndices: selectedIndices) }
     }
 
     func remove(_ id: UUID, deleteFile: Bool = false) {

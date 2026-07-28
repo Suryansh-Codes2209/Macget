@@ -95,6 +95,18 @@ export const siteConfig = {
       icon: "Clapperboard",
     },
     {
+      title: "Books from open catalogs",
+      blurb:
+        "Browse and search Project Gutenberg and the Internet Archive without leaving the app, then send a book straight to the queue. Add any OPDS feed too \u2014 including your own Calibre server.",
+      icon: "BookOpen",
+    },
+    {
+      title: "BitTorrent, on your terms",
+      blurb:
+        "Magnet links and .torrent files download in the same queue as everything else. Off by default, and seeding stops at a ratio and time limit you set. MacGet never searches for or indexes torrents.",
+      icon: "ArrowUpDown",
+    },
+    {
       title: "Downloads behind a login",
       blurb:
         "Basic, Digest, and NTLM challenges are answered from credentials you store once. They live in the macOS Keychain, not in a config file.",

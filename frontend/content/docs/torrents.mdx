@@ -1,0 +1,92 @@
+---
+title: Torrents
+description: Downloading magnet links and .torrent files in MacGet — enabling support, seeding limits, file selection, and how the aria2 engine is installed.
+---
+
+MacGet downloads torrents in the same queue as everything else. They share the
+concurrency limit, pause/resume/cancel, priorities, and quiet-hours scheduling
+with your HTTP and media downloads.
+
+<Callout title="Off by default" type="warn">
+BitTorrent **uploads** as well as downloads, opens a listening port, and makes
+your IP address visible to everyone else in the swarm. MacGet asks before
+enabling it and never switches it on silently.
+</Callout>
+
+## Turning it on
+
+The first time you add a torrent — or from **Settings → Torrents** — MacGet
+shows a one-time explanation covering uploading, the listening port, and your
+responsibility for what you transfer. Accept it and MacGet installs the engine.
+
+## The aria2 engine
+
+MacGet uses **aria2** for BitTorrent, and installs it with Homebrew rather than
+bundling it:
+
+```
+brew install aria2
+```
+
+Unlike the `yt-dlp` and `ffmpeg` binaries that ship inside the app, aria2 links
+against five system libraries (`openssl@3`, `libssh2`, `c-ares`, `sqlite`,
+`gettext`), so bundling it would mean shipping and re-signing a pile of dylibs.
+Installing it separately is simpler and more robust — and it means MacGet never
+redistributes GPL software.
+
+If Homebrew isn't installed, MacGet shows the command to run yourself and a
+**Try Again** button.
+
+The engine runs as a single background process shared by all your torrents. Its
+control channel is bound to `127.0.0.1` on a random port with a fresh secret
+each launch, so nothing off your machine can reach it. It starts when you add
+your first torrent and stops when the last one finishes.
+
+## Adding torrents
+
+- **Magnet links** — paste into the Add sheet (⌘N), drop onto the window, or
+  click one in your browser (MacGet registers as a `magnet:` handler, ranked as
+  an alternate so it won't hijack an existing torrent client).
+- **`.torrent` files** — drag onto the MacGet window, or add the file's URL.
+
+A magnet shows **Preparing…** while it fetches metadata from the swarm. Once
+that resolves, the real name, size, and file list appear.
+
+## Seeding
+
+By default MacGet seeds until it reaches a **ratio of 1.0** or **60 minutes**,
+whichever comes first. Both are configurable in **Settings → Torrents**, along
+with an upload speed cap.
+
+Setting either limit to `0` disables it; setting both to `0` stops the moment
+the download finishes. Seeding rows show a live share ratio and both transfer
+rates.
+
+## Choosing files
+
+For a torrent with more than one file, right-click the row and pick
+**Choose Files…**. Deselecting files applies immediately — MacGet restarts the
+torrent so the engine picks up the new selection — and the sheet shows the total
+size of what you've kept.
+
+## Network settings
+
+| Setting | Default | Notes |
+| --- | --- | --- |
+| Listening port | 6881 | MacGet actually tries a range (6881–6890) so a port already in use doesn't break things |
+| DHT | On | Finds peers without a tracker |
+| Upload limit | Unlimited | Per-process cap in KB/s |
+
+Port changes take effect the next time the engine starts.
+
+## Resuming
+
+Torrents resume across restarts. Progress lives in the control file the engine
+keeps beside your partial data, and MacGet re-adds each torrent from its own
+queue on launch — so your queue stays the single source of truth.
+
+## What MacGet doesn't do
+
+MacGet has no torrent search, no index, and no built-in trackers. It downloads
+what you give it. You're responsible for having the right to the material you
+transfer.

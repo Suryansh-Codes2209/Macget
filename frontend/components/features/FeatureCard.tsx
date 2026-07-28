@@ -4,6 +4,8 @@ import { motion } from "motion/react";
 import {
   Activity,
   Apple,
+  ArrowUpDown,
+  BookOpen,
   Chrome,
   Clapperboard,
   Clipboard,
@@ -20,6 +22,8 @@ import { fadeUp } from "@/lib/motion";
 const ICONS: Record<string, LucideIcon> = {
   Activity,
   Apple,
+  ArrowUpDown,
+  BookOpen,
   Chrome,
   Clapperboard,
   Clipboard,

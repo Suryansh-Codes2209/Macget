@@ -102,7 +102,7 @@ export const siteConfig = {
     {
       title: "Adapts to throttled hosts",
       blurb:
-        "When a server starts rejecting parallelism, the engine halves its workers instead of hammering. The learned cap persists per host, so the next download from that origin starts smart.",
+        "When a host refuses connections while the rest keep delivering, the engine halves its workers instead of hammering — and a dropped Wi-Fi link, where everything fails at once, is deliberately not counted against the server. The learned cap persists for that host for 7 days, so the next download starts smart without one bad night slowing it forever.",
       icon: "Activity",
     },
     {

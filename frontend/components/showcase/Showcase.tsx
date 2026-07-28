@@ -33,7 +33,7 @@ const ANNOTATIONS: Annotation[] = [
     label: "Connections",
     value: "8 requested → 6 effective",
     blurb:
-      "Every distinct reason the worker count can fall below what you asked for, on its own line. Here the adaptive probe settled at 6 for this host, so 6 is what runs.",
+      "Every distinct reason the worker count can sit below what you asked for, each on its own line: a cap learned from this host, a demotion after it started refusing connections, or simply your own setting. A download opens at its full count immediately — the number only comes down on evidence.",
   },
 ];
 

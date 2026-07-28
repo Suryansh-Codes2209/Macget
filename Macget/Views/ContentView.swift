@@ -18,13 +18,18 @@ struct ContentView: View {
     /// the inspector shows whatever is selected, so the selection can't be
     /// private to the list any more.
     @State private var selection: Set<UUID> = []
-    @State private var showingInspector = false
+    /// The activity panel opens with the window and stays open across launches.
+    /// Persisted rather than hard-coded so hiding it remains possible on a small
+    /// display — but the default is on, so it's there unless you close it.
+    @AppStorage("showActivityInspector") private var showingInspector = true
 
     var body: some View {
         NavigationSplitView {
             sidebar
         } detail: {
-            DownloadListView(vm: listVM, sortMode: $sortMode, selection: $selection)
+            DownloadListView(vm: listVM,
+                             sortMode: $sortMode,
+                             selection: $selection)
                 .navigationTitle("Macget")
                 .toolbar {
                     // Grouped rather than one undifferentiated run of five
@@ -77,7 +82,9 @@ struct ContentView: View {
                         } label: {
                             Label("Sort", systemImage: "arrow.up.arrow.down")
                         }
-                        .help("Change List Order")
+                        // The list is always grouped into category folders, so
+                        // the sort applies within each folder.
+                        .help("Change Order Within Each Folder")
 
                         Button { listVM.clearCompleted() } label: {
                             Label("Clear Completed", systemImage: "checkmark.circle")
@@ -200,11 +207,15 @@ struct ContentView: View {
 
     /// Count badge on a filter row. Reads as a quiet chip at rest and picks up
     /// the accent on the active filter.
+    ///
+    /// The active pill uses `onAccent`, not white: amber is a light color in both
+    /// appearances (`#E8963C` / `#F0A64E`), so white on it is 2.37:1 — below the
+    /// 4.5:1 floor — while the dark ink is 8.8:1.
     private func countPill(_ count: Int, isSelected: Bool) -> some View {
         Text("\(count)")
             .font(.caption.weight(.medium))
             .monospacedDigit()
-            .foregroundStyle(isSelected ? Color.white : Color.secondary)
+            .foregroundStyle(isSelected ? Theme.Palette.onAccent : Theme.Palette.textSecondary)
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
             .background(

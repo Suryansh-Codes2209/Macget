@@ -3,228 +3,277 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Macget Capture</title>
+  <title>MacGet Capture — Settings</title>
+  <link rel="stylesheet" href="theme.css" />
   <style>
-    :root {
-      --amber-top: #F7C45E;
-      --amber: #F0A64E;
-      --amber-deep: #8A4A14;
-      --bg: #f4f5f7;
-      --card: #ffffff;
-      --card-border: rgba(0, 0, 0, 0.06);
-      --text: #1d1d1f;
-      --text-dim: #6e6e73;
-      --track-off: #d7d7dc;
-      --shadow: 0 1px 2px rgba(0,0,0,.05), 0 6px 20px rgba(60,40,20,.08);
-      --ok: #1a9d4b;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #161618;
-        --card: #1f1f22;
-        --card-border: rgba(255, 255, 255, 0.08);
-        --text: #f2f2f4;
-        --text-dim: #9a9aa0;
-        --track-off: #3a3a3f;
-        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
-        --ok: #34c759;
-      }
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      width: 344px;
-      font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-      color: var(--text);
-      background: var(--bg);
-      -webkit-font-smoothing: antialiased;
-    }
-
-    /* ---- Hero ---- */
-    .hero {
-      position: relative;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 18px 18px 20px;
-      color: #fff;
-      background:
-        radial-gradient(120% 90% at 50% -20%, rgba(240,166,78,.22), rgba(240,166,78,0) 60%),
-        linear-gradient(160deg, #2C2621 0%, #221D19 48%, #14100D 100%);
-      overflow: hidden;
-    }
-    .hero::after {
-      content: "";
-      position: absolute; inset: 0;
-      background: radial-gradient(80% 60% at 85% 130%, rgba(20,10,2,.45), transparent 70%);
-      pointer-events: none;
-    }
-    .hero-icon {
-      width: 46px; height: 46px;
-      border-radius: 11px;
-      box-shadow: 0 4px 12px rgba(10,6,2,.5);
-      flex: none;
-    }
-    .hero-text { flex: 1; min-width: 0; }
-    .hero-title {
-      font-family: -apple-system, "SF Pro Display", sans-serif;
-      font-size: 21px; font-weight: 700; letter-spacing: -.5px; line-height: 1.1;
-    }
-    .hero-sub { font-size: 12px; opacity: .85; letter-spacing: .2px; }
-    .pill {
+    .hero { padding: 22px 26px 24px; }
+    .hero-inner {
       position: relative; z-index: 1;
+      display: flex; align-items: center; gap: 14px;
+      max-width: 720px; margin: 0 auto; width: 100%;
+    }
+    .hero-title { font-size: 24px; }
+    .hero-sub { font-size: 12.5px; }
+    .pill {
       font-size: 10.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
-      padding: 4px 9px; border-radius: 999px;
+      padding: 4px 9px; border-radius: 999px; white-space: nowrap;
       background: rgba(255,255,255,.22);
       box-shadow: inset 0 0 0 1px rgba(255,255,255,.35);
-      transition: background .25s, opacity .25s;
     }
-    .pill::before {
-      content: ""; display: inline-block;
-      width: 6px; height: 6px; border-radius: 50%;
-      background: #fff; margin-right: 5px; vertical-align: 1px;
-      box-shadow: 0 0 6px rgba(255,255,255,.9);
-    }
-    .pill.off { background: rgba(0,0,0,.18); opacity: .8; }
-    .pill.off::before { background: rgba(255,255,255,.5); box-shadow: none; }
+    .pill.off { background: rgba(0,0,0,.22); opacity: .8; }
+    .pill.bad { background: rgba(208,52,44,.45); box-shadow: inset 0 0 0 1px rgba(255,140,130,.5); }
 
-    /* ---- Content ---- */
-    main { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--card-border);
-      border-radius: 14px;
-      padding: 13px 14px;
-      box-shadow: var(--shadow);
-      opacity: 0;
-      transform: translateY(6px);
-      animation: rise .4s cubic-bezier(.22,.7,.3,1) forwards;
-    }
-    .card:nth-child(1) { animation-delay: .04s; }
-    .card:nth-child(2) { animation-delay: .10s; }
-    .card:nth-child(3) { animation-delay: .16s; }
-    @keyframes rise { to { opacity: 1; transform: none; } }
-    @media (prefers-reduced-motion: reduce) {
-      .card { animation: none; opacity: 1; transform: none; }
-    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 22px 26px 40px; }
 
-    .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    .row-title { font-size: 14px; font-weight: 600; }
-    .row-desc { font-size: 11.5px; color: var(--text-dim); margin-top: 1px; }
-    .field-label { font-size: 13px; font-weight: 600; }
-    .field-hint { font-size: 11px; color: var(--text-dim); margin-top: 7px; }
+    .section + .section { margin-top: 26px; }
+    .section-head { margin-bottom: 10px; padding: 0 3px; }
+    .section-head h2 {
+      font-family: var(--display);
+      font-size: 12px; font-weight: 700; letter-spacing: .8px;
+      text-transform: uppercase; color: var(--text-faint);
+    }
+    .section-head p { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
 
-    /* iOS-style switch */
-    .switch { position: relative; flex: none; width: 44px; height: 26px; }
-    .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
-    .track {
-      position: absolute; inset: 0; border-radius: 999px;
-      background: var(--track-off);
-      transition: background .25s cubic-bezier(.3,.1,.3,1);
-    }
-    .track::after {
-      content: ""; position: absolute; top: 3px; left: 3px;
-      width: 20px; height: 20px; border-radius: 50%;
-      background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3);
-      transition: transform .25s cubic-bezier(.3,.1,.3,1);
-    }
-    .switch input:checked + .track {
-      background: linear-gradient(180deg, var(--amber-top), var(--amber));
-    }
-    .switch input:checked + .track::after { transform: translateX(18px); }
-    .switch input:focus-visible + .track { box-shadow: 0 0 0 3px rgba(240,166,78,.45); }
+    .card { padding: 0; overflow: hidden; }
+    .setting { padding: 14px 16px; }
+    .setting + .setting { border-top: 1px solid var(--hairline); }
+    .setting .row-desc { max-width: 46ch; }
 
-    /* number stepper */
-    .stepper {
-      display: inline-flex; align-items: center; gap: 6px;
-      background: var(--bg); border: 1px solid var(--card-border);
-      border-radius: 9px; padding: 4px 10px;
-    }
-    .stepper input {
-      width: 46px; border: 0; background: transparent; color: var(--text);
-      font: inherit; font-weight: 600; text-align: right; -moz-appearance: textfield;
-    }
-    .stepper input:focus { outline: none; }
-    .stepper .unit { font-size: 11.5px; color: var(--text-dim); }
+    .stack { margin-top: 10px; }
+    .stack textarea { height: 92px; }
 
-    textarea {
-      width: 100%; height: 68px; margin-top: 9px; resize: vertical;
-      border: 1px solid var(--card-border); border-radius: 10px;
-      background: var(--bg); color: var(--text);
-      padding: 8px 10px; font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace;
+    /* ---- diagnostics ---- */
+    .diag-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .diag-result {
+      font: 12px/1.5 var(--mono);
+      padding: 3px 0;
+      color: var(--text-dim);
     }
-    textarea:focus { outline: none; border-color: var(--amber); box-shadow: 0 0 0 3px rgba(240,166,78,.22); }
+    .diag-result.ok { color: var(--ok); }
+    .diag-result.bad { color: var(--bad); }
+    dl.facts { margin-top: 12px; display: grid; grid-template-columns: auto 1fr; gap: 7px 16px; }
+    dl.facts dt { font-size: 11.5px; color: var(--text-dim); }
+    dl.facts dd {
+      font: 11.5px/1.45 var(--mono);
+      color: var(--text);
+      overflow-wrap: anywhere;
+    }
+    dl.facts dd.muted { color: var(--text-faint); font-family: var(--body); }
 
-    .footnote {
-      padding: 2px 4px 4px; font-size: 11px; color: var(--text-dim); line-height: 1.5;
-    }
-    .footnote b { color: var(--text); font-weight: 600; }
+    /* ---- about ---- */
+    .about { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .about a { color: var(--amber-deep); font-weight: 600; text-decoration: none; }
+    .about a:hover { text-decoration: underline; }
+    @media (prefers-color-scheme: dark) { .about a { color: var(--amber); } }
 
-    /* saved toast */
-    .toast {
-      position: fixed; left: 50%; bottom: 12px; transform: translate(-50%, 16px);
-      background: var(--ok); color: #fff; font-size: 12px; font-weight: 600;
-      padding: 6px 14px; border-radius: 999px; box-shadow: 0 6px 18px rgba(0,0,0,.25);
-      opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+    @media (max-width: 560px) {
+      .wrap, .hero { padding-left: 16px; padding-right: 16px; }
+      .row { flex-direction: column; align-items: flex-start; gap: 10px; }
     }
-    .toast.show { opacity: 1; transform: translate(-50%, 0); }
   </style>
 </head>
 <body>
-  <header class="hero">
-    <img class="hero-icon" src="icons/icon-128.png" alt="Macget" />
-    <div class="hero-text">
-      <div class="hero-title">Macget</div>
-      <div class="hero-sub">Download capture</div>
+  <header class="hero" id="hero" data-state="connected">
+    <div class="hero-inner">
+      <img class="hero-icon" src="icons/icon-128.png" alt="" />
+      <div class="hero-text">
+        <div class="hero-title">MacGet</div>
+        <div class="hero-sub">Download capture settings</div>
+      </div>
+      <span class="pill" id="statusPill">Active</span>
     </div>
-    <span class="pill" id="statusPill">Active</span>
+    <div class="hero-edge"></div>
   </header>
 
-  <main>
-    <div class="card">
-      <div class="row">
-        <div>
-          <div class="row-title">Capture downloads</div>
-          <div class="row-desc">Hand browser downloads to Macget.</div>
+  <div class="wrap">
+    <section class="section">
+      <div class="section-head">
+        <h2>Capture</h2>
+        <p>What MacGet takes over from your browser, and how it tells you about it.</p>
+      </div>
+      <div class="card">
+        <div class="setting">
+          <div class="row">
+            <div>
+              <div class="row-title">Capture downloads</div>
+              <div class="row-desc">Hand browser downloads to Macget. Your browser keeps the download if Macget doesn't answer.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="enabled" />
+              <span class="track"></span>
+            </label>
+          </div>
         </div>
-        <label class="switch">
-          <input type="checkbox" id="enabled" />
-          <span class="track"></span>
-        </label>
-      </div>
-    </div>
 
-    <div class="card">
-      <div class="row">
-        <span class="field-label">Skip files smaller than</span>
-        <span class="stepper">
-          <input type="number" id="minSize" min="0" step="1" />
-          <span class="unit">MB</span>
-        </span>
-      </div>
-      <div class="field-hint">0 captures everything.</div>
-    </div>
-
-    <div class="card">
-      <div class="row">
-        <div>
-          <div class="row-title">Block movie-proxy jumplinks</div>
-          <div class="row-desc">Drop popunder / redirect / shortener downloads that fire without a real click.</div>
+        <div class="setting">
+          <div class="row">
+            <div>
+              <div class="row-title">Skip files smaller than</div>
+              <div class="row-desc">Small files finish faster in the browser than they do round-tripping through Macget. 0 captures everything.</div>
+            </div>
+            <span class="stepper">
+              <input type="number" id="minSize" min="0" step="1" />
+              <span class="unit">MB</span>
+            </span>
+          </div>
         </div>
-        <label class="switch">
-          <input type="checkbox" id="jumplinkFilter" />
-          <span class="track"></span>
-        </label>
+
+        <div class="setting">
+          <div class="row">
+            <div>
+              <div class="row-title">Show a notification on capture</div>
+              <div class="row-desc">Also warns you once every ten minutes when Macget isn't connected.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="notifications" />
+              <span class="track"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting">
+          <div class="row">
+            <div>
+              <div class="row-title">Show a badge on the toolbar icon</div>
+              <div class="row-desc">A check mark after each capture, and a red mark while Macget is unreachable.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="badge" />
+              <span class="track"></span>
+            </label>
+          </div>
+        </div>
       </div>
-    </div>
+    </section>
 
-    <div class="card">
-      <div class="field-label">Never capture these domains</div>
-      <textarea id="denylist" placeholder="one per line, e.g.&#10;mail.google.com&#10;intranet.example.com"></textarea>
-    </div>
+    <section class="section">
+      <div class="section-head">
+        <h2>Filtering</h2>
+        <p>Rules for downloads that start on their own. Anything you ask for by hand — a context menu, a button — bypasses these.</p>
+      </div>
+      <div class="card">
+        <div class="setting">
+          <div class="row">
+            <div>
+              <div class="row-title">Block movie-proxy jumplinks</div>
+              <div class="row-desc">Drops popunder, redirect, and link-shortener downloads that fire without a real click.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="jumplinkFilter" />
+              <span class="track"></span>
+            </label>
+          </div>
+        </div>
 
-    <p class="footnote">Also turn on <b>Auto-capture</b> in Macget → Settings → Browser integration. To download a video, click the <b>⬇ Macget</b> button that appears on the player (enable <b>Download videos</b> in Macget settings first).</p>
-  </main>
+        <div class="setting">
+          <div class="row">
+            <div>
+              <div class="row-title">Count a click as intent for</div>
+              <div class="row-desc">A download starting within this long after you click counts as one you asked for. Raise it if slow sites lose downloads.</div>
+            </div>
+            <span class="stepper">
+              <input type="number" id="gestureWindow" min="0" step="250" />
+              <span class="unit">ms</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="setting">
+          <div class="field-label">Never capture these domains</div>
+          <div class="row-desc">One per line. Subdomains are included, so <code>example.com</code> also covers <code>files.example.com</code>.</div>
+          <div class="stack">
+            <textarea id="denylist" spellcheck="false" placeholder="mail.google.com&#10;intranet.example.com"></textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>Video button</h2>
+        <p>The button MacGet overlays on video players, for sending a page to Macget's extractor.</p>
+      </div>
+      <div class="card">
+        <div class="setting">
+          <div class="row">
+            <div>
+              <div class="row-title">Show the button on video players</div>
+              <div class="row-desc">Turn on Download videos in Macget's settings for the extraction to work.</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="showVideoButton" />
+              <span class="track"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting">
+          <div class="row">
+            <div>
+              <div class="row-title">Corner</div>
+              <div class="row-desc">Where the button sits over the player.</div>
+            </div>
+            <select id="videoCorner" style="width: auto;">
+              <option value="top-right">Top right</option>
+              <option value="top-left">Top left</option>
+              <option value="bottom-right">Bottom right</option>
+              <option value="bottom-left">Bottom left</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="setting">
+          <div class="field-label">Hide the button on these sites</div>
+          <div class="row-desc">One per line. Subdomains are included.</div>
+          <div class="stack">
+            <textarea id="videoHidden" spellcheck="false" placeholder="meet.google.com&#10;app.zoom.us"></textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>Diagnostics</h2>
+        <p>When a download isn't being captured, start here.</p>
+      </div>
+      <div class="card">
+        <div class="setting">
+          <div class="diag-actions">
+            <button class="btn btn-accent" id="ping">Check connection</button>
+            <span class="diag-result" id="pingResult">Not checked yet.</span>
+          </div>
+          <dl class="facts">
+            <dt>Native host</dt><dd id="factHost"></dd>
+            <dt>Extension ID</dt><dd id="factId"></dd>
+            <dt>Last error</dt><dd id="factError" class="muted">None</dd>
+          </dl>
+        </div>
+        <div class="setting">
+          <div class="row">
+            <div>
+              <div class="row-title">Clear recent captures</div>
+              <div class="row-desc">Empties the list in the popup. Downloads already in Macget aren't affected.</div>
+            </div>
+            <button class="btn" id="clearHistory">Clear list</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>About</h2></div>
+      <div class="card">
+        <div class="setting about">
+          <div>
+            <div class="row-title">MacGet Download Capture</div>
+            <div class="row-desc">Version <span id="version"></span></div>
+          </div>
+          <a href="https://macget.suryansh.work" target="_blank" rel="noreferrer noopener">macget.suryansh.work</a>
+        </div>
+      </div>
+    </section>
+  </div>
 
   <div class="toast" id="saved">Saved</div>
   <script src="options.js"></script>

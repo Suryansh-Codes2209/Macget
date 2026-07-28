@@ -51,11 +51,43 @@ struct DownloadListView: View {
     @Binding var selection: Set<UUID>
     /// Torrent whose file-selection sheet is open, if any.
     @State private var filePickerRow: DownloadRowItem?
+    /// Which folders are shut. Persisted as a comma-joined list of raw values —
+    /// see `DownloadCategory.decodeCollapsed` for why it stores the *collapsed*
+    /// set rather than the expanded one.
+    @AppStorage("collapsedDownloadCategories") private var collapsedRaw = ""
 
     /// Rows in the order they should be displayed.
     private var displayRows: [DownloadRowItem] {
         guard let comparators = sortMode.comparators else { return vm.rows }
         return vm.rows.sorted(using: comparators)
+    }
+
+    /// `displayRows` split into category folders, empty categories dropped.
+    ///
+    /// Sorting still applies — it just applies *within* each folder, so "Name"
+    /// reads as an alphabetized list per kind. Folders describe whatever rows are
+    /// currently visible, so a status filter or a search narrows the rows first
+    /// and the folders then describe that narrowed set.
+    private var folders: [(category: DownloadCategory, rows: [DownloadRowItem], totalBytes: Int64)] {
+        let buckets = Dictionary(grouping: displayRows) {
+            DownloadCategory.of(filename: $0.filename)
+        }
+        return DownloadCategory.displayOrder.compactMap { category in
+            guard let rows = buckets[category], !rows.isEmpty else { return nil }
+            // A row whose size hasn't been probed yet contributes 0 rather than
+            // voiding the whole folder's total.
+            return (category, rows, rows.reduce(0) { $0 + ($1.totalBytes ?? 0) })
+        }
+    }
+
+    private var collapsed: Set<DownloadCategory> {
+        DownloadCategory.decodeCollapsed(collapsedRaw)
+    }
+
+    private func toggle(_ category: DownloadCategory) {
+        var next = collapsed
+        if next.contains(category) { next.remove(category) } else { next.insert(category) }
+        collapsedRaw = DownloadCategory.encodeCollapsed(next)
     }
 
     var body: some View {
@@ -73,18 +105,16 @@ struct DownloadListView: View {
 
     private var list: some View {
         List(selection: $selection) {
-            ForEach(displayRows) { row in
-                DownloadRowCard(
-                    row: row,
-                    isSelected: selection.contains(row.id),
-                    setThreads: { vm.setThreads(row.id, $0) }
-                )
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: Theme.Spacing.cardGap / 2,
-                                          leading: Theme.Spacing.sectionGap,
-                                          bottom: Theme.Spacing.cardGap / 2,
-                                          trailing: Theme.Spacing.sectionGap))
+            ForEach(folders, id: \.category) { folder in
+                folderRow(folder)
+
+                // Collapsed rows leave the view tree entirely rather than
+                // hiding, so shutting a large folder also cheapens the list.
+                if !collapsed.contains(folder.category) {
+                    ForEach(folder.rows) { row in
+                        card(for: row)
+                    }
+                }
             }
         }
         .listStyle(.plain)
@@ -111,6 +141,46 @@ struct DownloadListView: View {
                 }
             )
         }
+    }
+
+    /// Indented under its folder — the indent is what makes the hierarchy read,
+    /// since the cards otherwise look identical at every level.
+    private func card(for row: DownloadRowItem) -> some View {
+        DownloadRowCard(
+            row: row,
+            isSelected: selection.contains(row.id),
+            setThreads: { vm.setThreads(row.id, $0) }
+        )
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: Theme.Spacing.cardGap / 2,
+                                  leading: Theme.Spacing.sectionGap + folderIndent,
+                                  bottom: Theme.Spacing.cardGap / 2,
+                                  trailing: Theme.Spacing.sectionGap))
+    }
+
+    /// Lines a card's icon tile up under its folder's tile.
+    private let folderIndent: CGFloat = 22
+
+    private func folderRow(
+        _ folder: (category: DownloadCategory, rows: [DownloadRowItem], totalBytes: Int64)
+    ) -> some View {
+        CategoryFolderRow(
+            category: folder.category,
+            itemCount: folder.rows.count,
+            totalBytes: folder.totalBytes,
+            isExpanded: !collapsed.contains(folder.category),
+            toggle: { toggle(folder.category) }
+        )
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets(top: Theme.Spacing.sectionGap / 2,
+                                  leading: Theme.Spacing.sectionGap,
+                                  bottom: Theme.Spacing.cardGap / 2,
+                                  trailing: Theme.Spacing.sectionGap))
+        // Keeps the selection a set of download IDs: clicking a folder toggles
+        // it without disturbing what's selected, and ⌘A skips folders.
+        .selectionDisabled(true)
     }
 
     @ViewBuilder

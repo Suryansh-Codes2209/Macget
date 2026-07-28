@@ -33,6 +33,24 @@ enum Theme {
         /// Hairline borders and inactive progress track.
         static let stroke = Color("SurfaceWarmStroke")
 
+        /// Body text on warm surfaces, and on `amber` fills.
+        ///
+        /// Deliberately *not* `.primary`/`.secondary`: AppKit auto-inverts the
+        /// semantic foreground colors to white on a selected table row, which
+        /// blanked list rows whose card fill stayed light. These are explicit,
+        /// so nothing the selection does can repaint them.
+        ///
+        /// Amber is a light color in *both* appearances — `#E8963C` light,
+        /// `#F0A64E` dark — so white-on-amber is 2.37:1 either way and there is
+        /// no mode in which it's readable. `textPrimary` on amber is 8.8:1,
+        /// which is why the light variant here is the one used on accent fills
+        /// (count pills, prominent buttons) regardless of appearance.
+        static let textPrimary = Color("TextPrimary")
+        static let textSecondary = Color("TextSecondary")
+        /// Fixed dark ink for text sitting on an `amber`/`honey` fill. Doesn't
+        /// flip with appearance, because the fill it sits on doesn't either.
+        static let onAccent = Color(.sRGB, red: 0x2B / 255, green: 0x1F / 255, blue: 0x12 / 255)
+
         static let success = Color("StatusSuccess")
         static let error = Color("StatusError")
         static let paused = Color("StatusPaused")

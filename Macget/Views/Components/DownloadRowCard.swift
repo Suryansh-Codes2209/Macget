@@ -15,21 +15,19 @@ struct DownloadRowCard: View {
     let setThreads: (Int) -> Void
 
     @State private var isHovering = false
-    @Environment(\.backgroundProminence) private var backgroundProminence
 
-    /// True when this row sits inside the List's *emphasized* selection — the
-    /// focused-window case where AppKit has already flipped the row's text to
-    /// white. Everything the card draws has to invert with it: leaving the light
-    /// `surfaceElevated` fill in place puts white text on cream and the row goes
-    /// blank. An unfocused selection keeps dark text on a grey band, so it stays
-    /// on the resting treatment.
-    private var isEmphasized: Bool { backgroundProminence == .increased }
-
-    private var primaryText: Color { isEmphasized ? .white : .primary }
-    private var secondaryText: Color { isEmphasized ? .white.opacity(0.75) : .secondary }
-
-    /// A status color, or white when it would otherwise sit on the accent band.
-    private func statusText(_ color: Color) -> Color { isEmphasized ? .white : color }
+    /// Explicit, so the selection can't repaint them.
+    ///
+    /// This card used to branch on `backgroundProminence == .increased` and flip
+    /// everything to white for the "emphasized selection" case. That check never
+    /// fired — but AppKit inverts semantic `.primary`/`.secondary` on a selected
+    /// row anyway, so the text went white while the card fill stayed the opaque
+    /// light `surfaceElevated`, and selected rows read as blank. Explicit theme
+    /// colors close the channel the inversion arrived through; selection is now
+    /// drawn by the card alone (amber wash + amber border), never by recoloring
+    /// text.
+    private var primaryText: Color { Theme.Palette.textPrimary }
+    private var secondaryText: Color { Theme.Palette.textSecondary }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -47,8 +45,7 @@ struct DownloadRowCard: View {
             RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
                 .strokeBorder(borderColor, lineWidth: isSelected ? 1.5 : 1)
         )
-        // No shadow on the accent band — it reads as grime rather than lift.
-        .shadow(color: .black.opacity(isEmphasized ? 0 : (isHovering ? 0.10 : 0.04)),
+        .shadow(color: .black.opacity(isHovering ? 0.10 : 0.04),
                 radius: isHovering ? 6 : 2, y: isHovering ? 2 : 1)
         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous))
         .onHover { isHovering = $0 }
@@ -56,24 +53,22 @@ struct DownloadRowCard: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// On the accent band the card becomes a translucent white panel so the
-    /// selection reads through it and the card shape survives; at rest it's the
-    /// opaque warm surface.
+    /// Selection is a wash over the resting surface, not a replacement for it —
+    /// 8% amber keeps the card opaque and the text contrast untouched (15:1 in
+    /// light mode), so the selected row stays as legible as every other row.
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-            .fill(isEmphasized ? AnyShapeStyle(Color.white.opacity(0.16))
-                               : AnyShapeStyle(Theme.Palette.surfaceElevated))
+            .fill(Theme.Palette.surfaceElevated)
             .overlay {
-                if isSelected && !isEmphasized {
+                if isSelected {
                     RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                        .fill(Theme.Palette.amber.opacity(0.10))
+                        .fill(Theme.Palette.amber.opacity(0.08))
                 }
             }
     }
 
     private var borderColor: Color {
-        if isEmphasized { return .white.opacity(0.45) }
-        return isSelected ? Theme.Palette.amber : Theme.Palette.stroke
+        isSelected ? Theme.Palette.amber : Theme.Palette.stroke
     }
 
     // MARK: - Icon
@@ -81,18 +76,14 @@ struct DownloadRowCard: View {
     /// File-type symbol in a tinted tile, with the status badge in the corner.
     /// Same badge logic the table row used, moved to `Theme.statusBadge`.
     private var icon: some View {
-        // The category tints are muted mid-tones tuned for the card fill; on the
-        // accent band they turn to mud, so the tile goes monochrome there.
         let tint = Theme.color(for: FileTypeIcon.category(for: row.filename))
-        let tileFill = isEmphasized ? Color.white.opacity(0.22) : tint.opacity(0.15)
-        let glyph = isEmphasized ? Color.white : tint
         return RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(tileFill)
+            .fill(tint.opacity(0.15))
             .frame(width: 34, height: 34)
             .overlay {
                 Image(systemName: FileTypeIcon.symbolName(for: row.filename))
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(glyph)
+                    .foregroundStyle(tint)
             }
             .overlay(alignment: .bottomTrailing) {
                 if let badge = Theme.statusBadge(row.status) {
@@ -101,9 +92,7 @@ struct DownloadRowCard: View {
                         .foregroundStyle(.white)
                         .frame(width: 14, height: 14)
                         .background(badge.color, in: Circle())
-                        .overlay(Circle().strokeBorder(
-                            isEmphasized ? Color.white.opacity(0.9) : Theme.Palette.surfaceElevated,
-                            lineWidth: 1.5))
+                        .overlay(Circle().strokeBorder(Theme.Palette.surfaceElevated, lineWidth: 1.5))
                         .offset(x: 4, y: 4)
                 }
             }
@@ -123,11 +112,10 @@ struct DownloadRowCard: View {
             if row.isTorrent {
                 Text("TORRENT")
                     .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(statusText(Theme.Palette.seeding))
+                    .foregroundStyle(Theme.Palette.seeding)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background(isEmphasized ? Color.white.opacity(0.22)
-                                             : Theme.Palette.seeding.opacity(0.15),
+                    .background(Theme.Palette.seeding.opacity(0.15),
                                 in: Capsule(style: .continuous))
             }
 
@@ -184,14 +172,14 @@ struct DownloadRowCard: View {
                     .monospacedDigit().font(.caption)
                     .foregroundStyle(secondaryText)
                 Text("Paused")
-                    .font(.caption).foregroundStyle(statusText(Theme.Palette.paused))
+                    .font(.caption).foregroundStyle(Theme.Palette.paused)
             }
         case .completed:
             completedLine
         case .failed:
             Text(row.error ?? "Failed")
                 .font(.caption)
-                .foregroundStyle(statusText(Theme.Palette.error))
+                .foregroundStyle(Theme.Palette.error)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help(row.error ?? "Failed")
@@ -235,9 +223,9 @@ struct DownloadRowCard: View {
         if row.isTorrent, row.uploadSpeedBytesPerSec > 0 {
             HStack(spacing: 6) {
                 Label(ByteFormatter.speedString(row.speedBytesPerSec), systemImage: "arrow.down")
-                    .foregroundStyle(statusText(Theme.Palette.amber))
+                    .foregroundStyle(Theme.Palette.amber)
                 Label(ByteFormatter.speedString(row.uploadSpeedBytesPerSec), systemImage: "arrow.up")
-                    .foregroundStyle(statusText(Theme.Palette.seeding))
+                    .foregroundStyle(Theme.Palette.seeding)
             }
             .font(.caption)
             .monospacedDigit()
@@ -246,7 +234,7 @@ struct DownloadRowCard: View {
         } else {
             HStack(spacing: 4) {
                 Text(ByteFormatter.speedString(row.speedBytesPerSec))
-                    .foregroundStyle(statusText(Theme.Palette.amber))
+                    .foregroundStyle(Theme.Palette.amber)
                 if let eta = row.etaSeconds, eta > 0 {
                     Text("·").foregroundStyle(secondaryText.opacity(0.6))
                     Text(ByteFormatter.etaString(eta))
@@ -265,7 +253,7 @@ struct DownloadRowCard: View {
         if row.isTorrent, row.isSeeding, row.uploadSpeedBytesPerSec > 0 {
             HStack(spacing: 5) {
                 Image(systemName: "arrow.up.circle.fill")
-                    .foregroundStyle(statusText(Theme.Palette.seeding))
+                    .foregroundStyle(Theme.Palette.seeding)
                 Text("Seeding")
                     .foregroundStyle(primaryText)
                 if let ratio = row.ratio {
@@ -282,9 +270,9 @@ struct DownloadRowCard: View {
         } else {
             HStack(spacing: 5) {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(statusText(Theme.Palette.success))
+                    .foregroundStyle(Theme.Palette.success)
                 Text("Completed")
-                    .foregroundStyle(statusText(Theme.Palette.success))
+                    .foregroundStyle(Theme.Palette.success)
             }
             .font(.caption)
         }

@@ -8,7 +8,7 @@ export const siteConfig = {
   heroSub:
     "MacGet splits every file across up to 16 chunks, learns what each host will tolerate, and resumes across restarts — a native SwiftUI app for macOS Tahoe.",
   minOS: "macOS Tahoe 26.4",
-  version: "1.2.0",
+  version: "1.3.0",
 
   /** Canonical origin. Used for metadataBase, canonical tags, and the sitemap. */
   url: "https://macget.suryansh.work",

@@ -21,6 +21,26 @@ final class ConcurrencyRecorder: @unchecked Sendable {
     /// The `Range` header of each request, in order.
     private(set) var rangeHeaders: [String] = []
 
+    /// Peak concurrency observed while the opening connections were all still
+    /// open — i.e. before any request finished.
+    ///
+    /// `DownloadCoordinator.applySplit` cancels a live worker and opens both
+    /// halves in the same turn, and the cancelled socket's teardown is
+    /// asynchronous, so a server watching sockets sees one *over* the cap for a
+    /// few milliseconds during the endgame. That overlap is real and accepted
+    /// (`test_learnedHostCapStillLimitsConcurrency` tolerates it explicitly) —
+    /// the engine's own `inFlight` accounting never exceeds the cap — but it
+    /// says nothing about the spawn ramp.
+    ///
+    /// Freezing on the *cancellation* would be too late: the recorder only
+    /// learns of it when `stopLoading` arrives, which is after the two halves
+    /// have already begun. The first completion is the right cut instead, and a
+    /// sound one: a split needs a free slot, a slot only frees on a completion,
+    /// and `responseDelay` is required to exceed the full spawn stagger. So the
+    /// whole ramp is always inside this window and no split ever is.
+    private(set) var peakBeforeFirstCompletion = 0
+    private var sawCompletion = false
+
     func begin(rangeHeader: String) {
         lock.lock(); defer { lock.unlock() }
         rangeHeaders.append(rangeHeader)
@@ -32,11 +52,13 @@ final class ConcurrencyRecorder: @unchecked Sendable {
             peak = active
             peakReachedAt = now
         }
+        if !sawCompletion { peakBeforeFirstCompletion = max(peakBeforeFirstCompletion, active) }
     }
 
     func end() {
         lock.lock(); defer { lock.unlock() }
         active -= 1
+        sawCompletion = true
     }
 
     /// How long after the first connection the `n`th one opened, or nil if it
@@ -172,10 +194,12 @@ final class ConcurrencyRampTests: XCTestCase {
     /// probe started at 4 and added one connection per 3 s, so peak concurrency
     /// was 4 and reaching 8 would have taken ~12 s.
     func test_opensConfiguredConnectionCountImmediately() async throws {
-        // 16 pieces at the 8 MB target against 8 workers. Deliberately more
-        // pieces than workers so `fillIdleSlots` always has something to steal
-        // and never splits — splitting cancels and respawns, which would perturb
-        // the concurrency measurement without telling us anything about the ramp.
+        // 16 pieces at the 8 MB target against 8 workers. More pieces than
+        // workers keeps `fillIdleSlots` stealing rather than splitting for the
+        // whole ramp — it only runs out of outstanding pieces well after the
+        // 8th connection is up, and splitting perturbs the connection count
+        // without saying anything about the ramp. The tail *does* split, which
+        // is why the assertion below reads `peakBeforeFirstCompletion`.
         let total: Int64 = 128 * 1024 * 1024
         RangeStubURLProtocol.totalBytes = total
         RangeStubURLProtocol.recorder = ConcurrencyRecorder()
@@ -216,8 +240,8 @@ final class ConcurrencyRampTests: XCTestCase {
         XCTAssertEqual(result?.status, .completed,
                        "download failed: \(result?.error ?? "nil")")
 
-        XCTAssertEqual(recorder.peak, 8,
-                       "expected all 8 configured connections open at once, saw \(recorder.peak). First requests: \(recorder.rangeHeaders.prefix(10))")
+        XCTAssertEqual(recorder.peakBeforeFirstCompletion, 8,
+                       "expected all 8 configured connections open at once, saw \(recorder.peakBeforeFirstCompletion). First requests: \(recorder.rangeHeaders.prefix(10))")
         let eighthOpenedAt = try XCTUnwrap(recorder.secondsToOpen(connection: 8),
                                            "never opened an 8th connection")
         XCTAssertLessThan(eighthOpenedAt, 1.5,

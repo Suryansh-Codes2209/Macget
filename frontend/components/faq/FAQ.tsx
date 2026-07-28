@@ -58,13 +58,13 @@ function FAQItem({ question, answer, isOpen, onToggle }: FAQItemProps) {
         aria-controls={id}
         className="flex w-full items-center justify-between gap-6 px-6 py-5 text-left"
       >
-        <span className="text-base font-medium text-frost sm:text-lg">
+        <span className="text-base font-medium text-cream sm:text-lg">
           {question}
         </span>
         <ChevronDown
           className={cn(
-            "size-5 shrink-0 text-frost-dim transition-transform duration-300",
-            isOpen && "rotate-180 text-brand-sky",
+            "size-5 shrink-0 text-cream-dim transition-transform duration-300",
+            isOpen && "rotate-180 text-brand-honey",
           )}
           strokeWidth={2.2}
         />
@@ -80,7 +80,7 @@ function FAQItem({ question, answer, isOpen, onToggle }: FAQItemProps) {
             transition={{ duration: 0.3, ease: [0.2, 0.8, 0.2, 1] }}
             className="overflow-hidden"
           >
-            <div className="px-6 pb-6 text-sm leading-relaxed text-frost-dim sm:text-base">
+            <div className="px-6 pb-6 text-sm leading-relaxed text-cream-dim sm:text-base">
               {answer}
             </div>
           </motion.div>

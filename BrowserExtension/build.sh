@@ -1,14 +1,23 @@
 #!/bin/sh
 # Assembles the per-browser extension directories and zips them for distribution.
 #
-# The shared logic (background.js, options.html, options.js) lives in chromium/
-# as the single source of truth. This script copies it into firefox/ so the two
-# stay in sync, then produces loadable/zippable folders. Only the manifest.json
-# differs between browsers.
+# Everything except manifest.json lives in chromium/ as the single source of
+# truth. This script copies it into firefox/ so the two stay in sync, then
+# produces loadable/zippable folders. Only the manifest.json differs between
+# browsers (Chrome takes a single service_worker; Firefox takes a scripts array,
+# which is how heuristics.js gets loaded there).
 set -e
 cd "$(dirname "$0")"
 
-SHARED="background.js content.js options.html options.js"
+# The pure logic has tests; don't package a build that fails them.
+if command -v node >/dev/null 2>&1; then
+  echo "Running heuristics tests ..."
+  node --test "test/*.test.js" >/dev/null
+else
+  echo "node not found — skipping tests"
+fi
+
+SHARED="heuristics.js background.js content.js popup.html popup.js options.html options.js theme.css"
 
 echo "Syncing shared files into firefox/ ..."
 for f in $SHARED; do

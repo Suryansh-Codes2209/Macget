@@ -84,21 +84,23 @@ export function ChunkVisualization() {
         className="h-auto w-full"
       >
         <defs>
+          {/* Honey → amber is the app's `Theme.progressGradient`, the same fill
+              its ProgressTrack uses. The site and the app show one thing. */}
           <linearGradient id="packetA" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#5AC8FA" />
-            <stop offset="1" stopColor="#0A84FF" />
+            <stop offset="0" stopColor="#F7C45E" />
+            <stop offset="1" stopColor="#F0A64E" />
           </linearGradient>
           <linearGradient id="laneFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#5AC8FA" stopOpacity="0.45" />
-            <stop offset="1" stopColor="#0033B0" stopOpacity="0.35" />
+            <stop offset="0" stopColor="#F7C45E" stopOpacity="0.45" />
+            <stop offset="1" stopColor="#8A4A14" stopOpacity="0.35" />
           </linearGradient>
           <linearGradient id="arrowFill" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="#FFFFFF" />
-            <stop offset="1" stopColor="#D8E8FF" />
+            <stop offset="1" stopColor="#EDE3D4" />
           </linearGradient>
           <radialGradient id="haloGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0" stopColor="#0A84FF" stopOpacity="0.5" />
-            <stop offset="1" stopColor="#0A84FF" stopOpacity="0" />
+            <stop offset="0" stopColor="#F0A64E" stopOpacity="0.5" />
+            <stop offset="1" stopColor="#F0A64E" stopOpacity="0" />
           </radialGradient>
           <filter id="packetGlow" x="-100%" y="-100%" width="300%" height="300%">
             <feGaussianBlur stdDeviation="3" />
@@ -131,7 +133,7 @@ export function ChunkVisualization() {
                 textAnchor="middle"
                 fontFamily="var(--font-mono)"
                 fontSize="11"
-                fill="#8A95B8"
+                fill="#A2968A"
                 letterSpacing="0.5"
               >
                 {lane.label}
@@ -142,7 +144,7 @@ export function ChunkVisualization() {
                 textAnchor="middle"
                 fontFamily="var(--font-mono)"
                 fontSize="11"
-                fill="#D8E8FF"
+                fill="#EDE3D4"
                 letterSpacing="0.3"
               >
                 {lane.size}
@@ -157,7 +159,7 @@ export function ChunkVisualization() {
                 rx={28}
                 ry={28}
                 fill="rgba(255,255,255,0.04)"
-                stroke="rgba(216,232,255,0.10)"
+                stroke="rgba(232,223,211,0.10)"
               />
 
               {/* Animated fill (rises from bottom) */}
@@ -254,7 +256,7 @@ export function ChunkVisualization() {
         })}
 
         {/* Merge curves from each lane to the arrowhead apex */}
-        <g stroke="rgba(90,200,250,0.35)" strokeWidth="1.5" fill="none">
+        <g stroke="rgba(247,196,94,0.35)" strokeWidth="1.5" fill="none">
           {LANES.map((lane) => {
             const startX = lane.x + LANE_W / 2;
             const startY = LANE_BOTTOM;
@@ -302,11 +304,11 @@ export function ChunkVisualization() {
           textAnchor="middle"
           fontFamily="var(--font-mono)"
           fontSize="13"
-          fill="#D8E8FF"
+          fill="#EDE3D4"
           letterSpacing="0.5"
         >
           412.7 MB · {mbpsDisplay} ·{" "}
-          <tspan fill="#F5F8FF" fontWeight="600">
+          <tspan fill="#FAF6F0" fontWeight="600">
             {percentDisplay}
           </tspan>
         </text>

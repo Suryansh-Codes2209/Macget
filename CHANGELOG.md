@@ -2,6 +2,51 @@
 
 All notable changes to Macget. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+## [1.3.0] — 2026-07-29
+
+Book catalogs, BitTorrent, a reworked browser extension, and an engine that backs off on evidence instead of guesswork.
+
+### Added
+- **Book catalog browsing.** A new browser (⇧⌘B) searches and browses book catalogs and sends a chosen format straight to the download queue. **Project Gutenberg** (~75k public-domain titles) and the **Internet Archive** work out of the box; any OPDS feed — including a personal Calibre server — can be added under Settings › Catalogs.
+  - Downloads are named `Title - Author.epub` rather than the catalog's own `2701.epub`.
+  - DRM-wrapped, priced, and loan-only editions are shown but never fetched — the detail pane explains which of the three applies.
+  - Generic OPDS support covers both wire formats: 1.2 (Atom XML) and 2.0 (JSON).
+  - Standard Ebooks is included but off by default: all of its OPDS feeds return 401 to anonymous clients, since access is a Patrons Circle donor benefit. Patrons can switch it on.
+
+- **BitTorrent downloads.** Magnet links and `.torrent` files download through the queue alongside everything else, several at once, sharing the same concurrency limit, pause/resume/cancel, and quiet-hours scheduling. Add them via ⌘N, drag-and-drop, or the `magnet:` handler.
+  - **Off by default.** Enabling it shows a one-time explanation: BitTorrent uploads as well as downloads, opens a listening port, and makes your IP visible to the swarm.
+  - **Seeding is bounded** — ratio 1.0 or 60 minutes by default, whichever comes first, both configurable in Settings › Torrents along with an upload cap, the listening port, and DHT.
+  - Rows show download *and* upload rate, and a live share ratio while seeding.
+  - Internet Archive items can be fetched as a single torrent covering every file in the item — much kinder to IA than pulling files over HTTP.
+  - MacGet does not search for or index torrents.
+
+- **The browser extension talks back.** A real toolbar popup replaces the settings-form-as-popup: it shows whether MacGet is actually reachable (the native host is pinged, not a checkbox read), a recent-activity list of what was sent, and quick toggles. Plus context-menu capture on links and media, a toolbar badge, and an optional notification per capture.
+
+- **Folder-grouped download list.** Downloads collapse into per-category folders (Video, Audio, Documents, Archives, …) that expand in place, so a long queue stays navigable.
+
+- **Live speed chart and chunk view in the inspector.** The inspector plots throughput over time and shows per-chunk progress, so a stalled connection is visible rather than inferred.
+
+- **Warm color theme.** New app icon and a reworked palette with named color sets for surfaces, text, and status (including a seeding state for torrents), tuned for both light and dark mode.
+
+### Changed
+- **Connections no longer ramp up — they start at full width.** The old adaptive probe opened at 4 connections and kept each new one only on a ≥15% throughput gain. But "no improvement" is the *expected* reading once the link is already saturated, so it reliably settled low precisely when the extra connections were free. A download now opens at its full effective thread count immediately, staggered 100 ms apart.
+- **Backing off is now evidence-driven.** `DemotionPolicy` halves the worker count after 4 no-progress attempts in 10 s **and only while bytes are still flowing** — which separates a hostile host (refuses some connections, keeps serving the rest) from a dead local link (everything fails at once).
+- **Endgame chunk splitting.** Once every outstanding piece is assigned, a freed worker splits the largest in-flight piece in half (floored at 1 MB) instead of idling, so the last slow chunk no longer sets the finish time.
+- **Learned per-host caps expire after 7 days** and can be cleared from Settings › Network, which shows how many hosts currently have one. They still only ratchet downward within that window — a cap mislearned during an outage now heals itself instead of slowing that host forever.
+
+### Fixed
+- **Media downloads from authenticated pages no longer 403.** Cookies captured by the browser extension were passed to yt-dlp as `--add-header "Cookie: …"`, which yt-dlp applies to *every* request including the CDN media fetch — and YouTube rejects an authenticated `googlevideo.com` request that carries no proof-of-origin token. The probe would succeed and the download that followed would die. Cookies now go through a domain-scoped Netscape cookie jar.
+- **A backgrounded extension worker no longer drops legitimate downloads.** When the MV3 service worker slept, its recent-gesture map came back empty, and a download started in a background tab matched the jump-link filter and was silently discarded. The filter now fails open.
+- **Selected rows stay readable in light mode.** AppKit inverts semantic foreground colors on a selected row, but the card kept its opaque white fill — white text on white. Row text is now drawn with explicit colors that follow selection.
+- `content.js` no longer installs a permanent 800 ms repositioning timer on every page visited, and the in-page capture button survives fullscreen and hostile page CSS.
+
+### Notes
+- Torrents use aria2 as the engine. It is **not** bundled: unlike the static `ffmpeg`/`yt-dlp` builds, aria2 links against five system libraries, so MacGet installs it via Homebrew on first use instead (which also means MacGet never redistributes GPL software).
+- Project Gutenberg is read through Gutendex rather than Gutenberg's own OPDS feed, whose search results are one sub-feed per book rather than direct download links.
+- The Internet Archive is read through its JSON search/metadata APIs because IA retired its OPDS BookServer — `bookserver.archive.org` no longer resolves.
+
 ## [1.2.0] — 2026-06-26
 
 Media downloads, authenticated transfers, smarter organization, and live auto-updates.

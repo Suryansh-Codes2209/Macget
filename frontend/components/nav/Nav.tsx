@@ -23,7 +23,7 @@ export function Nav() {
       className={cn(
         "fixed inset-x-0 top-0 z-50 transition-all duration-300",
         scrolled || open
-          ? "border-b border-line bg-midnight/70 backdrop-blur-xl"
+          ? "border-b border-line bg-ink/70 backdrop-blur-xl"
           : "border-b border-transparent bg-transparent",
       )}
     >
@@ -44,7 +44,7 @@ export function Nav() {
             priority
             className="size-8 rounded-lg"
           />
-          <span className="text-base font-semibold tracking-tight text-frost">
+          <span className="text-base font-semibold tracking-tight text-cream">
             {siteConfig.name}
           </span>
         </Link>
@@ -54,7 +54,7 @@ export function Nav() {
             <Link
               key={item.href}
               href={item.href}
-              className="rounded-pill px-4 py-2 text-sm text-frost-dim transition-colors hover:bg-white/[0.06] hover:text-frost"
+              className="rounded-pill px-4 py-2 text-sm text-cream-dim transition-colors hover:bg-white/[0.06] hover:text-cream"
             >
               {item.label}
             </Link>
@@ -77,7 +77,7 @@ export function Nav() {
             aria-expanded={open}
             aria-controls="mobile-nav"
             aria-label={open ? "Close menu" : "Open menu"}
-            className="inline-flex size-9 items-center justify-center rounded-pill border border-line text-frost-dim transition-colors hover:text-frost md:hidden"
+            className="inline-flex size-9 items-center justify-center rounded-pill border border-line text-cream-dim transition-colors hover:text-cream md:hidden"
           >
             {open ? <X className="size-4" /> : <Menu className="size-4" />}
           </button>
@@ -92,7 +92,7 @@ export function Nav() {
                 key={item.href}
                 href={item.href}
                 onClick={() => setOpen(false)}
-                className="rounded-xl px-2 py-3 text-sm text-frost-dim transition-colors hover:bg-white/[0.06] hover:text-frost"
+                className="rounded-xl px-2 py-3 text-sm text-cream-dim transition-colors hover:bg-white/[0.06] hover:text-cream"
               >
                 {item.label}
               </Link>

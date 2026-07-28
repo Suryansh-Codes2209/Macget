@@ -3,6 +3,8 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var vm: SettingsViewModel
     @State private var mediaToolStatus: String?
+    /// nil until the first read of `HostCapStore` lands.
+    @State private var learnedHostCount: Int?
 
     var body: some View {
         TabView {
@@ -12,11 +14,23 @@ struct SettingsView: View {
                 .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
             networkTab
                 .tabItem { Label("Network", systemImage: "network") }
+            CatalogSettingsView()
+                .tabItem { Label("Catalogs", systemImage: "books.vertical") }
+            TorrentSettingsView(vm: vm, setup: vm.torrentSetup)
+                .tabItem { Label("Torrents", systemImage: "arrow.up.arrow.down.circle") }
             aboutTab
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 480, height: 320)
+        .frame(width: 480, height: 400)
         .onChange(of: vm.settings) { _, _ in vm.persistAndPropagate() }
+        // The Settings window is separate from the main one, so it needs its own
+        // presentation of the shared setup sheet.
+        .sheet(isPresented: Binding(
+            get: { vm.torrentSetup.isPresented },
+            set: { if !$0 { vm.torrentSetup.cancel() } }
+        )) {
+            TorrentSetupSheet(model: vm.torrentSetup)
+        }
     }
 
     private var generalTab: some View {
@@ -249,8 +263,40 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Section {
+                HStack {
+                    Text(learnedHostCountLabel)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reset") {
+                        Task {
+                            await HostCapStore.shared.clearAll()
+                            await HostCapStore.shared.flushNow()
+                            learnedHostCount = await HostCapStore.shared.learnedHostCount()
+                        }
+                    }
+                    .disabled((learnedHostCount ?? 0) == 0)
+                }
+            } header: {
+                Text("Learned connection limits")
+            } footer: {
+                Text("When a server refuses extra connections, Macget remembers a lower limit for it and reuses that next time. Limits are forgotten after a week; reset them here if a site has since been fixed or one was recorded during a network outage.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(20)
+        .task { learnedHostCount = await HostCapStore.shared.learnedHostCount() }
+    }
+
+    private var learnedHostCountLabel: String {
+        switch learnedHostCount {
+        case .none:   return "Checking…"
+        case 0:       return "No hosts have learned limits"
+        case 1:       return "1 host has a learned limit"
+        case .some(let n): return "\(n) hosts have learned limits"
+        }
     }
 
     private var aboutTab: some View {

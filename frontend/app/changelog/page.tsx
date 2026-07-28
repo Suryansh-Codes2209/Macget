@@ -51,7 +51,7 @@ export default async function ChangelogPage() {
             href={siteConfig.releasesUrl}
             target="_blank"
             rel="noreferrer noopener"
-            className="text-brand-sky underline underline-offset-4 hover:text-frost"
+            className="text-brand-honey underline underline-offset-4 hover:text-cream"
           >
             Download from GitHub
           </a>
@@ -62,7 +62,7 @@ export default async function ChangelogPage() {
         className={[
           // Version headings act as section dividers.
           "[&_h2]:border-t [&_h2]:border-line [&_h2]:pt-10 [&_h2]:first:border-t-0 [&_h2]:first:pt-0",
-          "[&_h3]:text-brand-sky",
+          "[&_h3]:text-brand-honey",
           "[&_hr]:hidden",
         ].join(" ")}
       >

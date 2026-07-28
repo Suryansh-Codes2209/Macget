@@ -57,9 +57,11 @@ The download engine is the heart of the app. Everything else is glue around it.
 
 1. **Probe** — `RangeProbe.probe()` does HEAD first, falls back to `GET Range: bytes=0-0` (some servers 405 on HEAD). Records `totalBytes`, `Accept-Ranges`, `ETag`, `Last-Modified`.
 2. **Disk-space check** — refuses if total > 95% of free space at the destination.
-3. **Plan chunks** — `ChunkPlanner.plan()`. Threads clamped to `1...20` AND further clamped so each chunk is ≥ 64KB (`minimumChunkBytes`). When the server doesn't support Range, falls back to one chunk.
+3. **Plan chunks** — `ChunkPlanner.plan()`. Threads clamped to `1...16` (`Download.maxThreadCount`) AND further clamped so each chunk is ≥ 64KB (`minimumChunkBytes`). Range-capable downloads are additionally sliced into *more pieces than workers* — an 8MB target piece size up to `maxPieces` (256) — so finished workers steal the next outstanding piece. When the server doesn't support Range, falls back to one chunk.
 4. **Allocate** — `FileWriter` (actor) opens the partial file `<destFolder>/.<filename>.macget-partial` and `truncate(atOffset:)`s to the full size. APFS keeps it sparse.
-5. **Stream** — `withThrowingTaskGroup` runs all incomplete chunks in parallel. Each chunk runs through `ChunkWorker` (one HTTP attempt, NSURLSession delegate bridging into `AsyncThrowingStream<Data>`, 64KB buffered writes). The Coordinator wraps each chunk in `processChunkWithRetries` (max 5 attempts, exponential backoff). Some `ChunkError` cases (`rangeRefused`, `wrongContentRange`, `chunkNotFound`, `writerUnavailable`) are non-retryable.
+5. **Stream** — a dynamic worker pool, not a task group over all chunks. The Coordinator spawns up to `effectiveThreadCount()` workers (staggered 100ms apart so a burst of SYNs doesn't trip anti-abuse middleboxes) and keeps every slot busy via `fillIdleSlots`: steal the next outstanding piece, or — once every piece is assigned — split the largest in-flight one (`SlotFiller` → `ChunkSplitter`, IDM's in-half division rule, floored at 1MB so a reconnect isn't spent on a scrap). Each chunk runs through `ChunkWorker` (one HTTP attempt, NSURLSession delegate bridging into `AsyncThrowingStream<Data>`, 64KB buffered writes), wrapped in `processChunkWithRetries` (max 5 attempts, exponential backoff). Some `ChunkError` cases (`rangeRefused`, `wrongContentRange`, `chunkNotFound`, `writerUnavailable`) are non-retryable.
+
+   **There is no upward concurrency probe.** A download opens at its full effective count immediately. An earlier design started at 4 and added one connection per 3s, keeping it only on a ≥15% throughput gain — but "no improvement" is the *expected* reading once the link is saturated, so it reliably settled low precisely when extra connections were free. Backing off is now driven by evidence instead: `DemotionPolicy` halves the worker count after 4 no-progress attempts in 10s, **and only while bytes are still flowing**. That last condition separates a hostile host (refuses some connections, keeps serving the rest) from a dead local link (everything fails at once) — without it, a brief Wi-Fi drop wrote a `HostCapStore` entry against a blameless server.
 6. **Finalize** — `FilenameResolver.uniqueURL` resolves "(2)", "(3)" suffixes if the destination collides, then `moveItem` from `.macget-partial` to the final name.
 
 A 250ms publish loop in the Coordinator emits `DownloadSnapshot` (live progress/speed/ETA) to the engine. `SpeedMeter` (actor) is a 3-second rolling window over `(date, totalBytes)` samples; ETA returns nil below 1 KB/s.
@@ -80,12 +82,42 @@ UI mutations always go through engine actor methods (`pause/resume/cancel/remove
 - If false, anything that was `downloading` is moved to `paused`.
 - Workers send the recorded `etag` (or `lastModified`) as `If-Range` so a changed file fails-fast instead of corrupting the partial.
 
+### BitTorrent (`Macget/Engine/Torrent/`)
+
+The third `DownloadKind`. `TorrentJob` is the structural twin of `MediaExtractionJob` — it drives an external process and reports through the same `onStateChange`/`onSnapshot` callbacks, so the list view renders torrent rows with no restructuring. Progress rides on a single synthetic `Chunk`, exactly as media does.
+
+- **aria2 is not bundled.** Unlike the static `ffmpeg`/`yt-dlp` builds in `Vendor/bin`, aria2 links against `openssl@3`, `libssh2`, `c-ares`, `sqlite`, and `gettext`, so vendoring it would mean re-pathing and notarizing five dylibs. `TorrentToolLocator` finds a system copy and `TorrentToolInstaller` installs one via Homebrew on demand. Side benefit: MacGet never redistributes aria2, so its GPL carries no obligation here.
+- **One daemon for all torrents.** `Aria2Daemon` is a singleton actor: lazy start on the first torrent, `aria2.shutdown` when the last goes inactive and at app termination (wired into `suspendAllForShutdown`). RPC binds to **loopback only** on an ephemeral port with a fresh 256-bit secret per launch.
+- **MacGet owns the queue, not aria2.** `--save-session`/`--input-file` are deliberately absent: `queue.json` is the source of truth and MacGet re-adds torrents itself, so letting aria2 restore its own session would register each info hash twice and aria2 fails the duplicate outright. Resume comes from `--continue=true` plus the `.aria2` control file, with `--bt-save-metadata` so a resumed magnet needn't re-fetch metadata.
+- **Magnets have a metadata phase.** The first GID downloads only the metainfo (a few hundred KB) and reaches `complete` with `completedLength == totalLength` — indistinguishable from a finished download. `isAwaitingMetadata` suppresses completion and byte reporting until `followedBy` hands off to the real GID; the metainfo totals are then cleared so the child's real size replaces them. Getting this wrong marks a 6 GB torrent "Completed" at 500 KB.
+- **Ports are ranges, not single values** (`6881-6890`). A single value makes aria2 fail with "Errors occurred while binding port" whenever another client holds it.
+- Torrents are gated behind `AppSettings.torrentsEnabled` (off by default) and a first-run acknowledgement — unlike media extraction, which is switched on silently. BitTorrent uploads on the user's connection, so it always asks.
+
+### Book catalogs
+
+`Macget/Services/Catalog/` is a self-contained subsystem that adds **no engine work** — a book acquisition link is an ordinary HTTPS URL, so downloading one is just `engine.add(kind: .httpFile)`.
+
+**Three backends, one model.** Everything produces a `CatalogFeed`, and `CatalogService` dispatches on `CatalogSource.kind` so `BookBrowserModel` never branches. Two of the three exist because the obvious OPDS endpoints don't work — verified against the live services, not assumed:
+
+- **`.gutendex`** → Project Gutenberg. Its *own* OPDS search returns **navigation** entries (one `/ebooks/<id>.opds` sub-feed per result), so getting a download link would cost a request per book — and those per-book feeds were returning 504s. `search.opds2` is a 404. Gutendex returns every format's direct URL inline, which is what a grid needs.
+- **`.archiveOrg`** → Internet Archive. **IA retired its OPDS BookServer; `bookserver.archive.org` no longer resolves at all.** Replaced by `advancedsearch.php?output=json` (browse/search) plus `metadata/<id>/files` (per-item file list). File lists are fetched lazily on selection — resolving them for a 50-result page would mean 50 extra requests. `CatalogService.resolveAcquisitions` is that hook, and is a no-op for the other kinds.
+- **`.opds`** → everything else, including user-added Calibre servers. `OPDSParser` is pure and synchronous so every branch is fixture-testable; it handles OPDS 1.2 (Atom XML, via a streaming `XMLParser` delegate with namespace processing *off* — matched by stripped local name so `dc:language`/`dcterms:language`/`language` all work) and OPDS 2.0 (JSON). `OPDSClient` sends an explicit `Accept` header because several catalogs content-negotiate to HTML otherwise, and resolves relative hrefs against the *final* (post-redirect) URL.
+
+Standard Ebooks ships as a built-in but **disabled**: every one of its OPDS feeds (`/feeds/opds`, `/all`, `/new-releases`) returns 401 to anonymous clients — access is a Patrons Circle donor benefit. Hence `CatalogStore` tracks *both* explicitly-enabled and explicitly-disabled built-in IDs, so a built-in's shipped default applies until the user expresses a preference.
+
+Other invariants:
+
+- `AcquisitionLink.isDownloadable` is the single gate: direct-download rel, no price, http(s), recognized format. DRM fulfilment documents are parsed and displayed but never fetched — the href is a license token, not a book. This matters most on archive.org, which lists `LCP Encrypted EPUB` / `ACS Encrypted PDF` right beside the free files.
+- `URLSessionFactory.metadata` (not `.shared`) backs all catalog requests. `.shared` sets `waitsForConnectivity = true` and `timeoutIntervalForResource = .infinity` — correct for a multi-gigabyte download, but it makes a dead catalog URL spin forever behind a UI spinner.
+- `AppEnvironment.addBook` deliberately bypasses `add(url:)`/`MediaURLClassifier`: a catalog acquisition link is already a known book file, and MacGet names it `Title - Author.epub` because catalogs routinely serve `2701.epub`.
+
 ## Conventions
 
 - Use `Log.app/engine/ui/net` from `Supporting/Logger+MacGet.swift` (subsystem `com.macget`). Don't `print`.
 - New persisted state on `Download`/`Chunk`/`AppSettings`: keep the type `Codable` and `Sendable`. The store does naive read-modify-write of the whole queue file — be aware when adding very large fields.
 - Engine, Coordinator, FileWriter, SpeedMeter, DownloadStore are all actors. Mutating them from the UI goes through `Task { await engine.foo() }`. ViewModels are `@MainActor @Observable`.
-- Threads/chunks are bounded to **1–20** (`Download.init` clamps; `ChunkPlanner` re-clamps; `AppSettings` clamps).
+- Threads are bounded to **1–16** (`Download.maxThreadCount`; `Download.init` clamps, `ChunkPlanner` re-clamps, `AppSettings` clamps). Piece count is separate and larger — up to `ChunkPlanner.maxPieces` (256) from planning, and up to `SlotFiller.maxPieces` (512) once endgame splitting has run.
+- Learned per-host caps (`HostCapStore`) expire after 7 days and can be cleared from Settings ▸ Network. They ratchet downward only *within* that window. Don't make them permanent again — a cap mislearned during an outage otherwise slows that host forever with no way for the user to see or undo it.
 - App Sandbox is **OFF** intentionally (entitlements file). The app is not destined for the Mac App Store. Hardened Runtime + Disable Library Validation are required for Sparkle.
 - Never commit notarization or Sparkle signing material: `sparkle_eddsa_priv.key`, `*.eddsa`, `.notarize.env`, `*.p12`, `*.cer` (already in `.gitignore`).
 

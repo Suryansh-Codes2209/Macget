@@ -11,6 +11,19 @@ struct DownloadSnapshot: Sendable, Equatable {
     let etaSeconds: TimeInterval?
     /// Media (yt-dlp) lifecycle phase; `nil` for normal HTTP downloads.
     var phase: MediaPhase? = nil
+    /// Torrent-only live stats; `nil` for every other kind.
+    var uploadSpeedBytesPerSec: Double? = nil
+    var uploadedBytes: Int64? = nil
+    var seeders: Int? = nil
+    var peers: Int? = nil
+    /// True once a torrent has finished downloading and is only seeding.
+    var isSeeding: Bool = false
+
+    /// Share ratio, or nil when nothing has been downloaded yet.
+    var ratio: Double? {
+        guard let uploadedBytes, bytesDownloaded > 0 else { return nil }
+        return Double(uploadedBytes) / Double(bytesDownloaded)
+    }
 }
 
 enum CoordinatorError: Error, LocalizedError {
@@ -82,31 +95,15 @@ actor DownloadCoordinator {
     /// Consecutive stall-restarts before giving up and failing the download.
     private static let maxStallRestarts = 3
 
-    /// Adaptive concurrency: the download starts at `AdaptiveConcurrency.initialWorkers`
-    /// and probes upward, keeping each added connection only when throughput
-    /// improved. This ceiling grows during probing; `effectiveThreadCount()`
-    /// mins it against the user/host/demotion caps so demotion always wins.
-    private var adaptiveCeiling = Download.maxThreadCount
-    /// Speed (B/s) sampled just before the most recent upward probe, compared
-    /// against the post-probe speed to decide whether to keep climbing.
-    private var probeBaselineSpeed: Double?
-    /// Set once probing has settled (gain plateaued, ceiling reached, or the
-    /// host was demoted) so we stop adding connections for this download.
-    private var adaptiveProbeStopped = false
-    /// Counts publish-loop ticks so the upscale probe runs ~every 3s (one
-    /// SpeedMeter window) rather than on every snapshot.
-    private var adaptiveProbeCounter = 0
-    private static let adaptiveProbeEveryNTicks = 12
+    /// Endgame splits performed so far. Surfaced on `DownloadInspection` — it's
+    /// the only way to tell that `fillIdleSlots` ever took the split branch, and
+    /// a high count on a download that wasn't tail-bound is the signal that
+    /// `ChunkSplitter`'s largest-bytes heuristic picked healthy workers.
+    private var splitCount = 0
 
-    /// When this many no-progress attempts land within the window, halve the
-    /// effective worker count. Threshold and window picked so a fully-hostile
-    /// host (every attempt fails) demotes within ~1s.
-    private static let demoteThreshold = 4
-    private static let rapidFailWindowSeconds: TimeInterval = 10
-    /// Bytes-per-attempt below which the attempt counts as "no progress".
-    private static let rapidFailProgressCutoff: Int64 = 16 * 1024
     /// Delay between consecutive worker spawns. Anti-abuse middleboxes pattern-
-    /// match a burst of N TCP SYNs from one IP; staggering defeats that.
+    /// match a burst of N TCP SYNs from one IP; staggering defeats that. With
+    /// the default 8 workers this is 700 ms to fully spawn.
     private static let spawnStaggerNanos: UInt64 = 100_000_000  // 100 ms
     /// Internal retry attempts per worker spawn (configurable via settings).
     private let maxAttemptsPerChunk: Int
@@ -168,7 +165,31 @@ actor DownloadCoordinator {
             effectiveThreads: effectiveThreadCount(),
             demotedTo: demotedThreadCount,
             perHostCap: perHostCap,
-            adaptiveCeiling: adaptiveCeiling
+            limitedBy: bindingConstraint(),
+            splitCount: splitCount
+        )
+    }
+
+    /// Live per-piece state for the inspector panel. Cheap enough to poll a few
+    /// times a second: it maps the existing chunk array and reads two counters,
+    /// with no I/O and no allocation beyond the projection itself.
+    func inspectionSnapshot() -> DownloadInspection {
+        DownloadInspection(
+            id: download.id,
+            totalBytes: download.totalBytes,
+            bytesDownloaded: download.bytesDownloaded,
+            supportsRange: download.supportsRange,
+            segments: download.chunks.map {
+                SegmentInfo(chunk: $0, isActive: inFlight[$0.id] != nil)
+            },
+            activeWorkers: inFlight.count,
+            effectiveThreads: effectiveThreadCount(),
+            requestedThreads: download.threadCount,
+            perHostCap: perHostCap,
+            demotedTo: demotedThreadCount,
+            limitedBy: bindingConstraint(),
+            splitCount: splitCount,
+            isLive: download.status == .downloading
         )
     }
 
@@ -279,17 +300,13 @@ actor DownloadCoordinator {
             }
         }
 
-        // Start conservative and probe upward (see checkAdaptiveConcurrency).
-        // Bounded by the hard cap so a learned/host limit isn't exceeded.
-        adaptiveCeiling = max(1, min(hardCapExcludingAdaptive(), AdaptiveConcurrency.initialWorkers))
-        adaptiveProbeStopped = !download.supportsRange
 
         // 4. Plan chunks (only if not already planned by a previous run).
         //    Slice range-capable downloads into smaller pieces than workers so
         //    finished workers steal the next outstanding piece (work-stealing);
         //    a no-range server gets a single stream.
         if download.chunks.isEmpty {
-            let plannedThreads = download.supportsRange ? hardCapExcludingAdaptive() : 1
+            let plannedThreads = download.supportsRange ? effectiveThreadCount() : 1
             let pieceCap = download.supportsRange ? ChunkPlanner.defaultTargetPieceBytes : nil
             download.chunks = ChunkPlanner.plan(totalBytes: total, requestedThreads: plannedThreads, maxPieceBytes: pieceCap)
         }
@@ -376,18 +393,33 @@ actor DownloadCoordinator {
     /// User's `threadCount`, clamped by anything tighter we've learned (this
     /// session via `demotedThreadCount`, prior sessions via `perHostCap`) and by
     /// the adaptive probe's current ceiling.
+    /// The ceiling on parallelism: what the user asked for, tightened by the cap
+    /// learned for this host in a previous session and by any in-session
+    /// demotion.
+    ///
+    /// There is no upward probe. A download opens at this count immediately —
+    /// the probe it replaced added one connection per 3 s and stopped climbing
+    /// the first time throughput didn't improve by 15%, which is the *expected*
+    /// reading once the link is saturated. It therefore settled low precisely
+    /// when extra connections were free. Backing off is now driven by evidence
+    /// of host hostility instead (see `noteRapidFailure` / `DemotionPolicy`),
+    /// which reacts in ~1 s rather than 3 s per step.
     private func effectiveThreadCount() -> Int {
-        min(hardCapExcludingAdaptive(), max(1, adaptiveCeiling))
-    }
-
-    /// The hard ceiling on parallelism — user request tightened by the learned
-    /// per-host cap and any in-session demotion. Excludes the adaptive ceiling so
-    /// the probe knows how high it's allowed to climb.
-    private func hardCapExcludingAdaptive() -> Int {
         var cap = download.threadCount
         if let perHostCap { cap = min(cap, perHostCap) }
         if let demotedThreadCount { cap = min(cap, demotedThreadCount) }
         return max(1, cap)
+    }
+
+    /// Which limit is currently binding, for the inspector's "why am I only
+    /// getting N connections?" line.
+    private func bindingConstraint() -> ThreadLimitReason {
+        let effective = effectiveThreadCount()
+        if let demotedThreadCount, demotedThreadCount == effective { return .demoted }
+        if let perHostCap, perHostCap == effective, perHostCap < download.threadCount {
+            return .learnedHostCap
+        }
+        return .userSetting
     }
 
     /// Spawns workers (up to the effective target) for incomplete chunks that
@@ -405,6 +437,12 @@ actor DownloadCoordinator {
             if spawnedThisCall > 0 {
                 try? await Task.sleep(nanoseconds: Self.spawnStaggerNanos)
                 if Task.isCancelled { return }
+                // Re-check after the await. A worker can finish during the
+                // stagger, and `chunkFinished` → `fillIdleSlots` fills the freed
+                // slot synchronously — spawning here on the strength of a
+                // pre-sleep reading would put us one over the cap.
+                if inFlight.count >= target { return }
+                if chunk.isComplete || inFlight[chunk.id] != nil { continue }
             }
             spawnWorker(chunkID: chunk.id)
             spawnedThisCall += 1
@@ -453,7 +491,7 @@ actor DownloadCoordinator {
             // No real progress this attempt? Likely server-side anti-leech —
             // feed the demotion detector.
             let bytesAfter = chunkBytesWritten(chunkID)
-            if bytesAfter - bytesBefore < Self.rapidFailProgressCutoff {
+            if bytesAfter - bytesBefore < DemotionPolicy.progressCutoff {
                 await noteRapidFailure()
             }
 
@@ -489,13 +527,26 @@ actor DownloadCoordinator {
     }
 
     /// Records a no-progress attempt in the sliding window. When enough land
-    /// within the window, halve the effective worker count and persist the
-    /// new cap for the host so the next download starts at this level.
+    /// within the window *and bytes are still flowing*, halve the effective
+    /// worker count and persist the new cap for the host so the next download
+    /// starts at this level.
+    ///
+    /// The throughput condition is what separates a hostile host from a dead
+    /// link. A host rejecting excess connections keeps serving the survivors, so
+    /// aggregate speed stays healthy; a local network fault fails every worker
+    /// at once and speed collapses. Without the check, a brief Wi-Fi drop writes
+    /// a persistent cap against a blameless server — and since this cap is
+    /// remembered across launches, that host stays slow indefinitely.
     private func noteRapidFailure() async {
         let now = Date()
-        rapidFailures.removeAll { now.timeIntervalSince($0) > Self.rapidFailWindowSeconds }
+        rapidFailures.removeAll { now.timeIntervalSince($0) > DemotionPolicy.windowSeconds }
         rapidFailures.append(now)
-        guard rapidFailures.count >= Self.demoteThreshold else { return }
+
+        let throughput = await speedMeter.currentSpeed()
+        guard DemotionPolicy.shouldDemote(
+            failureCount: rapidFailures.count,
+            throughputBytesPerSecond: throughput
+        ) else { return }
 
         let current = effectiveThreadCount()
         guard current > 1 else { return }
@@ -565,65 +616,60 @@ actor DownloadCoordinator {
     private func startPublishLoop() {
         publishTask?.cancel()
         diskCheckCounter = 0
-        adaptiveProbeCounter = 0
         publishTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 250_000_000)
                 if Task.isCancelled { break }
                 await self?.publishSnapshot()
                 await self?.checkDiskSpaceIfDue()
-                await self?.checkAdaptiveConcurrency()
                 await self?.checkStall()
             }
         }
     }
 
-    /// Speed-aware upward scaling. Every ~3s (one SpeedMeter window) while still
-    /// probing, compares current throughput to the speed measured before the last
-    /// connection was added: if it improved, add one more and keep climbing; if
-    /// not, settle here. Demotion or hitting the hard cap stops probing — the
-    /// adaptive ceiling never overrides those (see `effectiveThreadCount`).
-    private func checkAdaptiveConcurrency() async {
-        guard download.status == .downloading, download.supportsRange else { return }
-        guard !adaptiveProbeStopped else { return }
-
-        adaptiveProbeCounter += 1
-        guard adaptiveProbeCounter >= Self.adaptiveProbeEveryNTicks else { return }
-        adaptiveProbeCounter = 0
-
-        // Demotion always wins — once a host turns hostile, stop adding load.
-        if demotedThreadCount != nil { adaptiveProbeStopped = true; return }
-        let hardCap = hardCapExcludingAdaptive()
-        if adaptiveCeiling >= hardCap { adaptiveProbeStopped = true; return }
-
-        let speedNow = await speedMeter.currentSpeed()
-        guard speedNow > 0 else { return }  // wait for a usable reading
-
-        if let baseline = probeBaselineSpeed {
-            if AdaptiveConcurrency.didImprove(speedBefore: baseline, speedAfter: speedNow) {
-                adaptiveCeiling = min(hardCap, adaptiveCeiling + 1)
-                probeBaselineSpeed = speedNow
-                growWorkers()
-                if adaptiveCeiling >= hardCap { adaptiveProbeStopped = true }
-            } else {
-                // The last added connection didn't pay off — settle and stop.
-                adaptiveProbeStopped = true
+    /// Keeps every worker slot busy, by stealing when there's outstanding work
+    /// and splitting when there isn't.
+    ///
+    /// Stealing is preferred because it's free. Splitting cancels a live worker
+    /// and reconnects, so it's the endgame fallback: once every remaining piece
+    /// is assigned, a finishing worker would otherwise idle while one slow
+    /// connection drains the tail. `SlotFiller` owns the choice; this is the
+    /// plumbing that applies it.
+    private func fillIdleSlots() {
+        guard download.status == .downloading else { return }
+        while true {
+            let action = SlotFiller.nextAction(
+                chunks: download.chunks,
+                assigned: Set(inFlight.keys),
+                cap: effectiveThreadCount()
+            )
+            switch action {
+            case .none:
+                return
+            case .spawn(let chunkID):
+                spawnWorker(chunkID: chunkID)
+            case .split(let decision):
+                applySplit(decision)
             }
-        } else {
-            // Establish a baseline at the current ceiling, then add one to test.
-            probeBaselineSpeed = speedNow
-            adaptiveCeiling = min(hardCap, adaptiveCeiling + 1)
-            growWorkers()
         }
     }
 
-    /// Spawns workers up to the (just-raised) effective cap, one per outstanding
-    /// piece. Called when the adaptive ceiling grows mid-download.
-    private func growWorkers() {
-        while inFlight.count < effectiveThreadCount(),
-              let next = download.chunks.first(where: { !$0.isComplete && inFlight[$0.id] == nil }) {
-            spawnWorker(chunkID: next.id)
+    /// Replaces an in-flight chunk with two halves and runs both.
+    ///
+    /// The original's worker is cancelled and its dictionary entry removed
+    /// first. Both halves carry fresh UUIDs, so when the cancelled task's
+    /// `chunkFinished` runs it removes only its own dead entry rather than the
+    /// newly-spawned one.
+    private func applySplit(_ decision: ChunkSplitDecision) {
+        if let oldTask = inFlight.removeValue(forKey: decision.originalID) {
+            oldTask.cancel()
         }
+        download.chunks[decision.originalIndex] = decision.shrunken
+        download.chunks.append(decision.newChunk)
+        splitCount += 1
+        log.debug("Endgame split: piece \(decision.originalID) halved (\(self.splitCount) total)")
+        spawnWorker(chunkID: decision.shrunken.id)
+        spawnWorker(chunkID: decision.newChunk.id)
     }
 
     /// Periodically re-checks free space while downloading. The pre-flight check
@@ -748,8 +794,24 @@ actor DownloadCoordinator {
         download.status = .completed
         download.completedAt = Date()
         download.error = nil
+        collapseChunksForCompletion()
         await publishSnapshot()
         await onStateChange(download)
+    }
+
+    /// Replace the per-piece array with a single complete chunk once the file has
+    /// been finalized.
+    ///
+    /// The pieces only exist to drive resume, and a finished download can't
+    /// resume. Keeping up to `ChunkPlanner.maxPieces` of them forever costs ~33 KB
+    /// of JSON *per completed download* in a queue file the store rewrites whole.
+    /// The replacement preserves `bytesDownloaded` exactly — it's derived by
+    /// summing `bytesWritten`, so the collapsed chunk has to carry the same total.
+    private func collapseChunksForCompletion() {
+        guard download.chunks.count > 1 else { return }
+        let total = download.bytesDownloaded
+        guard total > 0 else { return }
+        download.chunks = [Chunk(startByte: 0, endByte: total - 1, bytesWritten: total)]
     }
 
     /// The folder the completed file should land in: a type-based subfolder when
@@ -941,22 +1003,14 @@ actor DownloadCoordinator {
             // Otherwise: transient. The orchestration loop respawns this chunk
             // on the next iteration, subject to the (possibly demoted) cap.
         }
-        // Work-stealing: a cleanly-finished worker immediately grabs the next
-        // outstanding piece instead of idling until the whole wave drains. Skip
-        // when tearing down (fatal) — `checkJoinCondition` handles that path.
+        // A cleanly-finished worker immediately takes more work — stealing the
+        // next outstanding piece, or splitting the tail once none are left —
+        // instead of idling until the whole wave drains. Skip when tearing down
+        // (fatal); `checkJoinCondition` handles that path.
         if error == nil, pendingFatalError == nil {
-            fillFreedSlot()
+            fillIdleSlots()
         }
         checkJoinCondition()
-    }
-
-    /// Spawns one worker for the next incomplete, unassigned piece if we're below
-    /// the effective cap. Used for work-stealing as pieces complete.
-    private func fillFreedSlot() {
-        guard download.status == .downloading else { return }
-        guard inFlight.count < effectiveThreadCount() else { return }
-        guard let next = download.chunks.first(where: { !$0.isComplete && inFlight[$0.id] == nil }) else { return }
-        spawnWorker(chunkID: next.id)
     }
 
     /// Resumes the orchestration loop's `waitForAllChunks` whenever inFlight
@@ -995,31 +1049,14 @@ actor DownloadCoordinator {
     func adjustThreadCount(_ target: Int) async {
         let clamped = max(1, min(Download.maxThreadCount, target))
         download.threadCount = clamped
-        // The user took manual control — pin the adaptive ceiling to their choice
-        // and stop probing so it doesn't override the explicit setting.
-        adaptiveCeiling = clamped
-        adaptiveProbeStopped = true
         await onStateChange(download)
 
         guard download.supportsRange else { return }
 
-        // Prefer assigning idle workers to already-planned outstanding pieces
-        // (work-stealing model) before resorting to splitting an in-flight chunk.
-        growWorkers()
-
-        while inFlight.count < clamped {
-            guard let decision = ChunkSplitter.nextSplit(chunks: download.chunks) else { break }
-            // Cancel the original chunk's worker. We replace its dict entry with a
-            // fresh-UUID chunk so the cancelled task's chunkFinished only removes
-            // its own dead entry, not the newly-spawned one.
-            if let oldTask = inFlight.removeValue(forKey: decision.originalID) {
-                oldTask.cancel()
-            }
-            download.chunks[decision.originalIndex] = decision.shrunken
-            spawnWorker(chunkID: decision.shrunken.id)
-            download.chunks.append(decision.newChunk)
-            spawnWorker(chunkID: decision.newChunk.id)
-        }
+        // Same rule as a worker freeing up: steal outstanding pieces first, split
+        // the tail only when there are none. Lowering the count needs no action —
+        // extra workers drain naturally as they finish their assigned ranges.
+        fillIdleSlots()
         await onStateChange(download)
     }
 }

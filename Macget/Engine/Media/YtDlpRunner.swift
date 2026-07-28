@@ -65,7 +65,10 @@ actor YtDlpRunner {
     func probe(pageURL: URL, headers: [String: String]?) async throws -> MediaInfo {
         var args = ["--no-config", "--no-playlist", "-J"]
         args += jsRuntimeArgs()
-        args += headerArgs(headers)
+        args += Self.headerArgs(headers)
+        let cookies = cookieArgs(headers, pageURL: pageURL)
+        defer { if let dir = cookies.cleanup { try? FileManager.default.removeItem(at: dir) } }
+        args += cookies.args
         args.append(pageURL.absoluteString)
 
         let (status, stdout, stderr) = try await execute(arguments: args, onLine: nil)
@@ -87,7 +90,10 @@ actor YtDlpRunner {
     func probePlaylist(pageURL: URL, headers: [String: String]?) async throws -> [PlaylistEntry] {
         var args = ["--no-config", "--flat-playlist", "-J"]
         args += jsRuntimeArgs()
-        args += headerArgs(headers)
+        args += Self.headerArgs(headers)
+        let cookies = cookieArgs(headers, pageURL: pageURL)
+        defer { if let dir = cookies.cleanup { try? FileManager.default.removeItem(at: dir) } }
+        args += cookies.args
         args.append(pageURL.absoluteString)
 
         let (status, stdout, stderr) = try await execute(arguments: args, onLine: nil)
@@ -136,7 +142,10 @@ actor YtDlpRunner {
             args += ["--ffmpeg-location", ffmpegDir.path]
         }
         args += jsRuntimeArgs()
-        args += headerArgs(headers)
+        args += Self.headerArgs(headers)
+        let cookies = cookieArgs(headers, pageURL: pageURL)
+        defer { if let dir = cookies.cleanup { try? FileManager.default.removeItem(at: dir) } }
+        args += cookies.args
         args.append(pageURL.absoluteString)
 
         let (status, stdout, stderr) = try await execute(arguments: args) { line in
@@ -195,13 +204,95 @@ actor YtDlpRunner {
         return args
     }
 
-    private func headerArgs(_ headers: [String: String]?) -> [String] {
+    // MARK: - Headers and cookies
+
+    /// `--add-header` args for everything *except* cookies.
+    ///
+    /// Cookies are deliberately excluded. `--add-header "Cookie: …"` is applied by
+    /// yt-dlp to every request it makes, including the media fetch from
+    /// `googlevideo.com` — and YouTube answers an authenticated CDN request that
+    /// carries no proof-of-origin token with `HTTP Error 403: Forbidden`. That's
+    /// why a probe would succeed (innertube metadata is fine authenticated) and
+    /// the download that followed would die. yt-dlp warns about this itself:
+    /// "they will be scoped to the domain of the downloaded urls". Cookies go
+    /// through `netscapeCookieJar` instead, which is domain-scoped.
+    static func headerArgs(_ headers: [String: String]?) -> [String] {
         guard let headers else { return [] }
         var args: [String] = []
-        for (k, v) in headers where !v.isEmpty {
+        for (k, v) in headers where !v.isEmpty && !isCookieHeader(k) {
             args += ["--add-header", "\(k): \(v)"]
         }
         return args
+    }
+
+    /// Browsers aren't consistent about header casing, and a case-sensitive check
+    /// would let `cookie:` straight back into `--add-header`.
+    static func isCookieHeader(_ name: String) -> Bool {
+        name.caseInsensitiveCompare("Cookie") == .orderedSame
+    }
+
+    static func cookieHeaderValue(_ headers: [String: String]?) -> String? {
+        guard let headers else { return nil }
+        return headers.first { isCookieHeader($0.key) }?.value
+    }
+
+    /// A `Cookie:` header rendered as a Netscape cookie jar scoped to `pageURL`'s
+    /// domain, or nil when there's nothing usable to write.
+    ///
+    /// Fields are tab-separated: domain, include_subdomains, path, secure, expiry,
+    /// name, value. `www.` is stripped and a leading dot added so one entry covers
+    /// both the bare host and its subdomains — but *not* `googlevideo.com`, which
+    /// is the entire point.
+    static func netscapeCookieJar(cookieHeader: String, pageURL: URL) -> String? {
+        guard let host = pageURL.host, !host.isEmpty else { return nil }
+        let domain = "." + (host.hasPrefix("www.") ? String(host.dropFirst(4)) : host)
+
+        var rows: [String] = []
+        for pair in cookieHeader.split(separator: ";") {
+            let trimmed = pair.trimmingCharacters(in: .whitespaces)
+            // Split on the *first* `=` only: session tokens are base64 and
+            // routinely end in padding, which a greedy split would truncate.
+            guard let eq = trimmed.firstIndex(of: "="), eq != trimmed.startIndex else { continue }
+            let name = String(trimmed[trimmed.startIndex..<eq])
+            let value = String(trimmed[trimmed.index(after: eq)...])
+            guard !name.isEmpty else { continue }
+            // Expiry 0 marks a session cookie, which is what a live browser
+            // handoff always is.
+            rows.append("\(domain)\tTRUE\t/\tTRUE\t0\t\(name)\t\(value)")
+        }
+        guard !rows.isEmpty else { return nil }
+        return (["# Netscape HTTP Cookie File"] + rows).joined(separator: "\n") + "\n"
+    }
+
+    /// Writes the jar to a private temp directory and returns `--cookies <path>`
+    /// plus the directory to delete once yt-dlp exits.
+    ///
+    /// The file holds a live session, so it is created `0600` inside a
+    /// per-invocation directory and removed by the caller's `defer`. This is the
+    /// one place cookies touch disk; nothing persists them.
+    private func cookieArgs(_ headers: [String: String]?, pageURL: URL) -> (args: [String], cleanup: URL?) {
+        guard let cookie = Self.cookieHeaderValue(headers),
+              let jar = Self.netscapeCookieJar(cookieHeader: cookie, pageURL: pageURL)
+        else { return ([], nil) }
+
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("macget-cookies-\(UUID().uuidString)", isDirectory: true)
+        let file = dir.appendingPathComponent("cookies.txt")
+        do {
+            try FileManager.default.createDirectory(
+                at: dir, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700])
+            try jar.write(to: file, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600], ofItemAtPath: file.path)
+        } catch {
+            // Better to download anonymously than to fail outright — and better
+            // than falling back to the header, which is what 403s.
+            Log.engine.error("Could not write cookie jar: \(error.localizedDescription, privacy: .public)")
+            try? FileManager.default.removeItem(at: dir)
+            return ([], nil)
+        }
+        return (["--cookies", file.path], dir)
     }
 
     /// Runs yt-dlp, streaming **both** stdout and stderr lines to `onLine` and
@@ -255,6 +346,7 @@ actor YtDlpRunner {
         }
 
         Log.engine.info("yt-dlp launching \(proc.executableURL?.path ?? "nil", privacy: .public)")
+        Log.engine.info("yt-dlp argv: \(Self.redactedArgv(arguments), privacy: .public)")
         try proc.run()
 
         for await line in lines {
@@ -266,6 +358,15 @@ actor YtDlpRunner {
         let stdout = String(data: stdoutAll.takeAll(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrAll.takeAll(), encoding: .utf8) ?? ""
         Log.engine.info("yt-dlp exited status=\(proc.terminationStatus) stderrTail=\(Self.tail(stderr, lines: 5), privacy: .public)")
+        if proc.terminationStatus != 0 {
+            // The 5-line tail hides the warnings that precede a failure, and those
+            // are usually what explains it. Progress lines are dropped so the
+            // diagnostic ones aren't buried.
+            let meaningful = stderr.split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty && !$0.hasPrefix(Self.progressPrefix) && !$0.hasPrefix("[download]") }
+            Log.engine.error("yt-dlp full stderr (\(meaningful.count) lines):\n\(meaningful.joined(separator: "\n"), privacy: .public)")
+        }
         return (proc.terminationStatus, stdout, stderr)
     }
 
@@ -305,6 +406,35 @@ actor YtDlpRunner {
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { $0.hasPrefix("/") && !$0.hasPrefix(progressPrefix) }
             .last
+    }
+
+    /// The argv as launched, with any credential values replaced by their shape.
+    /// Diagnostic only — enough to replay the invocation by hand without ever
+    /// putting a live session token in the log.
+    static func redactedArgv(_ arguments: [String]) -> String {
+        var out: [String] = []
+        var i = 0
+        while i < arguments.count {
+            let a = arguments[i]
+            if a == "--add-header", i + 1 < arguments.count {
+                let h = arguments[i + 1]
+                let name = h.split(separator: ":", maxSplits: 1).first.map(String.init) ?? h
+                out += [a, isCookieHeader(name) ? "\(name): <\(h.count) chars REDACTED>" : h]
+                i += 2
+            } else if a == "--cookies", i + 1 < arguments.count {
+                let path = arguments[i + 1]
+                let jar = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+                let names = jar.split(separator: "\n")
+                    .filter { !$0.hasPrefix("#") }
+                    .compactMap { $0.split(separator: "\t").dropLast().last.map(String.init) }
+                out += [a, "<jar: \(names.count) cookies [\(names.joined(separator: ","))]>"]
+                i += 2
+            } else {
+                out.append(a)
+                i += 1
+            }
+        }
+        return out.map { $0.contains(" ") ? "'\($0)'" : $0 }.joined(separator: " ")
     }
 
     /// Last few non-empty stderr lines, for surfacing a useful failure reason.

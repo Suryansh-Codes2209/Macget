@@ -1,0 +1,95 @@
+---
+title: The Inspector
+description: The panel that shows a download's live throughput, the pieces it was split into, and exactly why the engine settled on the connection count it did.
+---
+
+Most download managers show you one bar creeping right. That bar looks identical
+whether the file is arriving over one connection or sixteen, and it tells you
+nothing about why a transfer is slow.
+
+The inspector is the answer to that. It has three parts: a live speed chart, a
+map of the file's actual pieces, and a breakdown of the engine's concurrency
+decisions.
+
+Select a row to inspect it. With nothing selected the panel falls back to
+aggregate throughput across every active download, so it's never an empty box
+while something is running.
+
+## Speed
+
+A scrolling area chart of throughput over a rolling **30-second window** — 120
+samples at the engine's 250 ms publish cadence. Long enough to show a stall or a
+ramp, short enough that the curve still visibly moves.
+
+The curve slides continuously rather than stepping four times a second. New
+samples arrive at the right edge of a curve that was already drifting, which is
+what makes it read as live rather than polled. When nothing is downloading the
+animation is dropped entirely — a frozen curve has nothing to interpolate, and
+redrawing an idle panel every frame is pure battery cost.
+
+Alongside the current figure the chart tracks the window's **peak** and
+**average**. The average deliberately includes zero samples: a download that
+spent half the window stalled really did average half its moving speed, and
+hiding that would make a flaky host look fine.
+
+## Pieces
+
+The file drawn as its actual work units, in file order. Each cell is one piece.
+Cells fill as bytes land, and the pieces a worker is currently holding **pulse**.
+
+This is the part that makes parallelism legible. MacGet slices a ranged download
+into pieces and lets a worker that finishes early steal the next outstanding
+one — but with a single progress bar, work-stealing and a plain single-connection
+download look exactly the same. Here you can watch pieces being claimed across
+the file at once.
+
+The subtitle gives the geometry, e.g. `64 × 16.0 MB`, which is what explains why
+a very large file has the piece size it does. Piece count comes from
+[chunk planning](/docs/engine-pipeline): threads are clamped to 1–20 and further
+clamped so no piece is smaller than 64 KB.
+
+<Callout type="info">
+  A download from a host that doesn't support HTTP Range has exactly one piece,
+  and the Connections list will say **Range support: No — single stream**. That
+  isn't a bug; it's the server refusing to serve byte ranges.
+</Callout>
+
+## Connections
+
+This is the section that answers "why am I not getting the 16 connections I asked
+for?" Each line is a *different reason* the number might be lower, and the
+effective count is the minimum of all of them:
+
+| Line | Meaning |
+| --- | --- |
+| **Active now** | Workers holding a piece this instant. Only shown while running. |
+| **Effective** | What the engine actually resolved to — the min of everything below. |
+| **Requested** | What you configured, per-download or globally. |
+| **Adaptive ceiling** | How high the [adaptive probe](/docs/adaptive-concurrency) has climbed this session. |
+| **Host cap** | A limit learned for this host in an earlier session and persisted. |
+| **Demoted to** | An in-session anti-leech demotion, if the host started pushing back. |
+| **Range support** | Shown only when the server refused ranges, forcing a single stream. |
+
+Before the inspector existed this information was only reachable through **Copy
+Diagnostics**. If a download is slower than you expect, this table is the first
+place to look — it distinguishes "the host capped us at 4" from "you asked for
+4".
+
+## Transfer and Source
+
+Straightforward accounting: bytes downloaded, total size, percentage, and time
+remaining. Torrents add uploaded bytes, upload rate, seeders, and peers.
+
+**Source** shows the host the bytes are coming from and the folder the finished
+file lands in.
+
+## Cost
+
+The panel polls only while it is open, and only for the one download you're
+looking at.
+
+That's deliberate. Per-piece state can be hundreds of entries, and broadcasting
+it for every active download several times a second — when at most one is on
+screen — would be significant waste. Speed samples ride the existing snapshot
+channel; piece state is pulled on demand. Closing the inspector stops the polling
+entirely.

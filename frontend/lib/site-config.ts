@@ -1,5 +1,15 @@
 const REPO = "https://github.com/Suryansh-Codes2209/Macget";
 
+/**
+ * The published listing. The store also accepts a `/detail/<slug>/<id>` form,
+ * but the bare id is what redirects reliably and is what the app's Help menu
+ * opens (`AppDelegate.openExtensionPage`) — keep the two in sync.
+ */
+const CHROME_WEB_STORE =
+  "https://chromewebstore.google.com/detail/ldmhmgglgemkoogpokfcgplbpfokcejl";
+
+const LINKEDIN = "https://www.linkedin.com/company/macget-app";
+
 export const siteConfig = {
   name: "MacGet",
   binary: "Macget",
@@ -8,7 +18,7 @@ export const siteConfig = {
   heroSub:
     "MacGet splits every file across up to 16 chunks, learns what each host will tolerate, and resumes across restarts — a native SwiftUI app for macOS Tahoe.",
   minOS: "macOS Tahoe 26.4",
-  version: "1.2.0",
+  version: "1.3.0",
 
   /** Canonical origin. Used for metadataBase, canonical tags, and the sitemap. */
   url: "https://macget.suryansh.work",
@@ -19,6 +29,8 @@ export const siteConfig = {
   licenseUrl: `${REPO}/blob/main/LICENSE`,
   issuesUrl: `${REPO}/issues`,
   securityUrl: `${REPO}/blob/main/SECURITY.md`,
+  chromeWebStoreUrl: CHROME_WEB_STORE,
+  linkedinUrl: LINKEDIN,
   contactEmail: "suryansh.codes2001@gmail.com",
 
   disclaimer:
@@ -26,6 +38,7 @@ export const siteConfig = {
 
   nav: [
     { label: "Features", href: "/#features" },
+    { label: "Inspector", href: "/#inspector" },
     { label: "How it works", href: "/#how" },
     { label: "Docs", href: "/docs" },
     { label: "Install", href: "/install" },
@@ -37,6 +50,8 @@ export const siteConfig = {
       title: "Product",
       links: [
         { label: "Features", href: "/#features" },
+        { label: "Inspector", href: "/#inspector" },
+        { label: "Browser capture", href: "/#extension" },
         { label: "How it works", href: "/#how" },
         { label: "Changelog", href: "/changelog" },
         { label: "FAQ", href: "/#faq" },
@@ -55,6 +70,8 @@ export const siteConfig = {
       title: "Project",
       links: [
         { label: "GitHub", href: REPO, external: true },
+        { label: "Chrome Web Store", href: CHROME_WEB_STORE, external: true },
+        { label: "LinkedIn", href: LINKEDIN, external: true },
         { label: "Releases", href: `${REPO}/releases`, external: true },
         { label: "Report an issue", href: `${REPO}/issues`, external: true },
         { label: "MIT License", href: `${REPO}/blob/main/LICENSE`, external: true },
@@ -77,6 +94,12 @@ export const siteConfig = {
       icon: "Layers",
     },
     {
+      title: "Watch it happen, live",
+      blurb:
+        "An inspector panel charts throughput over a rolling 30-second window and draws the file as its actual pieces — cells filling in file order, the ones a worker holds pulsing. One bar creeping right looks the same whether you have 1 connection or 16; this doesn't.",
+      icon: "Gauge",
+    },
+    {
       title: "Adapts to throttled hosts",
       blurb:
         "When a server starts rejecting parallelism, the engine halves its workers instead of hammering. The learned cap persists per host, so the next download from that origin starts smart.",
@@ -93,6 +116,18 @@ export const siteConfig = {
       blurb:
         "Media links route to a bundled yt-dlp + ffmpeg extractor with a quality and container picker. Opt-in — ordinary links always download as plain HTTP files.",
       icon: "Clapperboard",
+    },
+    {
+      title: "Books from open catalogs",
+      blurb:
+        "Browse and search Project Gutenberg and the Internet Archive without leaving the app, then send a book straight to the queue. Add any OPDS feed too \u2014 including your own Calibre server.",
+      icon: "BookOpen",
+    },
+    {
+      title: "BitTorrent, on your terms",
+      blurb:
+        "Magnet links and .torrent files download in the same queue as everything else. Off by default, and seeding stops at a ratio and time limit you set. MacGet never searches for or indexes torrents.",
+      icon: "ArrowUpDown",
     },
     {
       title: "Downloads behind a login",
@@ -125,6 +160,42 @@ export const siteConfig = {
       icon: "Lock",
     },
   ],
+
+  /**
+   * The browser-capture section. `payload` mirrors the fields the extension
+   * actually sends (`BrowserExtension/chromium/background.js` → `captureItem`),
+   * so it stays a manifest rather than a marketing list. If a field is added or
+   * dropped there, change it here too.
+   */
+  extension: {
+    payload: [
+      {
+        field: "url",
+        note: "The file's own address — not the page you were reading.",
+      },
+      {
+        field: "cookie",
+        note: "Scoped to that URL's domain, so a file behind a login still downloads.",
+      },
+      {
+        field: "referer",
+        note: "Hotlink protection sees the page you came from and lets it through.",
+      },
+      {
+        field: "userAgent",
+        note: "Your browser's, verbatim. The request looks the same as the one it replaces.",
+      },
+      {
+        field: "filename",
+        note: "The name your browser resolved, not the id sitting in the URL.",
+      },
+      {
+        field: "size",
+        note: "The queue shows the real total before the first byte lands.",
+      },
+    ],
+    browsers: ["Chrome", "Edge", "Brave", "Firefox"],
+  },
 
   pipeline: [
     {

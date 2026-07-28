@@ -13,7 +13,7 @@ export function Hero() {
     <section className="relative isolate overflow-hidden pt-32 pb-20 sm:pt-36 sm:pb-28">
       {/* Ambient glows */}
       <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[640px] bg-radial-glow" />
-      <div className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-[600px] w-[800px] -translate-x-1/2 rounded-full bg-brand-blue/10 blur-3xl" />
+      <div className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-[600px] w-[800px] -translate-x-1/2 rounded-full bg-brand-amber/10 blur-3xl" />
 
       <div className="mx-auto grid max-w-7xl gap-16 px-6 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:gap-12 lg:px-10">
         {/* Copy column */}
@@ -22,11 +22,11 @@ export function Hero() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: easeEmphasized }}
-            className="inline-flex items-center gap-2 rounded-pill border border-line bg-white/[0.04] px-3 py-1 text-xs font-medium text-frost-dim"
+            className="inline-flex items-center gap-2 rounded-pill border border-line bg-white/[0.04] px-3 py-1 text-xs font-medium text-cream-dim"
           >
             <span className="relative flex size-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-sky opacity-75" />
-              <span className="relative inline-flex size-1.5 rounded-full bg-brand-sky" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-honey opacity-75" />
+              <span className="relative inline-flex size-1.5 rounded-full bg-brand-honey" />
             </span>
             v{siteConfig.version} · Native for {siteConfig.minOS}
           </motion.div>
@@ -35,10 +35,10 @@ export function Hero() {
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, ease: easeEmphasized, delay: 0.05 }}
-            className="mt-6 text-balance text-5xl font-semibold leading-[1.02] tracking-tight text-frost sm:text-6xl lg:text-7xl"
+            className="mt-6 text-balance text-5xl font-semibold leading-[1.02] tracking-tight text-cream sm:text-6xl lg:text-7xl"
           >
             <span className="block">{siteConfig.heroHeadline[0]}</span>
-            <span className="block bg-gradient-to-r from-brand-sky via-brand-blue to-brand-cobalt bg-clip-text text-transparent">
+            <span className="block bg-gradient-to-r from-brand-honey via-brand-amber to-brand-umber bg-clip-text text-transparent">
               {siteConfig.heroHeadline[1]}
             </span>
           </motion.h1>
@@ -47,7 +47,7 @@ export function Hero() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, ease: easeEmphasized, delay: 0.15 }}
-            className="mt-6 max-w-xl text-base leading-relaxed text-frost-dim sm:text-lg"
+            className="mt-6 max-w-xl text-base leading-relaxed text-cream-dim sm:text-lg"
           >
             {siteConfig.heroSub}
           </motion.p>

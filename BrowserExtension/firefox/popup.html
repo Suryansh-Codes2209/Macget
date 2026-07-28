@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MacGet</title>
+  <link rel="stylesheet" href="theme.css" />
+  <style>
+    body { width: 360px; }
+
+    .hero { padding: 16px 16px 18px; }
+    .pill {
+      font-size: 10.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+      padding: 4px 9px; border-radius: 999px;
+      background: rgba(255,255,255,.22);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.35);
+      transition: background .25s, opacity .25s;
+      white-space: nowrap;
+    }
+    .pill.off { background: rgba(0,0,0,.22); opacity: .8; }
+    .pill.bad { background: rgba(208,52,44,.45); box-shadow: inset 0 0 0 1px rgba(255,140,130,.5); }
+
+    main { padding: 12px; display: flex; flex-direction: column; gap: 9px; }
+
+    /* ---- status ---- */
+    .status { display: flex; align-items: flex-start; gap: 11px; }
+    .dot {
+      flex: none; width: 9px; height: 9px; border-radius: 50%;
+      margin-top: 4px; background: var(--text-faint);
+      transition: background .3s;
+    }
+    .status[data-state="connected"] .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+    .status[data-state="paused"] .dot { background: var(--text-faint); }
+    .status[data-state="unreachable"] .dot { background: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
+    .status[data-state="checking"] .dot { background: var(--warn); animation: pulse 1.1s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+
+    .status-body { flex: 1; min-width: 0; }
+    .status-title { font-size: 13.5px; font-weight: 600; }
+    .status-desc { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+    #retry { margin-top: 9px; padding: 6px 10px; font-size: 12px; }
+
+    /* ---- section labels ---- */
+    .section-label {
+      font-size: 10.5px; font-weight: 700; letter-spacing: .7px;
+      text-transform: uppercase; color: var(--text-faint);
+      margin-bottom: 9px;
+    }
+
+    /* ---- this-tab actions ---- */
+    .actions { display: flex; gap: 7px; }
+    .actions .btn { flex: 1; }
+    .action-note {
+      font-size: 11.5px; margin-top: 9px; line-height: 1.4;
+      color: var(--text-dim); min-height: 0;
+    }
+    .action-note.ok { color: var(--ok); }
+    .action-note.bad { color: var(--bad); }
+    .action-note:empty { display: none; }
+
+    /* ---- recent ---- */
+    .recent ul { list-style: none; margin: -4px -4px 0; }
+    .recent li {
+      display: flex; align-items: center; gap: 9px;
+      padding: 6px 4px; border-radius: 8px;
+    }
+    .recent li + li { border-top: 1px solid var(--hairline); }
+    .glyph {
+      flex: none; width: 26px; height: 26px; border-radius: 7px;
+      display: grid; place-items: center;
+      background: var(--card-inset); color: var(--text-dim);
+    }
+    .glyph svg { width: 14px; height: 14px; }
+    .glyph.video { background: var(--warn-soft); color: var(--warn); }
+    .glyph.failed { background: var(--bad-soft); color: var(--bad); }
+    .entry { flex: 1; min-width: 0; }
+    .entry-name {
+      font-size: 12.5px; font-weight: 500;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .entry-meta {
+      font-size: 10.5px; color: var(--text-faint); margin-top: 1px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .entry-meta .failed-tag { color: var(--bad); font-weight: 600; }
+    .empty {
+      font-size: 11.5px; color: var(--text-dim); line-height: 1.5;
+      padding: 2px 0 1px;
+    }
+
+    /* ---- footer ---- */
+    .settings-link {
+      align-self: stretch; border: 0; background: none; cursor: pointer;
+      font: 600 12px/1 var(--body); color: var(--text-dim);
+      padding: 6px; border-radius: 8px; text-align: center;
+    }
+    .settings-link:hover { color: var(--text); background: var(--card); }
+    .settings-link:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(240,166,78,.4); }
+  </style>
+</head>
+<body>
+  <header class="hero" id="hero" data-state="checking">
+    <img class="hero-icon" src="icons/icon-128.png" alt="" />
+    <div class="hero-text">
+      <div class="hero-title">MacGet</div>
+      <div class="hero-sub">Download capture</div>
+    </div>
+    <span class="pill" id="statusPill">Checking</span>
+    <div class="hero-edge"></div>
+  </header>
+
+  <main>
+    <section class="card status rise" id="statusCard" data-state="checking">
+      <span class="dot"></span>
+      <div class="status-body">
+        <div class="status-title" id="statusTitle">Checking connection</div>
+        <div class="status-desc" id="statusDesc">Asking Macget whether it's listening.</div>
+        <button class="btn" id="retry" hidden>Check again</button>
+      </div>
+    </section>
+
+    <section class="card rise">
+      <div class="row">
+        <div>
+          <div class="row-title">Capture downloads</div>
+          <div class="row-desc">Hand browser downloads to Macget.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="enabled" />
+          <span class="track"></span>
+        </label>
+      </div>
+    </section>
+
+    <section class="card rise">
+      <div class="section-label">This tab</div>
+      <div class="actions">
+        <button class="btn btn-accent" id="sendVideo">Send video</button>
+        <button class="btn" id="sendUrl">Send this URL</button>
+      </div>
+      <div class="action-note" id="actionNote"></div>
+    </section>
+
+    <section class="card rise">
+      <div class="section-label">Recent</div>
+      <ul id="recentList"></ul>
+      <div class="empty" id="recentEmpty" hidden>
+        Nothing captured yet. Start a download and it shows up here.
+      </div>
+    </section>
+
+    <button class="settings-link" id="openOptions">All settings &rarr;</button>
+  </main>
+
+  <script src="heuristics.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

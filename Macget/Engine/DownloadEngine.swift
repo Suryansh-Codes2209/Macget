@@ -19,6 +19,10 @@ actor DownloadEngine {
     /// Media (`kind == .media`) downloads run via yt-dlp instead of the chunked
     /// coordinator. Tracked separately but surfaced through the same events.
     private var extractors: [UUID: MediaExtractionJob] = [:]
+    /// Torrents (`kind == .torrent`) run through the shared aria2 daemon. Held
+    /// separately from coordinators/extractors but counted in the same
+    /// `maxConcurrentDownloads` budget.
+    private var torrents: [UUID: TorrentJob] = [:]
     private var insertionOrder: [UUID] = []
     private var settings: AppSettings
 
@@ -122,6 +126,9 @@ actor DownloadEngine {
             log.info("Rebuilt URLSession for new proxy/timeout settings (applies to new downloads).")
         }
         eventsContinuation.yield(.settingsChanged(newSettings))
+        // Push seeding/bandwidth changes to a live aria2 daemon. Port changes are
+        // launch-only and take effect the next time it starts.
+        await Aria2Daemon.shared.applyOptions(newSettings.torrentOptions)
         // A schedule change (enabled/window) may open or close the window right now.
         await evaluateSchedule()
         if newSettings.maxConcurrentDownloads > oldMax {
@@ -206,11 +213,75 @@ actor DownloadEngine {
         return download.id
     }
 
+    /// Add a torrent from a magnet URI or a `.torrent` file's bytes.
+    ///
+    /// `filename` is provisional — aria2 reports the real torrent name once BEP-9
+    /// metadata arrives, and `TorrentJob` adopts it.
+    @discardableResult
+    func addTorrent(
+        magnet: URL? = nil,
+        torrentData: Data? = nil,
+        destinationFolder: URL,
+        suggestedName: String? = nil,
+        startImmediately: Bool? = nil
+    ) async -> UUID? {
+        guard magnet != nil || torrentData != nil else { return nil }
+        let link = magnet.flatMap(MagnetLink.parse)
+        let name = suggestedName ?? link?.provisionalName ?? "Torrent"
+        let download = Download(
+            url: magnet ?? URL(string: "torrent:local")!,
+            destinationFolder: destinationFolder,
+            filename: FilenameResolver.sanitize(name),
+            totalBytes: link?.exactLength,
+            kind: .torrent,
+            torrentInfoHash: link?.infoHash,
+            torrentFileData: torrentData
+        )
+        downloads[download.id] = download
+        insertionOrder.append(download.id)
+        await store.upsert(download)
+        eventsContinuation.yield(.added(download))
+
+        let auto = startImmediately ?? settings.startDownloadsAutomatically
+        if auto {
+            await scheduleNextDownloads()
+        }
+        return download.id
+    }
+
+    /// Replace a torrent's file selection and restart it so aria2 picks up the
+    /// new `--select-file`. Only meaningful before/while downloading.
+    func updateTorrentFileSelection(_ id: UUID, selectedIndices: Set<Int>) async {
+        guard var d = downloads[id], d.kind == .torrent, let files = d.torrentFiles else { return }
+        d.torrentFiles = files.map { file in
+            var copy = file
+            copy.selected = selectedIndices.contains(file.index)
+            return copy
+        }
+        downloads[id] = d
+        await store.upsert(d)
+        eventsContinuation.yield(.stateChanged(d))
+
+        if let job = torrents[id] {
+            await job.cancel()
+            torrents.removeValue(forKey: id)
+            var restarted = d
+            restarted.status = .queued
+            restarted.error = nil
+            downloads[id] = restarted
+            await store.upsert(restarted)
+            eventsContinuation.yield(.stateChanged(restarted))
+            await scheduleNextDownloads()
+        }
+    }
+
     func pause(_ id: UUID) async {
         if let coord = coordinators[id] {
             await coord.pause()
             // Coordinator's onStateChange will sync `downloads[id]`.
         } else if let job = extractors[id] {
+            await job.pause()
+        } else if let job = torrents[id] {
             await job.pause()
         } else if var d = downloads[id], d.status == .queued {
             d.status = .paused
@@ -241,6 +312,8 @@ actor DownloadEngine {
             await coord.cancelAndDiscard()
         } else if let job = extractors[id] {
             await job.cancelAndDiscard()
+        } else if let job = torrents[id] {
+            await job.cancel()
         } else if var d = downloads[id] {
             d.status = .cancelled
             downloads[id] = d
@@ -250,13 +323,14 @@ actor DownloadEngine {
         }
         coordinators.removeValue(forKey: id)
         extractors.removeValue(forKey: id)
+        torrents.removeValue(forKey: id)
         updateActivityState()
         await scheduleNextDownloads()
     }
 
     /// Removes a download from the queue. If active, cancels first. Optionally deletes the file on disk.
     func remove(_ id: UUID, deleteFile: Bool = false) async {
-        if coordinators[id] != nil || extractors[id] != nil {
+        if coordinators[id] != nil || extractors[id] != nil || torrents[id] != nil {
             await cancel(id)
         }
         if let d = downloads[id] {
@@ -269,6 +343,7 @@ actor DownloadEngine {
         insertionOrder.removeAll { $0 == id }
         coordinators.removeValue(forKey: id)
         extractors.removeValue(forKey: id)
+        torrents.removeValue(forKey: id)
         updateActivityState()
         await store.delete(id)
         eventsContinuation.yield(.removed(id))
@@ -281,6 +356,9 @@ actor DownloadEngine {
         }
         for id in extractors.keys {
             await extractors[id]?.pause()
+        }
+        for id in torrents.keys {
+            await torrents[id]?.pause()
         }
         for (id, var d) in downloads where d.status == .queued {
             d.status = .paused
@@ -320,6 +398,14 @@ actor DownloadEngine {
         }
         for id in extractors.keys {
             await extractors[id]?.suspend()
+        }
+        // Torrents stop polling, then aria2 is asked to exit cleanly — killing it
+        // instead would lose its session file and in-flight piece state.
+        for id in torrents.keys {
+            await torrents[id]?.suspendForShutdown()
+        }
+        if !torrents.isEmpty {
+            await Aria2Daemon.shared.shutdown()
         }
         if let token = activityToken {
             ProcessInfo.processInfo.endActivity(token)
@@ -440,6 +526,8 @@ actor DownloadEngine {
                     await coord.pause()
                 } else if let job = extractors[id] {
                     await job.pause()
+                } else if let job = torrents[id] {
+                    await job.pause()
                 }
                 if var d = downloads[id] {
                     d.error = "Outside scheduled hours"
@@ -468,6 +556,17 @@ actor DownloadEngine {
         }
         guard let d = downloads[id] else { return nil }
         return DownloadDiagnostics.report(for: d)
+    }
+
+    /// Per-piece progress and concurrency state for one download, for the
+    /// inspector's segment map. Same live-first, persisted-fallback shape as
+    /// `diagnostics(for:)`.
+    func inspection(for id: UUID) async -> DownloadInspection? {
+        if let coord = coordinators[id] {
+            return await coord.inspectionSnapshot()
+        }
+        guard let d = downloads[id] else { return nil }
+        return DownloadInspection(persisted: d)
     }
 
     /// Change a download's queue priority. Re-runs the scheduler so a newly
@@ -501,19 +600,65 @@ actor DownloadEngine {
     private func scheduleNextDownloads() async {
         // Honor quiet hours: don't start new work while the window is closed.
         guard scheduleWindowOpen else { return }
-        let activeCount = coordinators.count + extractors.count
+        let activeCount = coordinators.count + extractors.count + torrents.count
         let slots = max(0, settings.maxConcurrentDownloads - activeCount)
         guard slots > 0 else { return }
 
+        // A download stays `.queued` until its coordinator gets past the probe and
+        // reports `.downloading` — a network round-trip later. Status alone
+        // therefore can't tell "waiting for a slot" from "already starting", and
+        // anything that re-runs the scheduler in that window (a pause, a settings
+        // change, a network blip, another download finishing) would start a
+        // second job for the same id. Both then raced for the same partial file:
+        // the winner moved it to the destination, the loser found nothing to move
+        // and overwrote the record with a finalize error — a failed download with
+        // the finished file sitting on disk. The live-job maps are the real
+        // "already started" signal, so they gate the candidate list.
         let queued = insertionOrder.compactMap { id -> Download? in
             guard let d = downloads[id], d.status == .queued else { return nil }
+            guard !hasLiveJob(id) else { return nil }
             return d
         }
         for d in DownloadScheduler.order(queued).prefix(slots) {
             switch d.kind {
             case .httpFile: startCoordinator(for: d)
             case .media:    startExtraction(for: d)
+            case .torrent:  startTorrent(for: d)
             }
+        }
+    }
+
+    /// Route a torrent to the shared aria2 daemon. Fails fast with an actionable
+    /// message when aria2 isn't installed.
+    private func startTorrent(for download: Download) {
+        let id = download.id
+        guard !hasLiveJob(id) else {
+            Log.engine.error("Refusing to start a second job for \(download.filename, privacy: .public) — one is already running.")
+            return
+        }
+        guard TorrentToolLocator.locate() != nil else {
+            var d = download
+            d.status = .failed
+            d.error = Aria2Daemon.DaemonError.toolMissing.localizedDescription
+            downloads[id] = d
+            Task { await store.upsert(d) }
+            eventsContinuation.yield(.stateChanged(d))
+            return
+        }
+        let job = TorrentJob(
+            download: download,
+            options: settings.torrentOptions,
+            onStateChange: { [weak self] updated in
+                await self?.handleStateChange(updated)
+            },
+            onSnapshot: { [weak self] snap in
+                await self?.handleSnapshot(snap)
+            }
+        )
+        torrents[id] = job
+        updateActivityState()
+        Task {
+            await job.start()
         }
     }
 
@@ -521,6 +666,10 @@ actor DownloadEngine {
     /// message if the tools aren't installed.
     private func startExtraction(for download: Download) {
         let id = download.id
+        guard !hasLiveJob(id) else {
+            Log.engine.error("Refusing to start a second job for \(download.filename, privacy: .public) — one is already running.")
+            return
+        }
         guard let tools = MediaToolLocator.locate() else {
             var d = download
             d.status = .failed
@@ -549,8 +698,18 @@ actor DownloadEngine {
         }
     }
 
+    /// Whether some job already owns this download. One id must never have two,
+    /// because they'd share a partial file path and fight over it.
+    private func hasLiveJob(_ id: UUID) -> Bool {
+        coordinators[id] != nil || extractors[id] != nil || torrents[id] != nil
+    }
+
     private func startCoordinator(for download: Download) {
         let id = download.id
+        guard !hasLiveJob(id) else {
+            Log.engine.error("Refusing to start a second job for \(download.filename, privacy: .public) — one is already running.")
+            return
+        }
         let coord = DownloadCoordinator(
             download: download,
             session: session,

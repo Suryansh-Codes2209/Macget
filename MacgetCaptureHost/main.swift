@@ -43,8 +43,14 @@ func readMessage() -> Data? {
     return readExactly(Int(length))
 }
 
-func writeAck(ok: Bool) {
-    let payload = try? JSONSerialization.data(withJSONObject: ["ok": ok])
+/// Protocol version reported to the extension's health check. Bump when the
+/// message shape changes in a way the extension can adapt to.
+let hostVersion = 1
+
+func writeAck(ok: Bool, extra: [String: Any] = [:]) {
+    var object: [String: Any] = ["ok": ok]
+    object.merge(extra) { _, new in new }
+    let payload = try? JSONSerialization.data(withJSONObject: object)
     guard let payload else { return }
     var length = UInt32(payload.count).littleEndian
     let header = Data(bytes: &length, count: 4)
@@ -84,6 +90,16 @@ func logError(_ message: String) {
 guard let message = readMessage() else {
     writeAck(ok: false)
     exit(1)
+}
+
+// A `kind:"ping"` message is the extension's health check: it only wants to know
+// whether this executable exists and runs. Answer and exit — deliberately
+// writing no inbox file and NOT calling launchApp(), because opening the browser
+// popup must not start Macget.
+if let object = (try? JSONSerialization.jsonObject(with: message)) as? [String: Any],
+   let kind = object["kind"] as? String, kind == "ping" {
+    writeAck(ok: true, extra: ["version": hostVersion])
+    exit(0)
 }
 
 let dir = inboxDirectory()

@@ -14,24 +14,38 @@
 <title>MacGet — Free Multi-threaded Download Manager for macOS</title>
 <meta name="description" content="MacGet is a free, open-source download manager for macOS with up to 16 parallel HTTP-Range threads, pause/resume, and a native SwiftUI interface.">
 <style>
+  /*
+   * Warm amber palette, mirroring the app (Macget/Views/Theme/Theme.swift).
+   * Unlike the Next.js site this page has a real light mode, so it uses each
+   * app token's light *and* dark variant.
+   *
+   * Amber is a high-luminance hue, which splits the old single `--accent` in
+   * three: white on amber is only 2.37:1, so anything sitting *on* the accent
+   * needs `--accent-contrast` (dark), and amber as link text is unreadable on a
+   * light background, so links use `--link` instead.
+   */
   :root {
-    --bg: #0b0d10;
-    --surface: #14181d;
-    --text: #e6ecf2;
-    --muted: #8a96a3;
-    --accent: #4f9cff;
-    --accent-hover: #6cadff;
-    --border: #232a32;
+    --bg: #191512;              /* app SurfaceWarm (dark) */
+    --surface: #221d19;         /* app SurfaceWarmElevated (dark) */
+    --text: #faf6f0;
+    --muted: #a2968a;
+    --accent: #f0a64e;          /* app BrandAmber (dark) */
+    --accent-hover: #f7c45e;    /* app BrandHoney (dark) */
+    --accent-contrast: #191512; /* text on --accent — 8.9:1 */
+    --link: #f0a64e;            /* on --bg — 8.9:1 */
+    --border: #332b25;          /* app SurfaceWarmStroke (dark) */
   }
   @media (prefers-color-scheme: light) {
     :root {
-      --bg: #f6f8fa;
-      --surface: #ffffff;
-      --text: #0d1117;
-      --muted: #57606a;
-      --accent: #0969da;
-      --accent-hover: #0a7bff;
-      --border: #d0d7de;
+      --bg: #faf6f0;              /* app SurfaceWarm (light) */
+      --surface: #ffffff;         /* app SurfaceWarmElevated (light) */
+      --text: #1f1a15;
+      --muted: #6b5f52;
+      --accent: #e8963c;          /* app BrandAmber (light) */
+      --accent-hover: #f2b544;    /* app BrandHoney (light) */
+      --accent-contrast: #1f1a15; /* text on --accent — 7.3:1 */
+      --link: #8a4a14;            /* amber is unreadable here — 6.4:1 */
+      --border: #e8dfd3;          /* app SurfaceWarmStroke (light) */
     }
   }
   * { box-sizing: border-box; }
@@ -53,7 +67,7 @@
   .tagline { font-size: 22px; color: var(--muted); margin: 0 0 32px; }
   .cta {
     display: inline-flex; align-items: center; gap: 8px;
-    background: var(--accent); color: white;
+    background: var(--accent); color: var(--accent-contrast);
     padding: 14px 28px; border-radius: 10px;
     text-decoration: none; font-weight: 600; font-size: 17px;
     transition: background 120ms;
@@ -83,7 +97,7 @@
     border-top: 1px solid var(--border);
     color: var(--muted); font-size: 14px;
   }
-  .footer a { color: var(--accent); text-decoration: none; }
+  .footer a { color: var(--link); text-decoration: none; }
   .footer a:hover { text-decoration: underline; }
   .disclaimer {
     margin-top: 16px; font-size: 12px; color: var(--muted);
@@ -99,7 +113,7 @@
     Download for macOS
   </a>
   <div class="meta">Requires macOS 26 Tahoe or later · Free forever · MIT licensed</div>
-  <div class="meta">Full site, documentation, and install guide: <a href="https://macget.suryansh.work/" style="color: var(--accent);">macget.suryansh.work</a></div>
+  <div class="meta">Full site, documentation, and install guide: <a href="https://macget.suryansh.work/" style="color: var(--link);">macget.suryansh.work</a></div>
 
   <ul class="features">
     <li><b>Multi-threaded</b><span>HTTP Range requests across up to 16 parallel connections per file.</span></li>

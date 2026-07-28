@@ -1,0 +1,67 @@
+---
+title: Book Catalogs
+description: Browse and search Project Gutenberg, the Internet Archive, and any OPDS feed from inside MacGet, then send a book straight to the download queue.
+---
+
+MacGet has a built-in book browser. Press **⇧⌘B** (or use the toolbar button)
+to search a catalog, pick a format, and drop the result into the same queue as
+every other download.
+
+Nothing special happens to the download itself — a book is an ordinary HTTPS
+file, so it goes through the same multi-threaded engine, resume, and checksum
+paths as anything else.
+
+## Built-in catalogs
+
+| Catalog | What's in it | Ready to use |
+| --- | --- | --- |
+| **Project Gutenberg** | ~75,000 public-domain books | Yes |
+| **Internet Archive** | Millions of scanned texts and collections | Yes |
+| **Standard Ebooks** | Carefully typeset public-domain editions | Needs a patron account |
+
+<Callout title="Why Standard Ebooks is off by default">
+Standard Ebooks gates every one of its OPDS feeds behind a
+[Patrons Circle](https://standardebooks.org/donate#patrons-circle) donation —
+an anonymous client gets a `401`. It ships switched off so a new install
+doesn't greet you with an authentication error. If you're a patron, turn it on
+in **Settings → Catalogs**.
+</Callout>
+
+## Adding your own catalog
+
+MacGet speaks **OPDS**, the open catalog standard, so it isn't limited to the
+built-ins. In **Settings → Catalogs**, paste any feed URL:
+
+- A **Calibre** server's OPDS endpoint (usually `http://<host>:8080/opds`)
+- A university or public library's OPDS catalog
+- Any other OPDS 1.2 (Atom) or OPDS 2.0 (JSON) feed
+
+Both wire formats are supported. Project Gutenberg has announced it is retiring
+its XML feeds in 2027, which is why the JSON path exists from the start.
+
+## Choosing a format
+
+Selecting a book shows every format it offers — EPUB, PDF, MOBI, plain text —
+ranked with EPUB first. MacGet names the file after the book rather than the
+catalog's own identifier, so you get `Moby Dick - Herman Melville.epub` instead
+of `2701.epub`.
+
+Some editions can't be downloaded, and the detail pane says which case applies:
+
+- **DRM-protected.** The link is an Adobe ADEPT or Readium LCP *license file*,
+  not the book. Fetching it would leave you with an unusable token, so MacGet
+  doesn't offer it.
+- **For sale.** Priced entries link out to the seller instead.
+- **Loan-only.** Borrowing happens on the library's own site.
+
+## Internet Archive items over BitTorrent
+
+Every archive.org item has a `.torrent` covering all of its files. On an
+Internet Archive result, **Whole item via torrent** fetches the lot in one go —
+much kinder to the Archive's servers than pulling files individually over HTTP.
+This needs [torrent support](/docs/torrents) switched on.
+
+## What MacGet doesn't do
+
+MacGet browses catalogs that publish an open feed. It does not index, search,
+or provide access to pirated books, and it has no shadow-library integration.

@@ -1,10 +1,13 @@
 <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MacGet app icon">
   <defs>
-    <!-- Vivid Mac-blue background gradient (top: bright sky → mid: system blue → bottom: deep cobalt) -->
+    <!-- Warm brand gradient (top: honey → mid: amber → bottom: deep umber).
+         Honey and amber are the app's BrandHoney/BrandAmber; umber has no app
+         equivalent — the UI never needs a dark end, but the icon does or the
+         squircle reads flat. -->
     <linearGradient id="bgGrad" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#5AC8FA"/>
-      <stop offset="0.5" stop-color="#0A84FF"/>
-      <stop offset="1" stop-color="#0033B0"/>
+      <stop offset="0" stop-color="#F7C45E"/>
+      <stop offset="0.5" stop-color="#E8963C"/>
+      <stop offset="1" stop-color="#8A4A14"/>
     </linearGradient>
 
     <!-- Soft top gloss for the macOS Tahoe glass feel -->
@@ -16,14 +19,14 @@
 
     <!-- Subtle bottom inner glow (gives the dome/spherical depth Apple icons have) -->
     <radialGradient id="bottomGlow" cx="512" cy="1100" r="600" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#001F7A" stop-opacity="0.45"/>
-      <stop offset="1" stop-color="#001F7A" stop-opacity="0"/>
+      <stop offset="0" stop-color="#5C2E08" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#5C2E08" stop-opacity="0"/>
     </radialGradient>
 
-    <!-- White elements: pure white at top, hint of blue at bottom (echoes the bg) -->
+    <!-- White elements: pure white at top, hint of warm at bottom (echoes the bg) -->
     <linearGradient id="whiteGrad" x1="512" y1="220" x2="512" y2="860" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#D8E8FF"/>
+      <stop offset="1" stop-color="#FFF0DC"/>
     </linearGradient>
 
     <!-- Soft drop shadow under the arrow -->

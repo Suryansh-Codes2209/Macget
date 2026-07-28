@@ -146,6 +146,40 @@ engine:
 
 ---
 
+## BitTorrent
+
+`Macget/Engine/Torrent/` adds the third `DownloadKind`, layered the same way
+media is:
+
+- `TorrentToolLocator` / `TorrentToolInstaller` find or install `aria2c`.
+  Unlike `yt-dlp`/`ffmpeg`, aria2 is **not** bundled — it links against
+  `openssl@3`, `libssh2`, `c-ares`, `sqlite`, and `gettext`, so vendoring it
+  would mean re-pathing and notarizing five dylibs. It's installed via Homebrew
+  on demand instead, which also means MacGet never redistributes GPL software.
+- `Aria2Daemon` owns a single `aria2c` process shared by every torrent: lazy
+  start, RPC on **loopback only** with an ephemeral port and a fresh 256-bit
+  secret per launch, and a clean `aria2.shutdown` on app termination.
+- `Aria2RPCClient` speaks JSON-RPC (`addUri`, `addTorrent`, `tellStatus`,
+  `pause`/`unpause`/`forceRemove`, `changeGlobalOption`). Every numeric field on
+  the wire is a decimal *string*.
+- `TorrentJob` is the structural twin of `MediaExtractionJob`, reporting through
+  the same `onStateChange`/`onSnapshot` callbacks so the list renders torrent
+  rows unchanged.
+
+Two invariants worth knowing before touching this code:
+
+- **MacGet owns the queue, not aria2.** `--save-session`/`--input-file` are
+  deliberately unused: `queue.json` is the source of truth and MacGet re-adds
+  torrents itself, so letting aria2 restore its own session registers each info
+  hash twice and aria2 rejects the duplicate. Resume comes from `--continue`
+  plus the `.aria2` control file.
+- **A magnet has a metadata phase.** Its first GID downloads only the metainfo
+  and reaches `complete` with `completedLength == totalLength` — identical in
+  shape to a finished download. `TorrentJob.isAwaitingMetadata` suppresses
+  progress and completion until `followedBy` hands off to the real GID.
+
+---
+
 ## Browser capture
 
 `BrowserExtension/` (Chromium + Firefox) and `MacgetCaptureHost/` implement

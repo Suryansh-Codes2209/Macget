@@ -5,26 +5,41 @@
 /* Tailwind must scan fumadocs' prebuilt components for utility classes. */
 @source "../node_modules/fumadocs-ui/dist/**/*.js";
 
+/*
+ * The site is the app's dark mode.
+ *
+ * Every token below maps to a real token in `Macget/Views/Theme/Theme.swift`
+ * (via Assets.xcassets) wherever one exists — the site uses the *dark* variant
+ * of each, since it has no light mode. Values are only invented where the app
+ * has no equivalent: it never needs a deep gradient end (`brand-umber`) or a
+ * page-level backdrop below its window chrome (`abyss`).
+ *
+ * Keep this in sync with Theme.swift. If a color changes there, change it here.
+ */
 @theme {
-  /* Surfaces */
-  --color-midnight: #0a0d18;
-  --color-abyss: #060812;
-  --color-surface: #11162a;
-  --color-surface-2: #161c34;
+  /* Surfaces — warm neutrals, not the old cool midnight */
+  --color-ink: #191512;        /* app SurfaceWarm (dark) */
+  --color-abyss: #100d0b;      /* invented — OG card, inset wells */
+  --color-surface: #221d19;    /* app SurfaceWarmElevated (dark) */
+  --color-surface-2: #2c2621;  /* invented — one step above surface */
 
-  /* Brand gradient (mirrors app icon) */
-  --color-brand-sky: #5ac8fa;
-  --color-brand-blue: #0a84ff;
-  --color-brand-cobalt: #0033b0;
+  /* Brand gradient (mirrors app icon: honey → amber → umber) */
+  --color-brand-honey: #f7c45e;  /* app BrandHoney (dark) */
+  --color-brand-amber: #f0a64e;  /* app BrandAmber (dark) — primary */
+  --color-brand-umber: #8a4a14;  /* invented — deep gradient end only */
 
   /* Text */
-  --color-frost: #f5f8ff;
-  --color-frost-dim: #d8e8ff;
-  --color-mute: #8a95b8;
-  --color-line: rgba(216, 232, 255, 0.1);
+  --color-cream: #faf6f0;      /* app SurfaceWarm (light), inverted into text */
+  --color-cream-dim: #ede3d4;
+  --color-mute: #a2968a;       /* warm grey — 6.3:1 on ink */
+  --color-line: rgba(232, 223, 211, 0.1);  /* app SurfaceWarmStroke */
 
   /* Status */
-  --color-success: #34d399;
+  --color-success: #5fb06d;    /* app StatusSuccess (dark) */
+  /* The one deliberately cool token, for the same reason Theme.swift keeps it:
+     a seeding torrent moves bytes *out*, and warming it would blur it into the
+     download states. This is the only blue left on the site. */
+  --color-seeding: #57a8c0;    /* app StatusSeeding (dark) */
 
   /* Radii */
   --radius-pill: 9999px;
@@ -49,41 +64,43 @@
  */
 :root,
 .dark {
-  --color-fd-background: var(--color-midnight);
-  --color-fd-foreground: var(--color-frost);
+  --color-fd-background: var(--color-ink);
+  --color-fd-foreground: var(--color-cream);
   --color-fd-muted: var(--color-surface);
   --color-fd-muted-foreground: var(--color-mute);
   --color-fd-popover: var(--color-surface);
-  --color-fd-popover-foreground: var(--color-frost);
+  --color-fd-popover-foreground: var(--color-cream);
   --color-fd-card: var(--color-surface);
-  --color-fd-card-foreground: var(--color-frost);
+  --color-fd-card-foreground: var(--color-cream);
   --color-fd-border: var(--color-line);
-  --color-fd-primary: var(--color-brand-sky);
+  --color-fd-primary: var(--color-brand-amber);
   --color-fd-primary-foreground: var(--color-abyss);
   --color-fd-secondary: var(--color-surface-2);
-  --color-fd-secondary-foreground: var(--color-frost);
+  --color-fd-secondary-foreground: var(--color-cream);
   --color-fd-accent: var(--color-surface-2);
-  --color-fd-accent-foreground: var(--color-frost);
-  --color-fd-ring: var(--color-brand-blue);
+  --color-fd-accent-foreground: var(--color-cream);
+  --color-fd-ring: var(--color-brand-amber);
 }
 
 @layer base {
   html,
   body {
-    background: var(--color-midnight);
-    color: var(--color-frost);
+    background: var(--color-ink);
+    color: var(--color-cream);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
 
+  /* Amber is far lighter than the old blue, so a 50% wash would leave the
+     cream text under it unreadable. 32% keeps the selection legible. */
   ::selection {
-    background: color-mix(in oklch, var(--color-brand-blue) 50%, transparent);
-    color: var(--color-frost);
+    background: color-mix(in oklch, var(--color-brand-amber) 32%, transparent);
+    color: var(--color-cream);
   }
 
   *:focus-visible {
-    outline: 2px solid var(--color-brand-sky);
+    outline: 2px solid var(--color-brand-amber);
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -101,16 +118,30 @@
   .bg-brand-gradient {
     background-image: linear-gradient(
       180deg,
-      var(--color-brand-sky) 0%,
-      var(--color-brand-blue) 50%,
-      var(--color-brand-cobalt) 100%
+      var(--color-brand-honey) 0%,
+      var(--color-brand-amber) 50%,
+      var(--color-brand-umber) 100%
     );
   }
 
+  /* The app's progress fill (Theme.progressGradient): amber → honey, left to
+     right. Anything depicting bytes in motion should use this, so the site and
+     the app show literally the same thing. */
+  .bg-progress-gradient {
+    background-image: linear-gradient(
+      90deg,
+      var(--color-brand-amber) 0%,
+      var(--color-brand-honey) 100%
+    );
+  }
+
+  /* Amber carries far more luminance than the old blue at equal alpha, so the
+     0.18 that read as a soft haze now blows out. 0.12 restores the original
+     visual weight. */
   .bg-radial-glow {
     background: radial-gradient(
       circle at 50% 0%,
-      rgba(10, 132, 255, 0.18),
+      rgba(240, 166, 78, 0.12),
       transparent 60%
     );
   }

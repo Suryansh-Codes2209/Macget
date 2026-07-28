@@ -41,7 +41,7 @@ export function HowItWorks() {
           <motion.div
             aria-hidden
             style={{ height: lineHeight }}
-            className="absolute left-6 top-2 w-px bg-gradient-to-b from-brand-sky via-brand-blue to-brand-cobalt sm:left-7"
+            className="absolute left-6 top-2 w-px bg-gradient-to-b from-brand-honey via-brand-amber to-brand-umber sm:left-7"
           />
 
           <ol className="space-y-12">
@@ -88,7 +88,7 @@ function PipelineStep({
   const dotBg = useTransform(
     progress,
     [activatesAt, fillsAt],
-    ["rgba(216,232,255,0.06)", "rgba(10,132,255,1)"],
+    ["rgba(232,223,211,0.06)", "rgba(240,166,78,1)"],
   );
   const checkOpacity = useTransform(progress, [fillsAt - 0.05, fillsAt], [0, 1]);
 
@@ -99,23 +99,23 @@ function PipelineStep({
     >
       <motion.div
         style={{ scale: dotScale, backgroundColor: dotBg }}
-        className="relative z-10 flex size-12 shrink-0 items-center justify-center rounded-full border border-line shadow-[0_8px_24px_rgba(10,132,255,0.25)]"
+        className="relative z-10 flex size-12 shrink-0 items-center justify-center rounded-full border border-line shadow-[0_8px_24px_rgba(240,166,78,0.25)]"
       >
-        <span className="absolute font-mono text-xs font-semibold text-frost">
+        <span className="absolute font-mono text-xs font-semibold text-cream">
           {String(index).padStart(2, "0")}
         </span>
         <motion.span
           style={{ opacity: checkOpacity }}
-          className="absolute inset-0 flex items-center justify-center rounded-full bg-brand-blue text-frost"
+          className="absolute inset-0 flex items-center justify-center rounded-full bg-brand-amber text-cream"
         >
           <Check className="size-5" strokeWidth={3} />
         </motion.span>
       </motion.div>
       <div className="flex-1 pt-1">
-        <h3 className="text-xl font-semibold tracking-tight text-frost">
+        <h3 className="text-xl font-semibold tracking-tight text-cream">
           {step}
         </h3>
-        <p className="mt-2 max-w-xl text-sm leading-relaxed text-frost-dim sm:text-base">
+        <p className="mt-2 max-w-xl text-sm leading-relaxed text-cream-dim sm:text-base">
           {detail}
         </p>
       </div>

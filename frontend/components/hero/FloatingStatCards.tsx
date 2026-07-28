@@ -122,18 +122,18 @@ function FloatingCard({
       className={`pointer-events-auto absolute ${card.position} z-10`}
     >
       <GlassCard className="flex items-center gap-3 px-4 py-3">
-        <div className="flex size-8 items-center justify-center rounded-full bg-white/10 text-frost-dim">
+        <div className="flex size-8 items-center justify-center rounded-full bg-white/10 text-cream-dim">
           {card.icon}
         </div>
         <div>
           <div className="text-[10px] font-medium uppercase tracking-[0.16em] text-mute">
             {card.eyebrow}
           </div>
-          <div className="text-sm font-semibold leading-tight text-frost">
+          <div className="text-sm font-semibold leading-tight text-cream">
             {card.title}
           </div>
           {card.meta && (
-            <div className="font-mono text-[10px] text-frost-dim">{card.meta}</div>
+            <div className="font-mono text-[10px] text-cream-dim">{card.meta}</div>
           )}
         </div>
       </GlassCard>

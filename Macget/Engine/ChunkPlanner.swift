@@ -5,9 +5,21 @@ enum ChunkPlanner {
     static let minimumChunkBytes: Int64 = 64 * 1024
 
     /// Upper bound on piece count when slicing into smaller-than-a-worker pieces
-    /// for work-stealing. Keeps `queue.json` small (the store rewrites the whole
-    /// file) and orchestration cheap.
-    static let maxPieces = 64
+    /// for work-stealing.
+    ///
+    /// The cap is what decides how coarse a *large* file gets: below ~2 GB the
+    /// 8 MB target lands under it and piece size is constant, above that the cap
+    /// binds and piece size grows as `total / maxPieces`. At 64 a 40 GB download
+    /// was 64 × 640 MB — with only ~8 workers there was almost nothing left to
+    /// steal, and the final piece could be 640 MB of tail. 256 brings the same
+    /// file to 256 × 160 MB.
+    ///
+    /// The ceiling exists because `DownloadStore` rewrites the whole queue file
+    /// on every save: 256 chunks is ~33 KB of JSON per in-flight download, which
+    /// a debounced 500 ms write absorbs comfortably. Completed downloads collapse
+    /// to one summary chunk (see `DownloadCoordinator.complete`) so the file
+    /// doesn't accumulate this per finished item.
+    static let maxPieces = 256
 
     /// Default target piece size when work-stealing is enabled. Finer than one
     /// piece-per-worker so a fast worker can pick up the next outstanding piece

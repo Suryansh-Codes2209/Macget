@@ -72,6 +72,12 @@ export function softwareApplicationSchema(): Schema {
     downloadUrl: siteConfig.downloadUrl,
     license: siteConfig.licenseUrl,
     isAccessibleForFree: true,
+    /* Confirms to search engines that the off-site profiles are the same product. */
+    sameAs: [
+      siteConfig.repoUrl,
+      siteConfig.linkedinUrl,
+      siteConfig.chromeWebStoreUrl,
+    ],
     offers: {
       "@type": "Offer",
       price: "0",

@@ -22,7 +22,13 @@ export function Features() {
           lede="One shared URLSession, an engine that learns each host's limits, and no background daemons, kernel extensions, or telemetry anywhere."
         />
 
-        <MotionInView className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {/* One column on a phone makes this grid several viewports tall, so the
+            default 30%-visible trigger never fires and every card stays at its
+            hidden opacity — the section renders blank. */}
+        <MotionInView
+          amount={0.05}
+          className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-3"
+        >
           {siteConfig.features.map((feature) => (
             <FeatureCard
               key={feature.title}

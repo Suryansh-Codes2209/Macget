@@ -127,7 +127,7 @@ export default function InstallPage() {
           show:
         </p>
 
-        <blockquote className="rounded-card border border-line bg-surface/60 p-5 text-sm text-frost">
+        <blockquote className="rounded-card border border-line bg-surface/60 p-5 text-sm text-cream">
           &ldquo;{siteConfig.binary}&rdquo; can&apos;t be opened because Apple
           cannot check it for malicious software.
         </blockquote>

@@ -7,6 +7,24 @@ enum URLSessionFactory {
     /// `httpMaximumConnectionsPerHost`.
     nonisolated static let shared: URLSession = makeSession()
 
+    /// Session for short, interactive metadata requests — OPDS catalog feeds and
+    /// the like.
+    ///
+    /// Deliberately *not* `shared`: that session sets `waitsForConnectivity = true`
+    /// and `timeoutIntervalForResource = .infinity`, which is correct for a
+    /// multi-gigabyte download and wrong for anything a spinner is waiting on. A
+    /// dead catalog URL must surface an error in seconds, not hang the browser.
+    nonisolated static let metadata: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.waitsForConnectivity = false
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.urlCache = nil
+        config.httpAdditionalHeaders = ["User-Agent": userAgent]
+        return URLSession(configuration: config)
+    }()
+
     /// Builds a configured session. The engine rebuilds one of these when the
     /// proxy or request-timeout setting changes.
     nonisolated static func makeSession(

@@ -42,6 +42,19 @@ struct AppSettings: Codable, Equatable, Sendable {
     /// (Movies / Music / Pictures / Archives / Documents / Code / Apps) of the
     /// destination. Uncategorized files stay in the destination root.
     var autoSortByType: Bool
+    /// Master switch for BitTorrent. Off by default — enabling it also uploads,
+    /// opens a listening port, and needs aria2 installed, so it's an explicit
+    /// opt-in behind an acknowledgement (same posture as `mediaExtractionEnabled`).
+    var torrentsEnabled: Bool
+    /// Seed until this share ratio is reached. 0 means "don't seed after完成".
+    var torrentSeedRatio: Double
+    /// …or until this many minutes have elapsed, whichever comes first.
+    var torrentSeedMinutes: Int
+    /// Per-process upload cap in bytes/sec. nil (or ≤ 0) means unlimited.
+    var torrentMaxUploadBytesPerSec: Int?
+    /// TCP/UDP port aria2 listens on for peers. Clamped 1024...65535.
+    var torrentListenPort: Int
+    var torrentDHTEnabled: Bool
 
     init(
         defaultDestination: URL = AppSettings.systemDownloadsFolder(),
@@ -65,7 +78,13 @@ struct AppSettings: Codable, Equatable, Sendable {
         scheduleEnabled: Bool = false,
         scheduleStartMinutes: Int = 0,
         scheduleEndMinutes: Int = 0,
-        autoSortByType: Bool = false
+        autoSortByType: Bool = false,
+        torrentsEnabled: Bool = false,
+        torrentSeedRatio: Double = 1.0,
+        torrentSeedMinutes: Int = 60,
+        torrentMaxUploadBytesPerSec: Int? = nil,
+        torrentListenPort: Int = 6881,
+        torrentDHTEnabled: Bool = true
     ) {
         self.defaultDestination = defaultDestination
         self.defaultThreadCount = max(1, min(Download.maxThreadCount, defaultThreadCount))
@@ -90,6 +109,20 @@ struct AppSettings: Codable, Equatable, Sendable {
         self.scheduleStartMinutes = max(0, min(1439, scheduleStartMinutes))
         self.scheduleEndMinutes = max(0, min(1439, scheduleEndMinutes))
         self.autoSortByType = autoSortByType
+        self.torrentsEnabled = torrentsEnabled
+        // 0 is meaningful (stop seeding at completion); anything above 10 is a
+        // typo more often than an intent.
+        self.torrentSeedRatio = max(0, min(10, torrentSeedRatio))
+        self.torrentSeedMinutes = max(0, min(10_080, torrentSeedMinutes))   // ≤ 1 week
+        self.torrentMaxUploadBytesPerSec = torrentMaxUploadBytesPerSec.flatMap { $0 > 0 ? $0 : nil }
+        // Below 1024 needs root to bind.
+        self.torrentListenPort = (1024...65535).contains(torrentListenPort) ? torrentListenPort : 6881
+        self.torrentDHTEnabled = torrentDHTEnabled
+    }
+
+    /// The torrent settings as a value object handed to the aria2 daemon.
+    var torrentOptions: TorrentEngineOptions {
+        TorrentEngineOptions(settings: self)
     }
 
     /// The media extras as a value object handed to the extractor.
@@ -130,6 +163,13 @@ struct AppSettings: Codable, Equatable, Sendable {
         scheduleStartMinutes = max(0, min(1439, try c.decodeIfPresent(Int.self, forKey: .scheduleStartMinutes) ?? defaults.scheduleStartMinutes))
         scheduleEndMinutes = max(0, min(1439, try c.decodeIfPresent(Int.self, forKey: .scheduleEndMinutes) ?? defaults.scheduleEndMinutes))
         autoSortByType = try c.decodeIfPresent(Bool.self, forKey: .autoSortByType) ?? defaults.autoSortByType
+        torrentsEnabled = try c.decodeIfPresent(Bool.self, forKey: .torrentsEnabled) ?? defaults.torrentsEnabled
+        torrentSeedRatio = max(0, min(10, try c.decodeIfPresent(Double.self, forKey: .torrentSeedRatio) ?? defaults.torrentSeedRatio))
+        torrentSeedMinutes = max(0, min(10_080, try c.decodeIfPresent(Int.self, forKey: .torrentSeedMinutes) ?? defaults.torrentSeedMinutes))
+        torrentMaxUploadBytesPerSec = (try c.decodeIfPresent(Int.self, forKey: .torrentMaxUploadBytesPerSec)).flatMap { $0 > 0 ? $0 : nil }
+        let port = try c.decodeIfPresent(Int.self, forKey: .torrentListenPort) ?? defaults.torrentListenPort
+        torrentListenPort = (1024...65535).contains(port) ? port : defaults.torrentListenPort
+        torrentDHTEnabled = try c.decodeIfPresent(Bool.self, forKey: .torrentDHTEnabled) ?? defaults.torrentDHTEnabled
     }
 
     static func systemDownloadsFolder() -> URL {

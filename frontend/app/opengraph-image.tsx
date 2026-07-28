@@ -22,9 +22,9 @@ export default function OpengraphImage() {
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
-          background: "#060812",
+          background: "#100d0b",
           backgroundImage:
-            "radial-gradient(circle at 50% 0%, rgba(10,132,255,0.35), transparent 60%)",
+            "radial-gradient(circle at 50% 0%, rgba(240,166,78,0.22), transparent 60%)",
           padding: 72,
           fontFamily: "system-ui, -apple-system, sans-serif",
         }}
@@ -37,18 +37,18 @@ export default function OpengraphImage() {
               height: 64,
               borderRadius: 16,
               background:
-                "linear-gradient(180deg, #5ac8fa 0%, #0a84ff 50%, #0033b0 100%)",
+                "linear-gradient(180deg, #f7c45e 0%, #e8963c 50%, #8a4a14 100%)",
             }}
           />
-          <div style={{ display: "flex", color: "#f5f8ff", fontSize: 40, fontWeight: 600 }}>
+          <div style={{ display: "flex", color: "#faf6f0", fontSize: 40, fontWeight: 600 }}>
             {siteConfig.name}
           </div>
           <div
             style={{
               display: "flex",
-              color: "#8a95b8",
+              color: "#a2968a",
               fontSize: 24,
-              border: "1px solid rgba(216,232,255,0.18)",
+              border: "1px solid rgba(232,223,211,0.18)",
               borderRadius: 999,
               padding: "6px 18px",
             }}
@@ -61,7 +61,7 @@ export default function OpengraphImage() {
           <div
             style={{
               display: "flex",
-              color: "#f5f8ff",
+              color: "#faf6f0",
               fontSize: 84,
               fontWeight: 600,
               letterSpacing: -2,
@@ -73,7 +73,7 @@ export default function OpengraphImage() {
           <div
             style={{
               display: "flex",
-              color: "#d8e8ff",
+              color: "#ede3d4",
               fontSize: 32,
               lineHeight: 1.4,
               maxWidth: 900,
@@ -83,7 +83,7 @@ export default function OpengraphImage() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 28, color: "#8a95b8", fontSize: 24 }}>
+        <div style={{ display: "flex", gap: 28, color: "#a2968a", fontSize: 24 }}>
           {["16 parallel chunks", "Zero telemetry", "MIT licensed", `${siteConfig.minOS}+`].map(
             (item) => (
               <div key={item} style={{ display: "flex" }}>

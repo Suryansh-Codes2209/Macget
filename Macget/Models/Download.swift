@@ -40,6 +40,18 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
     var checksumAlgorithm: ChecksumAlgorithm?
     /// Queue priority — higher-priority downloads are scheduled first.
     var priority: DownloadPriority
+    /// For `.torrent`: lowercase hex info hash, known up-front for magnets and
+    /// after metadata for `.torrent` files.
+    var torrentInfoHash: String?
+    /// For `.torrent`: the file list, once aria2 has resolved metadata. Drives the
+    /// selection sheet and `--select-file`.
+    var torrentFiles: [TorrentFileEntry]?
+    /// For `.torrent`: bytes uploaded, so the row can show a share ratio.
+    var uploadedBytes: Int64?
+    /// For `.torrent`: base64 of the original `.torrent` file, so a resume after
+    /// relaunch can re-add it without the user re-picking the file. Magnets don't
+    /// need this — their URI is already in `url`.
+    var torrentFileData: Data?
 
     init(
         id: UUID = UUID(),
@@ -63,7 +75,11 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         formatSelector: String? = nil,
         expectedChecksum: String? = nil,
         checksumAlgorithm: ChecksumAlgorithm? = nil,
-        priority: DownloadPriority = .normal
+        priority: DownloadPriority = .normal,
+        torrentInfoHash: String? = nil,
+        torrentFiles: [TorrentFileEntry]? = nil,
+        uploadedBytes: Int64? = nil,
+        torrentFileData: Data? = nil
     ) {
         self.id = id
         self.url = url
@@ -87,6 +103,10 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         self.expectedChecksum = expectedChecksum
         self.checksumAlgorithm = checksumAlgorithm
         self.priority = priority
+        self.torrentInfoHash = torrentInfoHash
+        self.torrentFiles = torrentFiles
+        self.uploadedBytes = uploadedBytes
+        self.torrentFileData = torrentFileData
     }
 
     // Explicit Codable so new fields can be added with `decodeIfPresent`
@@ -100,6 +120,7 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         case kind, pageURL, formatSelector
         case expectedChecksum, checksumAlgorithm
         case priority
+        case torrentInfoHash, torrentFiles, uploadedBytes, torrentFileData
     }
 
     init(from decoder: Decoder) throws {
@@ -126,6 +147,10 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         expectedChecksum = try c.decodeIfPresent(String.self, forKey: .expectedChecksum)
         checksumAlgorithm = try c.decodeIfPresent(ChecksumAlgorithm.self, forKey: .checksumAlgorithm)
         priority = try c.decodeIfPresent(DownloadPriority.self, forKey: .priority) ?? .normal
+        torrentInfoHash = try c.decodeIfPresent(String.self, forKey: .torrentInfoHash)
+        torrentFiles = try c.decodeIfPresent([TorrentFileEntry].self, forKey: .torrentFiles)
+        uploadedBytes = try c.decodeIfPresent(Int64.self, forKey: .uploadedBytes)
+        torrentFileData = try c.decodeIfPresent(Data.self, forKey: .torrentFileData)
     }
 
     // Custom encode so secret-bearing headers (Cookie/Authorization) are redacted
@@ -154,6 +179,10 @@ struct Download: Identifiable, Codable, Sendable, Equatable {
         try c.encodeIfPresent(expectedChecksum, forKey: .expectedChecksum)
         try c.encodeIfPresent(checksumAlgorithm, forKey: .checksumAlgorithm)
         try c.encode(priority, forKey: .priority)
+        try c.encodeIfPresent(torrentInfoHash, forKey: .torrentInfoHash)
+        try c.encodeIfPresent(torrentFiles, forKey: .torrentFiles)
+        try c.encodeIfPresent(uploadedBytes, forKey: .uploadedBytes)
+        try c.encodeIfPresent(torrentFileData, forKey: .torrentFileData)
     }
 
     var bytesDownloaded: Int64 {

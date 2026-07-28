@@ -18,7 +18,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               height={24}
               className="size-6 rounded-md"
             />
-            <span className="font-semibold text-frost">{siteConfig.name}</span>
+            <span className="font-semibold text-cream">{siteConfig.name}</span>
             <span className="rounded-pill border border-line px-2 py-0.5 font-mono text-[10px] text-mute">
               v{siteConfig.version}
             </span>

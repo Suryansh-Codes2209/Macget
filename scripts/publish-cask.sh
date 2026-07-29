@@ -53,18 +53,33 @@ fi
 echo "==> Cask declares version $VERSION, sha256 $CASK_SHA"
 
 echo "==> Checking release v$VERSION for a '$ASSET_NAME' asset…"
-if ! gh api "repos/$REPO/releases/tags/v$VERSION" >/dev/null 2>&1; then
-  echo "ERROR: no GitHub Release tagged v$VERSION."
-  echo "       Create it and upload $ROOT/dist/Macget-$VERSION.dmg as '$ASSET_NAME' first."
+# --cache makes the three lookups below (existence check, digest, and the
+# asset listing in the error path) a single network round-trip: gh caches
+# the raw response locally on the first call and replays it from the cache
+# file for the identical requests that follow.
+RELEASE_ARGS=(api --cache 60s "repos/$REPO/releases/tags/v$VERSION")
+
+if ! RELEASE_ERR="$(gh "${RELEASE_ARGS[@]}" 2>&1 >/dev/null)"; then
+  echo "ERROR: no GitHub Release tagged v$VERSION (or the GitHub API request failed):"
+  echo "       $RELEASE_ERR"
+  echo "       Create the release and upload $ROOT/dist/Macget-$VERSION.dmg as '$ASSET_NAME' first."
   exit 1
 fi
 
-ASSET_DIGEST="$(gh api "repos/$REPO/releases/tags/v$VERSION" \
-  --jq ".assets[] | select(.name == \"$ASSET_NAME\") | .digest" 2>/dev/null || true)"
+if ! ASSET_DIGEST="$(gh "${RELEASE_ARGS[@]}" \
+  --jq ".assets[] | select(.name == \"$ASSET_NAME\") | .digest" 2>&1)"; then
+  echo "ERROR: the GitHub API request for release v$VERSION's assets failed:"
+  echo "$ASSET_DIGEST" | sed 's/^/       /'
+  exit 1
+fi
 
 if [[ -z "$ASSET_DIGEST" ]]; then
   echo "ERROR: release v$VERSION has no asset named '$ASSET_NAME'. Found:"
-  gh api "repos/$REPO/releases/tags/v$VERSION" --jq '.assets[] | "   - " + .name'
+  if ! ASSET_LIST="$(gh "${RELEASE_ARGS[@]}" --jq '.assets[] | "   - " + .name' 2>&1)"; then
+    echo "       (could not list the release's assets: $ASSET_LIST)"
+  else
+    echo "$ASSET_LIST"
+  fi
   echo "       The Sparkle appcast depends on that exact name — rename the asset."
   exit 1
 fi
@@ -80,7 +95,7 @@ fi
 echo "==> Digest matches the uploaded asset."
 
 if [[ ! -d "$TAP_DIR/.git" ]]; then
-  echo "==> Tap checkout not found; cloning to $TAP_DIR…"
+  echo "==> Tap checkout not found; cloning to ${TAP_DIR}…"
   git clone "https://github.com/$TAP_REPO.git" "$TAP_DIR"
 fi
 
@@ -93,16 +108,42 @@ git -C "$TAP_DIR" pull --ff-only
 
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "==> Dry run — diff against the tap's current cask:"
-  diff -u "$TAP_DIR/Casks/macget.rb" "$CASK_SRC" || true
+  # diff exits 1 for "differences found" (expected here) and 2 for "trouble"
+  # (e.g. the tap's cask is missing). Only swallow 1 — let 2 abort the script
+  # instead of being misreported as a clean, empty diff.
+  #
+  # Deliberately `[ ]`, not `[[ ]]`: on this machine's bash 3.2, `false || [[ ... ]]`
+  # does not trip `set -e` even when the `[[ ]]` fails — confirmed by repeated
+  # runs of `bash -euo pipefail -c 'false || [[ 1 -eq 2 ]]; echo leaked'`, which
+  # prints "leaked" and exits 0. The POSIX `[ ]` form does not have this bug.
+  diff -u "$TAP_DIR/Casks/macget.rb" "$CASK_SRC" || [ "$?" -eq 1 ]
   echo "==> Dry run complete. Nothing was changed."
   exit 0
 fi
 
 cp "$CASK_SRC" "$TAP_DIR/Casks/macget.rb"
-if [[ -z "$(git -C "$TAP_DIR" status --porcelain)" ]]; then
-  echo "==> Tap is already at $VERSION. Nothing to do."
-  exit 0
-fi
+
+# git diff --quiet: 0 = no differences, 1 = differences found, anything else
+# is a git failure we must not mistake for "nothing changed" — the cp above
+# already landed on disk, so silently reporting success here would be a false
+# positive.
+set +e
+git -C "$TAP_DIR" diff --quiet -- Casks/macget.rb
+DIFF_STATUS=$?
+set -e
+case "$DIFF_STATUS" in
+  0)
+    echo "==> Tap is already at $VERSION. Nothing to do."
+    exit 0
+    ;;
+  1)
+    ;;
+  *)
+    echo "ERROR: 'git diff' against $TAP_DIR failed (exit $DIFF_STATUS)."
+    echo "       Refusing to guess whether Casks/macget.rb actually changed."
+    exit 1
+    ;;
+esac
 
 git -C "$TAP_DIR" add Casks/macget.rb
 git -C "$TAP_DIR" commit -m "Update macget to $VERSION"

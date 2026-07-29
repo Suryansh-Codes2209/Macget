@@ -185,9 +185,11 @@ echo
 # `publish-cask.sh` uses a distinct exit code (2) for "no release yet" — the
 # expected state right after this script runs — versus 1 for an actual publish
 # failure (checksum mismatch, dirty tap, etc.), which needs different advice.
-# Capture the exit code without tripping `set -e`: the `if` itself already
-# suppresses that for the command it guards, but we still want the code, not
-# just pass/fail, so call it inside the condition and inspect $? right after.
+# `|| PUBLISH_STATUS=$?` is what lets us keep going: under `set -e`, letting
+# the command fail on its own would abort the script right here, before we
+# get a chance to branch on which failure it was. Assigning inside the `||`
+# only runs when the command fails, and reading `$?` at that point still
+# reports its real exit code, not the assignment's.
 PUBLISH_STATUS=0
 ./scripts/publish-cask.sh || PUBLISH_STATUS=$?
 if [[ "$PUBLISH_STATUS" == "0" ]]; then

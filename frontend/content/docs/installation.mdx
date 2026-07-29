@@ -3,12 +3,21 @@ title: Installation
 description: Download and install MacGet on macOS Tahoe 26.4 or later, from a release DMG or from source.
 ---
 
-MacGet requires **macOS Tahoe 26.4 or later**. It ships as a universal binary,
-so it runs natively on both Apple Silicon and Intel Macs.
+MacGet requires **macOS Tahoe 26.4 or later**, running on Apple silicon
+(arm64) only — there is no Intel build.
+
+## Homebrew
+
+```bash
+brew install --cask suryansh-codes2209/macget/macget
+```
+
+This needs no Gatekeeper step: the cask removes the quarantine attribute
+after installing, so MacGet opens right away.
 
 ## From a release DMG
 
-1. Download `Macget.dmg` from the
+1. Download `macget.dmg` from the
    [releases page](https://github.com/Suryansh-Codes2209/Macget/releases/latest).
 2. Open the DMG.
 3. Drag **Macget** into your **Applications** folder.

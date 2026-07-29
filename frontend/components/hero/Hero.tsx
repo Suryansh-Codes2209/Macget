@@ -86,7 +86,7 @@ export function Hero() {
           >
             <span>Free · MIT licensed</span>
             <span className="hidden h-1 w-1 rounded-full bg-mute/60 sm:inline-block" />
-            <span>Universal binary · Apple Silicon native</span>
+            <span>Apple silicon native</span>
             <span className="hidden h-1 w-1 rounded-full bg-mute/60 sm:inline-block" />
             <span>Zero telemetry</span>
           </motion.div>

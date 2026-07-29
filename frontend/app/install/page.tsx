@@ -120,7 +120,7 @@ export default function InstallPage() {
 
         <ol>
           <li>
-            Download <code>{siteConfig.binary}.dmg</code> from the releases
+            Download <code>macget.dmg</code> from the releases
             page.
           </li>
           <li>Open the DMG.</li>

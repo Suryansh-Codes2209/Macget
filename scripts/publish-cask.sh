@@ -127,9 +127,21 @@ if [[ "$DRY_RUN" == "1" ]]; then
   git -C "$TAP_DIR" fetch origin
   TAP_DEFAULT_REF="$(git -C "$TAP_DIR" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo "origin/main")"
   echo "==> Dry run — diff against ${TAP_DEFAULT_REF}'s current cask:"
-  # diff exits 1 for "differences found" (expected here) and 2 for "trouble"
-  # (e.g. the tap's cask is missing). Only swallow 1 — let 2 abort the script
-  # instead of being misreported as a clean, empty diff.
+  # The left side of the diff below is a process substitution, not a plain
+  # path: if `git show` fails (e.g. the tap's cask is missing at that ref),
+  # `diff` just sees an empty FIFO and happily reports "different" (exit 1),
+  # not "trouble". So check the file actually exists in the ref first, with
+  # an explicit, actionable error, instead of leaning on diff's exit code to
+  # catch that case.
+  if ! git -C "$TAP_DIR" cat-file -e "${TAP_DEFAULT_REF}:Casks/macget.rb"; then
+    echo "ERROR: ${TAP_DEFAULT_REF}:Casks/macget.rb does not exist in the tap."
+    echo "       Nothing to diff against — the tap checkout may be stale or corrupt."
+    exit 1
+  fi
+  # diff itself now only ever exits 0 (identical) or 1 (differences found,
+  # expected here) for two ordinary readable inputs; only swallow 1 — let
+  # anything else abort the script instead of being misreported as a clean,
+  # empty diff.
   #
   # Deliberately `[ ]`, not `[[ ]]`: on this machine's bash 3.2, `false || [[ ... ]]`
   # does not trip `set -e` even when the `[[ ]]` fails — confirmed by repeated

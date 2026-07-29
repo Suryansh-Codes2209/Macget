@@ -81,7 +81,7 @@ cask "macget" do
   end
 
   auto_updates true
-  depends_on macos: ">= :tahoe"
+  depends_on macos: :tahoe
   depends_on arch: :arm64
 
   app "Macget.app"
@@ -113,7 +113,7 @@ Why each non-obvious stanza is there:
 - `auto_updates true` — MacGet self-updates via Sparkle. Without this, `brew upgrade` would reinstall over an app that already updated itself and Homebrew's recorded version would drift from disk. With it, Homebrew only touches the app under `brew upgrade --greedy`.
 - `postflight` — the DMG is ad-hoc signed, not notarized, so Homebrew's quarantine attribute would make macOS refuse to open the installed app. `xattr -dr` exits 0 when the attribute is already absent (verified), so this is also safe under `--no-quarantine`.
 - `depends_on arch: :arm64` — verified against the shipped binary; `lipo -archs` reports `arm64` only.
-- `depends_on macos: ">= :tahoe"` — Homebrew's macOS symbols are major-version only (`:tahoe` → `26`), so this admits 26.0–26.3 even though MacGet needs 26.4. `LSMinimumSystemVersion` catches those at launch. This gap is accepted, which is why the caveats state 26.4 explicitly.
+- `depends_on macos: :tahoe` — a bare recognized symbol inherits the `>=` comparator that `depends_on macos:` passes by default (`cask/dsl/depends_on.rb:108` → `MacOSRequirement.parse(args, comparator: ">=")`, taken at `requirements/macos_requirement.rb:40-41`). The string form `">= :tahoe"` is identical in meaning but `odeprecated` in Homebrew 6.x, which names this exact bare-symbol form as its replacement. Homebrew's macOS symbols are major-version only (`:tahoe` → `26`), so either form admits 26.0–26.3 even though MacGet needs 26.4. `LSMinimumSystemVersion` catches those at launch. This gap is accepted, which is why the caveats state 26.4 explicitly.
 
 - [ ] **Step 4: Write the tap README**
 
@@ -281,7 +281,7 @@ cask "macget" do
   end
 
   auto_updates true
-  depends_on macos: ">= :tahoe"
+  depends_on macos: :tahoe
   depends_on arch: :arm64
 
   app "Macget.app"

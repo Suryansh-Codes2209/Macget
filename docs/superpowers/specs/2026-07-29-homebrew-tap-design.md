@@ -96,7 +96,7 @@ cask "macget" do
   end
 
   auto_updates true
-  depends_on macos: ">= :tahoe"
+  depends_on macos: :tahoe
   depends_on arch: :arm64
 
   app "Macget.app"
@@ -140,7 +140,11 @@ But `macget.dmg` stops being an unwritten convention: `publish-cask.sh` fails wi
 explicit message if the release does not carry an asset by exactly that name, so a
 slip is caught at release time rather than by the first user to run `brew install`.
 
-**`>= :tahoe` is coarser than the real floor.** Homebrew's macOS symbols are
+**`macos: :tahoe` is coarser than the real floor.** A bare recognized symbol
+inherits the `>=` comparator that `depends_on macos:` passes by default
+(`cask/dsl/depends_on.rb:108`, taken at `requirements/macos_requirement.rb:40-41`),
+so this means "26 or later" — the string form `">= :tahoe"` is identical in meaning
+but `odeprecated` in Homebrew 6.x. Either way Homebrew's macOS symbols are
 major-version only (`:tahoe` → `26`), while MacGet requires 26.4. A user on
 26.0–26.3 can therefore install and then find the app will not launch;
 `LSMinimumSystemVersion` catches it, but at launch rather than at install. Accepted

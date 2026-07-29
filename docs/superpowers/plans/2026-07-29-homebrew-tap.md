@@ -462,18 +462,33 @@ fi
 echo "==> Cask declares version $VERSION, sha256 $CASK_SHA"
 
 echo "==> Checking release v$VERSION for a '$ASSET_NAME' asset…"
-if ! gh api "repos/$REPO/releases/tags/v$VERSION" >/dev/null 2>&1; then
-  echo "ERROR: no GitHub Release tagged v$VERSION."
-  echo "       Create it and upload $ROOT/dist/Macget-$VERSION.dmg as '$ASSET_NAME' first."
+# --cache makes the three lookups below (existence check, digest, and the
+# asset listing in the error path) a single network round-trip: gh caches
+# the raw response locally on the first call and replays it from the cache
+# file for the identical requests that follow.
+RELEASE_ARGS=(api --cache 60s "repos/$REPO/releases/tags/v$VERSION")
+
+if ! RELEASE_ERR="$(gh "${RELEASE_ARGS[@]}" 2>&1 >/dev/null)"; then
+  echo "ERROR: no GitHub Release tagged v$VERSION (or the GitHub API request failed):"
+  echo "       $RELEASE_ERR"
+  echo "       Create the release and upload $ROOT/dist/Macget-$VERSION.dmg as '$ASSET_NAME' first."
   exit 1
 fi
 
-ASSET_DIGEST="$(gh api "repos/$REPO/releases/tags/v$VERSION" \
-  --jq ".assets[] | select(.name == \"$ASSET_NAME\") | .digest" 2>/dev/null || true)"
+if ! ASSET_DIGEST="$(gh "${RELEASE_ARGS[@]}" \
+  --jq ".assets[] | select(.name == \"$ASSET_NAME\") | .digest" 2>&1)"; then
+  echo "ERROR: the GitHub API request for release v$VERSION's assets failed:"
+  echo "$ASSET_DIGEST" | sed 's/^/       /'
+  exit 1
+fi
 
 if [[ -z "$ASSET_DIGEST" ]]; then
   echo "ERROR: release v$VERSION has no asset named '$ASSET_NAME'. Found:"
-  gh api "repos/$REPO/releases/tags/v$VERSION" --jq '.assets[] | "   - " + .name'
+  if ! ASSET_LIST="$(gh "${RELEASE_ARGS[@]}" --jq '.assets[] | "   - " + .name' 2>&1)"; then
+    echo "       (could not list the release's assets: $ASSET_LIST)"
+  else
+    echo "$ASSET_LIST"
+  fi
   echo "       The Sparkle appcast depends on that exact name — rename the asset."
   exit 1
 fi
@@ -502,16 +517,42 @@ git -C "$TAP_DIR" pull --ff-only
 
 if [[ "$DRY_RUN" == "1" ]]; then
   echo "==> Dry run — diff against the tap's current cask:"
-  diff -u "$TAP_DIR/Casks/macget.rb" "$CASK_SRC" || true
+  # diff exits 1 for "differences found" (expected here) and 2 for "trouble"
+  # (e.g. the tap's cask is missing). Only swallow 1 — let 2 abort the script
+  # instead of being misreported as a clean, empty diff.
+  #
+  # Deliberately `[ ]`, not `[[ ]]`: on this machine's bash 3.2, `false || [[ ... ]]`
+  # does not trip `set -e` even when the `[[ ]]` fails — confirmed by repeated
+  # runs of `bash -euo pipefail -c 'false || [[ 1 -eq 2 ]]; echo leaked'`, which
+  # prints "leaked" and exits 0. The POSIX `[ ]` form does not have this bug.
+  diff -u "$TAP_DIR/Casks/macget.rb" "$CASK_SRC" || [ "$?" -eq 1 ]
   echo "==> Dry run complete. Nothing was changed."
   exit 0
 fi
 
 cp "$CASK_SRC" "$TAP_DIR/Casks/macget.rb"
-if [[ -z "$(git -C "$TAP_DIR" status --porcelain)" ]]; then
-  echo "==> Tap is already at $VERSION. Nothing to do."
-  exit 0
-fi
+
+# git diff --quiet: 0 = no differences, 1 = differences found, anything else
+# is a git failure we must not mistake for "nothing changed" — the cp above
+# already landed on disk, so silently reporting success here would be a false
+# positive.
+set +e
+git -C "$TAP_DIR" diff --quiet -- Casks/macget.rb
+DIFF_STATUS=$?
+set -e
+case "$DIFF_STATUS" in
+  0)
+    echo "==> Tap is already at $VERSION. Nothing to do."
+    exit 0
+    ;;
+  1)
+    ;;
+  *)
+    echo "ERROR: 'git diff' against $TAP_DIR failed (exit $DIFF_STATUS)."
+    echo "       Refusing to guess whether Casks/macget.rb actually changed."
+    exit 1
+    ;;
+esac
 
 git -C "$TAP_DIR" add Casks/macget.rb
 git -C "$TAP_DIR" commit -m "Update macget to $VERSION"
@@ -519,7 +560,21 @@ git -C "$TAP_DIR" push
 echo "==> Published macget $VERSION to $TAP_REPO."
 ```
 
-Note the `${ASSET_DIGEST#sha256:}` prefix strip — the API returns
+This is the script as it shipped, after review. Three hardening changes came out
+of that review and are worth knowing about before editing:
+
+- `${TAP_DIR}` at line 98 is braced deliberately. Unbraced, the `$TAP_DIR` abuts the
+  U+2026 that follows it, bash 3.2 absorbs those bytes into the identifier, and
+  `set -u` aborts *before* the `git clone` — silently disabling the whole
+  clone-if-missing path on any UTF-8 locale.
+- Line 119 uses POSIX `[ ]`, not `[[ ]]`. On bash 3.2 a failing `[[ ]]` as the
+  right-hand side of `||` does not trip `set -e`, so the `[[ ]]` form would swallow
+  diff's exit 2 exactly like the `|| true` it replaced.
+- The `--cache 60s` on line 60 makes the three lookups one network round-trip, and
+  each `gh` call checks its own exit status rather than `|| true`, so a transient
+  API failure is not misreported as "no such asset".
+
+Note the `${ASSET_DIGEST#sha256:}` prefix strip at line 87 — the API returns
 `sha256:f4f8…`, but the cask stores the bare hex.
 
 - [ ] **Step 2: Make it executable**

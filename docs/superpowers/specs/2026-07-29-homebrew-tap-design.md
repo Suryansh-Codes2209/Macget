@@ -161,16 +161,20 @@ Split across two scripts:
 
 - **`scripts/release.sh`** — new final step renders `dist/macget.rb` from a template
   using the version and SHA it already has.
-- **`scripts/publish-cask.sh`** (new) — verifies the asset is reachable at the
-  expected URL, re-downloads it, confirms its SHA matches `dist/macget.rb`, then
-  writes `Casks/macget.rb` into the local tap checkout and commits and pushes.
+- **`scripts/publish-cask.sh`** (new) — confirms the release carries a `macget.dmg`
+  asset, checks GitHub's server-computed digest for that asset against the SHA in
+  `dist/macget.rb`, then writes `Casks/macget.rb` into the local tap checkout and
+  commits and pushes.
 
 `release.sh` invokes `publish-cask.sh` automatically when the release asset is
 already live, and otherwise prints the command to run after uploading.
 
-Verifying the SHA against the *served* bytes rather than the local file means a
-botched or truncated upload fails loudly at release time, instead of shipping a cask
-whose `brew install` dies on a checksum mismatch for every user.
+The digest comes from `gh api repos/:owner/:repo/releases/tags/v<version>`, which
+returns `digest: "sha256:…"` per asset. That is computed by GitHub over the stored
+bytes, so it verifies the upload rather than the local file — a botched or truncated
+upload fails loudly at release time instead of shipping a cask whose `brew install`
+dies on a checksum mismatch for every user. Using the API digest rather than
+re-downloading keeps the check instant; the DMG is ~139 MB.
 
 `publish-cask.sh` resolves the tap at `../homebrew-macget` relative to the repo root
 and clones it if absent, so a fresh machine needs no manual setup. Pushing through a
@@ -183,7 +187,7 @@ local checkout rather than the GitHub contents API keeps the change inspectable 
 |---|---|
 | Release asset not yet uploaded | `release.sh` writes `dist/macget.rb`, prints the `publish-cask.sh` command, exits 0 |
 | Release exists but has no `macget.dmg` asset | `publish-cask.sh` aborts naming the assets it did find |
-| Served SHA ≠ local SHA | `publish-cask.sh` aborts before touching the tap |
+| GitHub asset digest ≠ cask SHA | `publish-cask.sh` aborts before touching the tap |
 | Tap checkout missing | `publish-cask.sh` clones it from GitHub |
 | Tap checkout dirty | `publish-cask.sh` aborts rather than committing unrelated work |
 | `gh` absent or unauthenticated | `publish-cask.sh` aborts with the auth command |

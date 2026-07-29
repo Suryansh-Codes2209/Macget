@@ -70,3 +70,6 @@ BrowserExtension/dist/
 # Bundled media tools — large binaries fetched by scripts/fetch-media-tools.sh,
 # embedded into the app at build time. Not committed; run the script to populate.
 Vendor/bin/
+
+# Superpowers SDD scratch (ledger, briefs, review packages)
+.superpowers/

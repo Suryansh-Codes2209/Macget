@@ -705,9 +705,15 @@ cd /Users/suryansh/Documents/Projects/Apple/Macget
 sed -e "s/__VERSION__/99.0.0/g" -e "s/__SHA256__/deadbeef/g" \
   scripts/macget.cask.tmpl > dist/macget.rb
 bash -c 'set -euo pipefail
-if ./scripts/publish-cask.sh; then echo "PUBLISHED"; else echo "SKIPPED CLEANLY"; fi'
+if ./scripts/publish-cask.sh --dry-run; then echo "PUBLISHED"; else echo "SKIPPED CLEANLY"; fi'
 echo "outer exit=$?"
 ```
+
+`--dry-run` is used here purely as a safety belt. With a nonexistent version the
+script exits at the missing-release check (`publish-cask.sh:62-67`), long before the
+`--dry-run` branch at :109 is even reached — so this exercises exactly the same code
+path `release.sh` will hit, while making it impossible for a mistake in the guard to
+push a fabricated cask to the published tap.
 
 Expected: prints `SKIPPED CLEANLY` and `outer exit=0`. If it prints nothing and
 exits non-zero, the `if` guard is wrong and `release.sh` would abort mid-release.

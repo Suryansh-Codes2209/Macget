@@ -23,9 +23,30 @@ xcodebuild test -project Macget.xcodeproj -scheme Macget -destination 'platform=
 
 # Release / signed / notarized DMG (one-time setup required — see scripts/release.sh header)
 ./scripts/release.sh
+
+# Publish the Homebrew cask after the GitHub Release asset is uploaded
+./scripts/publish-cask.sh
 ```
 
 Interactive dev: open `Macget.xcodeproj` in Xcode and ⌘R / ⌘U.
+
+### Homebrew tap
+
+MacGet is distributed through a third-party tap, `Suryansh-Codes2209/homebrew-macget`
+(checked out as a sibling of this repo at `../homebrew-macget`), not through
+`homebrew/cask` — the latter requires 225 stars / 90 forks / 90 watchers for a
+self-submission.
+
+`scripts/macget.cask.tmpl` is the single source of the cask text; `release.sh`
+renders it to `dist/macget.rb` and `publish-cask.sh` verifies the SHA against
+GitHub's server-computed asset digest before pushing. The cask strips the quarantine
+xattr in a `postflight` block because the DMG is ad-hoc signed rather than notarized
+— `homebrew/cask` forbids exactly that, so an upstream submission would need
+notarization first, not just more stars.
+
+The release asset must be named exactly `macget.dmg`. The Sparkle appcast's
+`<enclosure url>` points at it, so renaming published assets breaks in-app updates
+for existing users. `publish-cask.sh` fails loudly if the name is wrong.
 
 ## Naming & docs caveats
 

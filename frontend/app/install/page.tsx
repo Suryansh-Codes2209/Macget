@@ -101,6 +101,21 @@ export default function InstallPage() {
 
         <h2>Installing</h2>
 
+        <h3>Homebrew (recommended)</h3>
+
+        <pre>
+          <code>brew install --cask suryansh-codes2209/macget/macget</code>
+        </pre>
+
+        <p>
+          Requires {siteConfig.minOS} or later on Apple silicon. The cask
+          removes the quarantine attribute after install, so there is no
+          Gatekeeper prompt and no &ldquo;Open Anyway&rdquo; step — the next
+          section doesn&apos;t apply to you.
+        </p>
+
+        <h3>Manually, from the DMG</h3>
+
         <ol>
           <li>
             Download <code>{siteConfig.binary}.dmg</code> from the releases

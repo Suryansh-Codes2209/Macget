@@ -159,9 +159,19 @@ sed -e "s/__VERSION__/$VERSION/g" -e "s/__SHA256__/$DMG_SHA/g" \
 echo "    Wrote $CASK_OUT"
 
 echo "==> Done."
-echo "Next steps:"
-echo "  1. Create a GitHub Release for v$VERSION and upload $DMG_PATH as 'macget.dmg'"
-echo "     (the appcast enclosure URL depends on that exact asset name)"
-echo "  2. Run: ./scripts/publish-cask.sh   (pushes the cask to the Homebrew tap)"
-echo "  3. Run: Sparkle/bin/generate_appcast site/   (regenerates appcast.xml + signs DMGs)"
-echo "  4. git -C site add appcast.xml && git -C site commit -m 'release' && git -C site push"
+echo
+echo "Next: create a GitHub Release for v$VERSION and upload"
+echo "      $DMG_PATH"
+echo "      as an asset named exactly 'macget.dmg' (the Sparkle appcast enclosure"
+echo "      URL depends on that name)."
+echo
+if ./scripts/publish-cask.sh; then
+  echo "==> Homebrew cask published."
+else
+  echo "==> Cask not published yet — that's expected if the release isn't up."
+  echo "    Once the asset is uploaded, run: ./scripts/publish-cask.sh"
+fi
+echo
+echo "Then:"
+echo "  1. Sparkle/bin/generate_appcast site/   (regenerates appcast.xml + signs DMGs)"
+echo "  2. git -C site add appcast.xml && git -C site commit -m 'release' && git -C site push"

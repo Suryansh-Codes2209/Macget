@@ -55,6 +55,15 @@ MacGet's engine **discovers each host's true capacity at runtime** and adapts:
 
 ## Install
 
+### Homebrew (recommended)
+
+```bash
+brew install --cask suryansh-codes2209/macget/macget
+```
+
+Requires macOS 26.4 or later on Apple silicon. The cask removes the quarantine
+attribute after install, so there is no Gatekeeper prompt and no "Open Anyway" step.
+
 ### From a release DMG (when v1 ships)
 
 1. Download `Macget.dmg` from the [Releases page](https://github.com/Suryansh-Codes2209/Macget/releases/latest).

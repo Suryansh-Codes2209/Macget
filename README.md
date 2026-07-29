@@ -55,9 +55,18 @@ MacGet's engine **discovers each host's true capacity at runtime** and adapts:
 
 ## Install
 
+### Homebrew (recommended)
+
+```bash
+brew install --cask suryansh-codes2209/macget/macget
+```
+
+Requires macOS 26.4 or later on Apple silicon. The cask removes the quarantine
+attribute after install, so there is no Gatekeeper prompt and no "Open Anyway" step.
+
 ### From a release DMG (when v1 ships)
 
-1. Download `Macget.dmg` from the [Releases page](https://github.com/Suryansh-Codes2209/Macget/releases/latest).
+1. Download `macget.dmg` from the [Releases page](https://github.com/Suryansh-Codes2209/Macget/releases/latest).
 2. Open the DMG, drag Macget to Applications.
 3. Launch from Applications.
 
@@ -219,9 +228,14 @@ Per release:
 
 1. Bump **Marketing Version** + **Current Project Version** in Xcode's target settings.
 2. Add an entry to [`CHANGELOG.md`](CHANGELOG.md).
-3. Run `./scripts/release.sh` from the repo root.
-4. Create a GitHub Release with the produced `dist/*.dmg` attached.
-5. Run `Sparkle/bin/generate_appcast site/` and push `site/` to GitHub Pages.
+3. Run `./scripts/release.sh` from the repo root (builds, notarizes, and writes
+   `dist/macget.dmg` alongside the versioned `dist/Macget-<version>.dmg`).
+4. Create a GitHub Release and attach `dist/macget.dmg` as an asset named
+   exactly `macget.dmg` — the Sparkle appcast enclosure and the Homebrew cask
+   URL both depend on that exact name.
+5. Run `./scripts/publish-cask.sh` to push the Homebrew cask to the
+   [tap](https://github.com/Suryansh-Codes2209/homebrew-macget).
+6. Run `Sparkle/bin/generate_appcast site/` and push `site/` to GitHub Pages.
 
 The CI workflow at `.github/workflows/ci.yml` runs build + tests on every push/PR.
 

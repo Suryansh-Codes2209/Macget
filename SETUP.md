@@ -132,8 +132,11 @@ Then, per release:
 2. Add an entry to [`CHANGELOG.md`](CHANGELOG.md).
 3. Run `./scripts/release.sh` from the repo root (runs tests → builds → DMG →
    notarize → staple).
-4. Create a GitHub Release and attach the produced `dist/*.dmg`.
-5. Run `Sparkle/bin/generate_appcast site/` and push `site/` to GitHub Pages.
+4. Create a GitHub Release and attach `dist/macget.dmg` as an asset named
+   exactly `macget.dmg` — the Sparkle appcast enclosure and the Homebrew
+   cask URL both depend on that exact name.
+5. Run `./scripts/publish-cask.sh` to push the Homebrew cask to the tap.
+6. Run `Sparkle/bin/generate_appcast site/` and push `site/` to GitHub Pages.
 
 ---
 

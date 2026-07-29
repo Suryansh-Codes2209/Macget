@@ -149,11 +149,19 @@ else
   echo "    macOS' steps with your download link."
 fi
 
-echo "==> SHA-256 of DMG:"
-shasum -a 256 "$DMG_PATH"
+DMG_SHA="$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
+echo "==> SHA-256 of DMG: $DMG_SHA"
+
+echo "==> Rendering Homebrew cask…"
+CASK_OUT="$DIST_DIR/macget.rb"
+sed -e "s/__VERSION__/$VERSION/g" -e "s/__SHA256__/$DMG_SHA/g" \
+  "$ROOT/scripts/macget.cask.tmpl" > "$CASK_OUT"
+echo "    Wrote $CASK_OUT"
 
 echo "==> Done."
 echo "Next steps:"
-echo "  1. Create a GitHub Release and upload $DMG_PATH"
-echo "  2. Run: Sparkle/bin/generate_appcast site/   (regenerates appcast.xml + signs DMGs)"
-echo "  3. git -C site add appcast.xml && git -C site commit -m 'release' && git -C site push"
+echo "  1. Create a GitHub Release for v$VERSION and upload $DMG_PATH as 'macget.dmg'"
+echo "     (the appcast enclosure URL depends on that exact asset name)"
+echo "  2. Run: ./scripts/publish-cask.sh   (pushes the cask to the Homebrew tap)"
+echo "  3. Run: Sparkle/bin/generate_appcast site/   (regenerates appcast.xml + signs DMGs)"
+echo "  4. git -C site add appcast.xml && git -C site commit -m 'release' && git -C site push"

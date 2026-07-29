@@ -107,7 +107,14 @@ cask "macget" do
   end
 
   zap trash: [
+    "~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Chromium/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Google/Chrome Beta/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Google/Chrome Canary/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.suryansh.macget.json",
     "~/Library/Application Support/Macget",
+    "~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Mozilla/NativeMessagingHosts/com.suryansh.macget.json",
     "~/Library/Caches/com.suryansh.Macget",
     "~/Library/HTTPStorages/com.suryansh.Macget",
     "~/Library/Preferences/com.suryansh.Macget.plist",
@@ -123,10 +130,12 @@ carries the human-facing `MacGet`.
 Decisions embedded above:
 
 **`auto_updates true`.** MacGet updates itself through Sparkle. Without this stanza
-`brew upgrade` would reinstall over an app that had already self-updated, and
-Homebrew's recorded version would drift from what is on disk. With it, Homebrew
-defers to Sparkle and only touches the app under `brew upgrade --greedy`. Homebrew
-is the *installer*, not the updater.
+a bare `brew upgrade` would reinstall over an app that had already self-updated, and
+Homebrew's recorded version would drift from what is on disk. With it, the
+argument-less sweep skips MacGet (`cask/cask.rb:433`). Naming the cask explicitly
+still upgrades it — `brew upgrade <cask>` always passes `greedy: true`
+(`cask/upgrade.rb:56,65`) — so `auto_updates` guards the sweep, not a targeted
+command. Homebrew is the *installer*, not the updater.
 
 **The release asset stays named `macget.dmg`.** `release.sh` builds
 `dist/Macget-<version>.dmg` locally, but the asset is uploaded to GitHub as

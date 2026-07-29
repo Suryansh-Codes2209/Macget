@@ -92,7 +92,14 @@ cask "macget" do
   end
 
   zap trash: [
+    "~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Chromium/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Google/Chrome Beta/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Google/Chrome Canary/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.suryansh.macget.json",
     "~/Library/Application Support/Macget",
+    "~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Mozilla/NativeMessagingHosts/com.suryansh.macget.json",
     "~/Library/Caches/com.suryansh.Macget",
     "~/Library/HTTPStorages/com.suryansh.Macget",
     "~/Library/Preferences/com.suryansh.Macget.plist",
@@ -110,7 +117,7 @@ end
 
 Why each non-obvious stanza is there:
 
-- `auto_updates true` — MacGet self-updates via Sparkle. Without this, `brew upgrade` would reinstall over an app that already updated itself and Homebrew's recorded version would drift from disk. With it, Homebrew only touches the app under `brew upgrade --greedy`.
+- `auto_updates true` — MacGet self-updates via Sparkle. Without this, a bare `brew upgrade` would reinstall over an app that already updated itself and Homebrew's recorded version would drift from disk. With it, the argument-less sweep skips MacGet (`cask/cask.rb:433`); naming the cask explicitly still upgrades it, since `brew upgrade <cask>` always passes `greedy: true` (`cask/upgrade.rb:56,65`).
 - `postflight` — the DMG is ad-hoc signed, not notarized, so Homebrew's quarantine attribute would make macOS refuse to open the installed app. `xattr -dr` exits 0 when the attribute is already absent (verified), so this is also safe under `--no-quarantine`.
 - `depends_on arch: :arm64` — verified against the shipped binary; `lipo -archs` reports `arm64` only.
 - `depends_on macos: :tahoe` — a bare recognized symbol inherits the `>=` comparator that `depends_on macos:` passes by default (`cask/dsl/depends_on.rb:108` → `MacOSRequirement.parse(args, comparator: ">=")`, taken at `requirements/macos_requirement.rb:40-41`). The string form `">= :tahoe"` is identical in meaning but `odeprecated` in Homebrew 6.x, which names this exact bare-symbol form as its replacement. Homebrew's macOS symbols are major-version only (`:tahoe` → `26`), so either form admits 26.0–26.3 even though MacGet needs 26.4. `LSMinimumSystemVersion` catches those at launch. This gap is accepted, which is why the caveats state 26.4 explicitly.
@@ -141,8 +148,9 @@ The fully-qualified name auto-taps, so there is no separate `brew tap` step.
 ## Notes
 
 MacGet updates itself through Sparkle, so the cask is marked `auto_updates true`.
-`brew upgrade` will not replace a copy that has already updated itself; use
-`brew upgrade --greedy macget` if you want Homebrew to reinstall the pinned version.
+A bare `brew upgrade` (no cask named) will skip it for that reason. Naming it
+explicitly still upgrades it: `brew upgrade macget` reinstalls the cask's
+pinned version regardless.
 
 MacGet is not currently notarized by Apple. The cask removes the quarantine
 attribute after install so the app launches without a Gatekeeper prompt.
@@ -292,7 +300,14 @@ cask "macget" do
   end
 
   zap trash: [
+    "~/Library/Application Support/BraveSoftware/Brave-Browser/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Chromium/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Google/Chrome Beta/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Google/Chrome Canary/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.suryansh.macget.json",
     "~/Library/Application Support/Macget",
+    "~/Library/Application Support/Microsoft Edge/NativeMessagingHosts/com.suryansh.macget.json",
+    "~/Library/Application Support/Mozilla/NativeMessagingHosts/com.suryansh.macget.json",
     "~/Library/Caches/com.suryansh.Macget",
     "~/Library/HTTPStorages/com.suryansh.Macget",
     "~/Library/Preferences/com.suryansh.Macget.plist",

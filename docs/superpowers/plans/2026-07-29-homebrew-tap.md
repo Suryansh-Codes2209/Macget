@@ -489,7 +489,7 @@ fi
 echo "==> Digest matches the uploaded asset."
 
 if [[ ! -d "$TAP_DIR/.git" ]]; then
-  echo "==> Tap checkout not found; cloning to $TAP_DIR…"
+  echo "==> Tap checkout not found; cloning to ${TAP_DIR}…"
   git clone "https://github.com/$TAP_REPO.git" "$TAP_DIR"
 fi
 

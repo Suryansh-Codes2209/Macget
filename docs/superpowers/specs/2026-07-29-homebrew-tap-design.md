@@ -120,6 +120,13 @@ cask "macget" do
     "~/Library/Preferences/com.suryansh.Macget.plist",
     "~/Library/Saved Application State/com.suryansh.Macget.savedState",
   ]
+
+  caveats <<~EOS
+    MacGet requires macOS 26.4 or later on Apple silicon.
+
+    This build is not notarized by Apple. The cask removes the quarantine
+    attribute after install so MacGet launches without a Gatekeeper prompt.
+  EOS
 end
 ```
 

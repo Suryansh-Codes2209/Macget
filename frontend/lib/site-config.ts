@@ -260,7 +260,7 @@ export const siteConfig = {
     },
     {
       q: "Apple Silicon?",
-      a: "Yes — a native universal binary. Minimum macOS is Tahoe 26.4.",
+      a: "Yes — Apple silicon only (arm64), no Intel build. Minimum macOS is Tahoe 26.4.",
     },
     {
       q: "What if a server doesn't support Range?",

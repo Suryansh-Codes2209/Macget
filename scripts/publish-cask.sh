@@ -8,6 +8,23 @@
 # Usage:
 #   ./scripts/publish-cask.sh              # verify and push
 #   ./scripts/publish-cask.sh --dry-run    # verify and diff, change nothing
+#
+# Exit codes:
+#   0  published (or, with --dry-run, verified and diffed) successfully
+#   1  publish failed — checksum mismatch, missing asset, dirty/missing tap,
+#      gh not installed/authenticated, or any other error. Read the message
+#      printed above the exit; re-running without fixing the cause will fail
+#      the same way.
+#   2  no GitHub Release exists yet for the version in dist/macget.rb (or the
+#      API request for it failed). This is the expected, non-error state
+#      right after `release.sh` runs and before the release is published —
+#      callers (release.sh) treat this one specially and just tell the
+#      maintainer to re-run once the release is up.
+#
+# Note on the `--cache 60s` below: if you upload the release asset and
+# immediately re-run this script, `gh` may still be serving the cached
+# "no such asset" response for up to 60 seconds. That's self-resolving —
+# wait a minute and re-run — not a real failure.
 set -euo pipefail
 
 REPO="Suryansh-Codes2209/Macget"
@@ -62,8 +79,8 @@ RELEASE_ARGS=(api --cache 60s "repos/$REPO/releases/tags/v$VERSION")
 if ! RELEASE_ERR="$(gh "${RELEASE_ARGS[@]}" 2>&1 >/dev/null)"; then
   echo "ERROR: no GitHub Release tagged v$VERSION (or the GitHub API request failed):"
   echo "       $RELEASE_ERR"
-  echo "       Create the release and upload $ROOT/dist/Macget-$VERSION.dmg as '$ASSET_NAME' first."
-  exit 1
+  echo "       Create the release and upload $ROOT/dist/${ASSET_NAME} first."
+  exit 2
 fi
 
 if ! ASSET_DIGEST="$(gh "${RELEASE_ARGS[@]}" \
@@ -99,15 +116,17 @@ if [[ ! -d "$TAP_DIR/.git" ]]; then
   git clone "https://github.com/$TAP_REPO.git" "$TAP_DIR"
 fi
 
-if [[ -n "$(git -C "$TAP_DIR" status --porcelain)" ]]; then
-  echo "ERROR: $TAP_DIR has uncommitted changes. Commit or stash them first."
-  exit 1
-fi
-
-git -C "$TAP_DIR" pull --ff-only
-
 if [[ "$DRY_RUN" == "1" ]]; then
-  echo "==> Dry run — diff against the tap's current cask:"
+  # `--dry-run` must actually be read-only: `git fetch` only updates the
+  # remote-tracking ref (refs/remotes/origin/*), never the tap's checked-out
+  # branch or working tree, so it can't fast-forward anything. Diffing straight
+  # out of that ref with `git show` — instead of `git pull --ff-only` plus a
+  # working-tree diff — means the "Nothing was changed" message printed below
+  # is actually true rather than aspirational.
+  echo "==> Dry run — fetching the tap's latest ref (read-only)…"
+  git -C "$TAP_DIR" fetch origin
+  TAP_DEFAULT_REF="$(git -C "$TAP_DIR" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo "origin/main")"
+  echo "==> Dry run — diff against ${TAP_DEFAULT_REF}'s current cask:"
   # diff exits 1 for "differences found" (expected here) and 2 for "trouble"
   # (e.g. the tap's cask is missing). Only swallow 1 — let 2 abort the script
   # instead of being misreported as a clean, empty diff.
@@ -116,10 +135,17 @@ if [[ "$DRY_RUN" == "1" ]]; then
   # does not trip `set -e` even when the `[[ ]]` fails — confirmed by repeated
   # runs of `bash -euo pipefail -c 'false || [[ 1 -eq 2 ]]; echo leaked'`, which
   # prints "leaked" and exits 0. The POSIX `[ ]` form does not have this bug.
-  diff -u "$TAP_DIR/Casks/macget.rb" "$CASK_SRC" || [ "$?" -eq 1 ]
+  diff -u <(git -C "$TAP_DIR" show "${TAP_DEFAULT_REF}:Casks/macget.rb") "$CASK_SRC" || [ "$?" -eq 1 ]
   echo "==> Dry run complete. Nothing was changed."
   exit 0
 fi
+
+if [[ -n "$(git -C "$TAP_DIR" status --porcelain)" ]]; then
+  echo "ERROR: $TAP_DIR has uncommitted changes. Commit or stash them first."
+  exit 1
+fi
+
+git -C "$TAP_DIR" pull --ff-only
 
 cp "$CASK_SRC" "$TAP_DIR/Casks/macget.rb"
 

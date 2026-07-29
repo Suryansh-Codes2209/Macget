@@ -10,7 +10,7 @@ import { siteConfig } from "@/lib/site-config";
 export const metadata = pageMetadata({
   title: "Install MacGet on macOS",
   description:
-    "How to install MacGet, and exactly what to do about the Gatekeeper warning on first launch. MacGet is distributed free and un-notarized, so macOS asks once before it will open the app.",
+    "How to install MacGet: one Homebrew command with no Gatekeeper prompt, or a DMG download with a one-time first-launch warning. MacGet is distributed free and un-notarized, so macOS asks once before it will open a manually-installed build.",
   path: "/install",
 });
 
@@ -21,15 +21,16 @@ export default function InstallPage() {
       title="Install MacGet"
       lede={
         <>
-          Two minutes, one Gatekeeper prompt, and you&apos;re done. This page covers
-          what to do before you install, how to get past the first-launch
-          warning, and how updates work afterwards.
+          One Homebrew command and you&apos;re done — no Gatekeeper prompt.
+          Prefer to install by hand from the DMG instead? That takes two
+          minutes and one first-launch warning. This page covers both paths,
+          plus how updates work afterwards.
         </>
       }
       meta={
         <>
           Version {siteConfig.version} · Requires {siteConfig.minOS} or later ·
-          Universal (Apple Silicon and Intel)
+          Apple silicon only
         </>
       }
     >
@@ -110,8 +111,9 @@ export default function InstallPage() {
         <p>
           Requires {siteConfig.minOS} or later on Apple silicon. The cask
           removes the quarantine attribute after install, so there is no
-          Gatekeeper prompt and no &ldquo;Open Anyway&rdquo; step — the next
-          section doesn&apos;t apply to you.
+          Gatekeeper prompt and no &ldquo;Open Anyway&rdquo; step — the
+          &ldquo;First launch — the Gatekeeper prompt&rdquo; section below
+          doesn&apos;t apply to you.
         </p>
 
         <h3>Manually, from the DMG</h3>

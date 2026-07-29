@@ -21,7 +21,10 @@
 # No Apple Developer account? Run `./scripts/release.sh --no-notarize` for a free,
 # ad-hoc-signed DMG (skips the Developer ID + notarization steps above). Sparkle
 # auto-updates still work; users do a one-time Gatekeeper "Open Anyway" on install.
-#   - Upload the DMG in dist/ to the GitHub Release.
+#   - Create a GitHub Release and upload dist/macget.dmg as an asset named
+#     exactly "macget.dmg" (the Sparkle appcast enclosure URL and the Homebrew
+#     cask both depend on that exact name).
+#   - Run `./scripts/publish-cask.sh` to push the Homebrew cask to the tap.
 #   - Run `Sparkle/bin/generate_appcast site/` to update the appcast.
 #   - Push site/ to GitHub Pages.
 set -euo pipefail
@@ -149,7 +152,21 @@ else
   echo "    macOS' steps with your download link."
 fi
 
-DMG_SHA="$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')"
+# The GitHub Release asset must be named exactly "macget.dmg" (see the header
+# comment), but gh/the GitHub web UI both use the uploaded file's own basename —
+# neither can rename on upload. So produce that exact file here rather than
+# leaving the copy as an unwritten manual step. Keep the versioned filename too:
+# publish-cask.sh's error messages reference it, and it's a useful local archive
+# name. Copy happens after notarization/stapling (stapling rewrites the DMG's
+# bytes), so the canonical copy and the SHA below describe the same content.
+CANONICAL_DMG="$DIST_DIR/macget.dmg"
+cp "$DMG_PATH" "$CANONICAL_DMG"
+echo "==> Copied to $CANONICAL_DMG (the exact name to upload as a release asset)"
+
+# Hash the canonical file — the one that actually gets uploaded — so the SHA
+# in the rendered cask is verifiably describing dist/macget.dmg, not just
+# incidentally identical to it.
+DMG_SHA="$(shasum -a 256 "$CANONICAL_DMG" | awk '{print $1}')"
 echo "==> SHA-256 of DMG: $DMG_SHA"
 
 echo "==> Rendering Homebrew cask…"
@@ -161,15 +178,26 @@ echo "    Wrote $CASK_OUT"
 echo "==> Done."
 echo
 echo "Next: create a GitHub Release for v$VERSION and upload"
-echo "      $DMG_PATH"
+echo "      ${CANONICAL_DMG}"
 echo "      as an asset named exactly 'macget.dmg' (the Sparkle appcast enclosure"
-echo "      URL depends on that name)."
+echo "      URL and the Homebrew cask both depend on that name)."
 echo
-if ./scripts/publish-cask.sh; then
+# `publish-cask.sh` uses a distinct exit code (2) for "no release yet" — the
+# expected state right after this script runs — versus 1 for an actual publish
+# failure (checksum mismatch, dirty tap, etc.), which needs different advice.
+# Capture the exit code without tripping `set -e`: the `if` itself already
+# suppresses that for the command it guards, but we still want the code, not
+# just pass/fail, so call it inside the condition and inspect $? right after.
+PUBLISH_STATUS=0
+./scripts/publish-cask.sh || PUBLISH_STATUS=$?
+if [[ "$PUBLISH_STATUS" == "0" ]]; then
   echo "==> Homebrew cask published."
-else
+elif [[ "$PUBLISH_STATUS" == "2" ]]; then
   echo "==> Cask not published yet — that's expected if the release isn't up."
   echo "    Once the asset is uploaded, run: ./scripts/publish-cask.sh"
+else
+  echo "==> Homebrew cask publish FAILED (exit $PUBLISH_STATUS). Read the error above —"
+  echo "    re-running ./scripts/publish-cask.sh won't help until it's fixed."
 fi
 echo
 echo "Then:"

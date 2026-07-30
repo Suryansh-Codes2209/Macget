@@ -25,6 +25,15 @@ export const siteConfig = {
 
   repoUrl: REPO,
   downloadUrl: `${REPO}/releases/latest`,
+
+  /**
+   * MacGet ships through its own tap, not homebrew/cask — the latter requires
+   * 225 stars / 90 forks / 90 watchers for a self-submission, and forbids the
+   * quarantine-stripping postflight an un-notarized build needs. Keep this in
+   * sync with the tap repo name (Suryansh-Codes2209/homebrew-macget).
+   */
+  brewCommand: "brew install --cask suryansh-codes2209/macget/macget",
+  tapUrl: "https://github.com/Suryansh-Codes2209/homebrew-macget",
   releasesUrl: `${REPO}/releases`,
   licenseUrl: `${REPO}/blob/main/LICENSE`,
   issuesUrl: `${REPO}/issues`,

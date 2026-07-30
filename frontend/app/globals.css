@@ -52,6 +52,31 @@
 
   /* Easing */
   --ease-emphasized: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /*
+   * Consent banner entrance. A keyframe rather than a transition between two
+   * React states, because the banner mounts already-decided: it only renders
+   * once we know the visitor hasn't answered, so there is no second render to
+   * transition *to*. Respects reduced-motion below.
+   */
+  --animate-rise-in: rise-in 240ms var(--ease-emphasized) both;
+
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise-in {
+    animation: none;
+  }
 }
 
 /*

@@ -15,6 +15,16 @@ export function absoluteUrl(path = "/"): string {
 export const isProduction =
   process.env.VERCEL_ENV === undefined || process.env.VERCEL_ENV === "production";
 
+/**
+ * Gate for Google Analytics. `isProduction` alone isn't enough: it treats a
+ * missing VERCEL_ENV as production — correct for canonical URLs, but it would
+ * also send every `next dev` page view to the live GA property. The extra
+ * NODE_ENV check drops the dev server while still covering a production build
+ * hosted anywhere, not just Vercel.
+ */
+export const analyticsEnabled =
+  isProduction && process.env.NODE_ENV === "production";
+
 interface PageMetaInput {
   title: string;
   description: string;

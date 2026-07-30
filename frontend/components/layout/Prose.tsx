@@ -23,7 +23,10 @@ export function Prose({
         "[&_strong]:font-semibold [&_strong]:text-cream",
         "[&_ul]:flex [&_ul]:flex-col [&_ul]:gap-2.5 [&_ul]:pl-5 [&_ul]:list-disc [&_li]:pl-1.5",
         "[&_ol]:flex [&_ol]:flex-col [&_ol]:gap-2.5 [&_ol]:pl-5 [&_ol]:list-decimal",
-        "[&_code]:rounded-md [&_code]:border [&_code]:border-line [&_code]:bg-abyss [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.85em] [&_code]:text-cream",
+        // `data-unstyled` opts a code element out — components that own their
+        // own chrome (CopyCommand) set it, so these descendant rules can't
+        // half-apply on top of them.
+        "[&_code:not([data-unstyled])]:rounded-md [&_code:not([data-unstyled])]:border [&_code:not([data-unstyled])]:border-line [&_code:not([data-unstyled])]:bg-abyss [&_code:not([data-unstyled])]:px-1.5 [&_code:not([data-unstyled])]:py-0.5 [&_code:not([data-unstyled])]:font-mono [&_code:not([data-unstyled])]:text-[0.85em] [&_code:not([data-unstyled])]:text-cream",
         "[&_pre]:overflow-x-auto [&_pre]:rounded-card [&_pre]:border [&_pre]:border-line [&_pre]:bg-abyss [&_pre]:p-5",
         "[&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-cream-dim",
         className,

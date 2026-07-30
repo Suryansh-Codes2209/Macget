@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { RootProvider } from "fumadocs-ui/provider/next";
+import { Analytics } from "@/components/seo/Analytics";
 import { siteConfig } from "@/lib/site-config";
 import { SITE_URL, absoluteUrl, isProduction } from "@/lib/seo";
 import "./globals.css";
@@ -92,6 +93,7 @@ export default function RootLayout({
         <RootProvider theme={{ enabled: false, forcedTheme: "dark" }}>
           {children}
         </RootProvider>
+        <Analytics />
       </body>
     </html>
   );

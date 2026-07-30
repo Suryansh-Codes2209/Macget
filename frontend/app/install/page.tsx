@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowDownToLine } from "lucide-react";
 import { PageShell } from "@/components/layout/PageShell";
 import { Prose } from "@/components/layout/Prose";
+import { CopyCommand } from "@/components/ui/CopyCommand";
 import { GradientButton } from "@/components/ui/GradientButton";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { breadcrumbSchema, pageMetadata } from "@/lib/seo";
@@ -104,12 +105,11 @@ export default function InstallPage() {
 
         <h3>Homebrew (recommended)</h3>
 
-        <pre>
-          <code>brew install --cask suryansh-codes2209/macget/macget</code>
-        </pre>
+        <CopyCommand command={siteConfig.brewCommand} />
 
         <p>
-          Requires {siteConfig.minOS} or later on Apple silicon. The cask
+          Requires {siteConfig.minOS}{" "}
+          or later on Apple silicon. The cask
           removes the quarantine attribute after install, so there is no
           Gatekeeper prompt and no &ldquo;Open Anyway&rdquo; step — the
           &ldquo;First launch — the Gatekeeper prompt&rdquo; section below

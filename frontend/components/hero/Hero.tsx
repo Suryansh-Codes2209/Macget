@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { motion } from "motion/react";
 import { ArrowDownToLine, Github } from "lucide-react";
 import { ChunkVisualization } from "./ChunkVisualization";
 import { FloatingStatCards } from "./FloatingStatCards";
+import { CopyCommand } from "@/components/ui/CopyCommand";
 import { GradientButton } from "@/components/ui/GradientButton";
 import { siteConfig } from "@/lib/site-config";
 import { easeEmphasized } from "@/lib/motion";
@@ -16,8 +18,10 @@ export function Hero() {
       <div className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-[600px] w-[800px] -translate-x-1/2 rounded-full bg-brand-amber/10 blur-3xl" />
 
       <div className="mx-auto grid max-w-7xl gap-16 px-6 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:gap-12 lg:px-10">
-        {/* Copy column */}
-        <div>
+        {/* Copy column. `min-w-0` because a grid item defaults to
+            `min-width: auto` — without it the nowrap brew command sets the
+            track's floor and pushes the whole column past the viewport. */}
+        <div className="min-w-0">
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -79,9 +83,27 @@ export function Hero() {
           </motion.div>
 
           <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: easeEmphasized, delay: 0.32 }}
+            className="mt-5 max-w-xl"
+          >
+            <CopyCommand command={siteConfig.brewCommand} />
+            <p className="mt-2.5 text-sm text-mute">
+              Or install with Homebrew — no Gatekeeper prompt.{" "}
+              <Link
+                href="/install"
+                className="text-cream-dim underline decoration-line underline-offset-4 transition-colors hover:text-cream hover:decoration-cream/40"
+              >
+                Installation guide
+              </Link>
+            </p>
+          </motion.div>
+
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ duration: 0.7, delay: 0.4 }}
+            transition={{ duration: 0.7, delay: 0.45 }}
             className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-mute"
           >
             <span>Free · MIT licensed</span>

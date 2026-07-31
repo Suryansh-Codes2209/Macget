@@ -1,0 +1,46 @@
+<!-- FIREFOX ONLY. Substituted into shared/options.html at the MEDIA-SECTION
+     marker by build.sh. The Chrome package has the marker line deleted. -->
+<section class="section">
+  <div class="section-head">
+    <h2>Video button</h2>
+    <p>The button MacGet overlays on video players, for sending a page to Macget's extractor.</p>
+  </div>
+  <div class="card">
+    <div class="setting">
+      <div class="row">
+        <div>
+          <div class="row-title">Show the button on video players</div>
+          <div class="row-desc">Turn on Download videos in Macget's settings for the extraction to work.</div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="showVideoButton" />
+          <span class="track"></span>
+        </label>
+      </div>
+    </div>
+
+    <div class="setting">
+      <div class="row">
+        <div>
+          <div class="row-title">Corner</div>
+          <div class="row-desc">Where the button sits over the player.</div>
+        </div>
+        <select id="videoCorner" style="width: auto;">
+          <option value="top-right">Top right</option>
+          <option value="top-left">Top left</option>
+          <option value="bottom-right">Bottom right</option>
+          <option value="bottom-left">Bottom left</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="setting">
+      <div class="field-label">Hide the button on these sites</div>
+      <div class="row-desc">One per line. Subdomains are included.</div>
+      <div class="stack">
+        <textarea id="videoHidden" spellcheck="false" placeholder="meet.google.com&#10;app.zoom.us"></textarea>
+      </div>
+    </div>
+  </div>
+</section>
+<script src="media-ui.js"></script>

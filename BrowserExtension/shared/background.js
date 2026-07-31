@@ -3,13 +3,18 @@
 // Responsibilities:
 //   1. Capture browser file downloads (downloads.onCreated) and hand them to the
 //      native-messaging host, cancelling the browser copy only after the host acks.
-//   2. Capture single targets on demand — context menus (link/image/video/audio),
-//      the in-page video button, and the popup's this-tab actions.
+//   2. Capture single targets on demand — context menus (link/image) and the
+//      popup's this-tab action.
 //   3. Filter movie-proxy "jumplinks": popunder/redirect/shortener downloads that
 //      fire without a real user gesture are dropped instead of captured.
 //   4. Report health. The host is pinged, the result drives the toolbar badge and
 //      the popup's connection state, and every failure is recorded rather than
 //      logged and forgotten.
+//
+// This file is the shared core and ships to every browser. It handles files the
+// user downloads and nothing else — it has no page-scraping, no stream
+// detection, and no site-specific behaviour. Features that go beyond that live
+// in ../media/ and are packaged for Firefox only; see BrowserExtension/README.md.
 //
 // Storm safeguards on the file path: per-URL dedupe + a circuit breaker.
 //
@@ -35,10 +40,12 @@ const DEFAULTS = {
   gestureWindowMs: 2000,
   notificationsEnabled: true,
   badgeEnabled: true,
-  showVideoButton: true,
-  videoButtonCorner: "top-right",
-  videoButtonHiddenHosts: [],
 };
+
+// Optional feature modules loaded after this file (Firefox only) register extra
+// setting defaults here, so getConfig() reads them without core knowing what
+// they are.
+const EXTRA_DEFAULTS = (globalThis.MACGET_EXTRA_DEFAULTS = globalThis.MACGET_EXTRA_DEFAULTS || {});
 
 const HISTORY_KEY = "history";
 const HISTORY_CAP = 20;
@@ -61,9 +68,6 @@ const GESTURE_GRACE_MS = 10000;
 const HEALTH_TTL_MS = 30000;
 const UNREACHABLE_NOTIFY_EVERY_MS = 10 * 60 * 1000;
 const BADGE_FLASH_MS = 3000;
-
-// HLS/DASH manifests sniffed per tab (best-effort hints for yt-dlp).
-const sniffedByTab = new Map();
 
 // ---- session-backed state --------------------------------------------------
 // An MV3 service worker is evicted aggressively. Anything the capture decision
@@ -263,10 +267,11 @@ function recordHistory(entry) {
 // ---- shared helpers --------------------------------------------------------
 
 async function getConfig() {
+  const wanted = Object.assign({}, DEFAULTS, EXTRA_DEFAULTS);
   try {
-    return await api.storage.local.get(DEFAULTS);
+    return await api.storage.local.get(wanted);
   } catch (_) {
-    return DEFAULTS;
+    return wanted;
   }
 }
 
@@ -414,7 +419,7 @@ api.downloads.onCreated.addListener(async (item) => {
  * Skips the size filter and the jumplink filter — both exist to judge downloads
  * that started on their own, and this one did not.
  */
-async function captureURL(url, { referer, kind = "file", title, tabId } = {}) {
+async function captureURL(url, { referer, tabId } = {}) {
   if (!isCapturable(url)) {
     return { ok: false, error: "MacGet can only download http and https links." };
   }
@@ -427,13 +432,10 @@ async function captureURL(url, { referer, kind = "file", title, tabId } = {}) {
 
   const host = hostnameOf(url);
   const cookie = await cookieHeaderFor(url);
-  const filename = kind === "file" ? filenameFromUrl(url) : undefined;
-  const manifests = (kind === "media" && tabId != null && sniffedByTab.has(tabId))
-    ? Array.from(sniffedByTab.get(tabId))
-    : [];
+  const filename = filenameFromUrl(url);
 
   const payload = {
-    kind,
+    kind: "file",
     url,
     filename,
     referer: referer || undefined,
@@ -441,19 +443,13 @@ async function captureURL(url, { referer, kind = "file", title, tabId } = {}) {
     cookie: cookie || undefined,
     origin: host || undefined,
   };
-  if (kind === "media") {
-    payload.pageURL = url;
-    payload.title = title || undefined;
-    if (manifests.length) payload.manifestURLs = manifests;
-    payload.referer = url;
-  }
 
   const result = await sendToMacget(payload);
 
   await recordHistory({
-    kind,
+    kind: "file",
     url,
-    filename: filename || title || url,
+    filename: filename || url,
     host,
     at: Date.now(),
     ok: result.ok,
@@ -461,7 +457,7 @@ async function captureURL(url, { referer, kind = "file", title, tabId } = {}) {
 
   if (result.ok) {
     await flashBadge(true);
-    await notify("Sent to MacGet", filename || title || host || url);
+    await notify("Sent to MacGet", filename || host || url);
     return { ok: true };
   }
   await flashBadge(false);
@@ -475,12 +471,13 @@ async function captureURL(url, { referer, kind = "file", title, tabId } = {}) {
 
 // ---- context menus ---------------------------------------------------------
 
-const MENUS = [
+// Feature modules loaded after this file may push their own entries before
+// installMenus() first runs (it fires only on onInstalled / onStartup).
+const MENUS = (globalThis.MACGET_MENUS = globalThis.MACGET_MENUS || []);
+MENUS.push(
   { id: "macget-link", title: "Download link with MacGet", contexts: ["link"] },
-  { id: "macget-image", title: "Download image with MacGet", contexts: ["image"] },
-  { id: "macget-media", title: "Download media with MacGet", contexts: ["video", "audio"] },
-  { id: "macget-page", title: "Send this page's video to MacGet", contexts: ["page"] },
-];
+  { id: "macget-image", title: "Download image with MacGet", contexts: ["image"] }
+);
 
 /**
  * Chrome's contextMenus.removeAll takes a callback and returns undefined;
@@ -509,24 +506,30 @@ function installMenus() {
 api.runtime.onInstalled.addListener(installMenus);
 if (api.runtime.onStartup) api.runtime.onStartup.addListener(installMenus);
 
+/** Menu id -> handler, for entries a feature module added to MENUS. */
+const MENU_HANDLERS = (globalThis.MACGET_MENU_HANDLERS = globalThis.MACGET_MENU_HANDLERS || {});
+
 if (api.contextMenus) {
   api.contextMenus.onClicked.addListener(async (info, tab) => {
     const tabId = tab && tab.id != null ? tab.id : undefined;
-    if (info.menuItemId === "macget-page") {
-      await captureURL(info.pageUrl, {
-        kind: "media",
-        title: tab && tab.title,
-        tabId,
-      });
+    const custom = MENU_HANDLERS[info.menuItemId];
+    if (custom) {
+      await custom(info, tab, tabId);
       return;
     }
     const target = info.linkUrl || info.srcUrl;
     if (!target) return;
-    await captureURL(target, { referer: info.pageUrl, kind: "file", tabId });
+    await captureURL(target, { referer: info.pageUrl, tabId });
   });
 }
 
 // ---- messaging -------------------------------------------------------------
+
+/**
+ * message type -> (msg, sender, sendResponse, tabId) => truthy for an async
+ * reply, matching the onMessage contract. Feature modules register here.
+ */
+const MESSAGE_HANDLERS = (globalThis.MACGET_MESSAGE_HANDLERS = globalThis.MACGET_MESSAGE_HANDLERS || {});
 
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || !msg.type) return;
@@ -537,17 +540,11 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (tabId != null) noteGesture(tabId);
       return; // no reply needed
 
-    case "macget-media":
-      captureURL(msg.pageUrl, { kind: "media", title: msg.title, tabId })
+    case "macget-capture-url":
+      captureURL(msg.url, { referer: msg.referer, tabId: msg.tabId })
         .then(sendResponse)
         .catch((e) => sendResponse({ ok: false, error: String(e) }));
       return true; // async reply
-
-    case "macget-capture-url":
-      captureURL(msg.url, { kind: msg.kind || "file", referer: msg.referer, tabId: msg.tabId })
-        .then(sendResponse)
-        .catch((e) => sendResponse({ ok: false, error: String(e) }));
-      return true;
 
     case "macget-health":
       pingHost(msg.force === true)
@@ -555,47 +552,21 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         .catch(() => sendResponse(health));
       return true;
 
-    case "macget-video-prefs":
-      getConfig()
-        .then((cfg) => sendResponse({
-          showVideoButton: cfg.showVideoButton !== false,
-          corner: cfg.videoButtonCorner || "top-right",
-          hidden: matchesHost(msg.host || "", cfg.videoButtonHiddenHosts || []),
-        }))
-        .catch(() => sendResponse({ showVideoButton: true, corner: "top-right", hidden: false }));
-      return true;
-
-    default:
-      return;
+    default: {
+      const handler = MESSAGE_HANDLERS[msg.type];
+      return handler ? handler(msg, sender, sendResponse, tabId) : undefined;
+    }
   }
 });
 
-// ---- HLS/DASH sniffing -----------------------------------------------------
-
-const MANIFEST_RE = /\.(m3u8|mpd)(\?|$)/i;
-try {
-  api.webRequest.onBeforeRequest.addListener(
-    (details) => {
-      if (details.type === "main_frame") {
-        // New page load in this tab — reset its sniffed manifests.
-        if (details.tabId >= 0) sniffedByTab.delete(details.tabId);
-        return;
-      }
-      if (details.tabId < 0 || !MANIFEST_RE.test(details.url)) return;
-      let set = sniffedByTab.get(details.tabId);
-      if (!set) { set = new Set(); sniffedByTab.set(details.tabId, set); }
-      set.add(details.url);
-      if (set.size > 20) set.delete(set.values().next().value); // cap memory
-    },
-    { urls: ["<all_urls>"] }
-  );
-} catch (e) {
-  console.warn("MacGet: webRequest sniffing unavailable:", e && e.message);
-}
+// Tab teardown. Feature modules append their own per-tab cleanup here.
+const TAB_CLEANUP = (globalThis.MACGET_TAB_CLEANUP = globalThis.MACGET_TAB_CLEANUP || []);
 
 api.tabs.onRemoved.addListener((tabId) => {
-  sniffedByTab.delete(tabId);
   lastGestureByTab.delete(tabId);
+  for (const fn of TAB_CLEANUP) {
+    try { fn(tabId); } catch (_) {}
+  }
 });
 
 // ---- startup ---------------------------------------------------------------

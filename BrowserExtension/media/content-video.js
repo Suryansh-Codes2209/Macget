@@ -1,8 +1,8 @@
-// MacGet content script. Two jobs:
-//   1. Overlay a "MacGet" button on the main <video> so the user can send the
-//      current page to Macget for yt-dlp extraction (YouTube + generic sites).
-//   2. Report trusted user gestures to the background script, which uses gesture
-//      recency to tell real downloads apart from drive-by / popunder "jumplinks".
+// MacGet video overlay — FIREFOX ONLY. Never packaged for Chrome.
+//
+// Overlays a "MacGet" button on the main <video> so the user can send the
+// current page to Macget for extraction. The gesture reporter that used to
+// share this file now lives in shared/content.js, which ships everywhere.
 //
 // Isolated-world script: it never touches page JS, only the DOM + runtime messaging.
 //
@@ -20,24 +20,6 @@
   "use strict";
   const api = globalThis.browser || globalThis.chrome;
   if (!api || !api.runtime || window.top !== window) return; // top frame only
-
-  // ---- user-gesture signal -------------------------------------------------
-  let lastGestureSent = 0;
-  function markGesture(e) {
-    if (!e || !e.isTrusted) return;
-    const now = Date.now();
-    if (now - lastGestureSent < 400) return; // throttle chatter
-    lastGestureSent = now;
-    // Fire-and-forget. The background sends no reply, which on Firefox settles
-    // as a rejected promise — swallow it rather than leaving unhandled
-    // rejections on every click of every page.
-    try {
-      const pending = api.runtime.sendMessage({ type: "macget-gesture" });
-      if (pending && typeof pending.catch === "function") pending.catch(() => {});
-    } catch (_) {}
-  }
-  window.addEventListener("pointerdown", markGesture, true);
-  window.addEventListener("keydown", markGesture, true);
 
   // ---- preferences ---------------------------------------------------------
   let prefs = { showVideoButton: true, corner: "top-right", hidden: false };

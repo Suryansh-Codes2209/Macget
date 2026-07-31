@@ -3,6 +3,35 @@
 Hands downloads you start in your browser to Macget, including the cookies/referrer
 needed for logged-in downloads. Works with Chrome, Edge, Brave, and Firefox.
 
+## Chrome and Firefox are not the same extension
+
+The Chrome build captures **file downloads only**. It has no video overlay, no
+media context menus, no stream detection, and no path to Macget's extractor —
+that code is not merely disabled, it is not in the package.
+
+The Chrome Web Store rejected v1.2 under its Prohibited Products policy for
+facilitating downloads of copyrighted media from YouTube, an item-level
+rejection. Firefox's add-on policies permit that class of extension, so the
+Firefox build keeps it.
+
+| | Chrome / Edge / Brave | Firefox |
+|---|---|---|
+| Capture browser downloads | ✅ | ✅ |
+| Link / image context menus | ✅ | ✅ |
+| Jumplink filtering | ✅ | ✅ |
+| Cookies for authenticated downloads | ✅ | ✅ |
+| Video overlay button | ❌ | ✅ |
+| Media context menus, "Send video" | ❌ | ✅ |
+| HLS/DASH detection, extractor handoff | ❌ | ✅ |
+| `webRequest` permission | ❌ | ✅ |
+
+Macget itself keeps media extraction on every platform — paste a page URL into
+the app. Only the Chrome *extension* drops it.
+
+**Do not upload a Chrome package until the appeal on case 2-7571000041635
+resolves.** Republishing a removed item is itself a policy violation and
+escalates to the developer account.
+
 ## How it works
 
 ```
@@ -26,26 +55,29 @@ missing/disabled host never makes a download disappear.
 
 ### Chrome / Edge / Brave (Web Store)
 
-Published at
-<https://chromewebstore.google.com/detail/ldmhmgglgemkoogpokfcgplbpfokcejl> —
-the same listing installs on Edge and Brave.
+**Currently unavailable.** The listing at
+`chromewebstore.google.com/detail/ldmhmgglgemkoogpokfcgplbpfokcejl` was removed —
+see the policy note above. Install unpacked in the meantime.
 
 ### Chrome / Edge / Brave (unpacked)
 
-1. Go to `chrome://extensions` (or `edge://extensions`, `brave://extensions`).
-2. Enable **Developer mode**.
-3. **Load unpacked** → select the `chromium/` folder.
-4. The extension ID must be `knccbiljmilfmhfellkfbdmilpbdkgni` (pinned by the
+1. Run `./build.sh` to assemble `build/chromium/`.
+2. Go to `chrome://extensions` (or `edge://extensions`, `brave://extensions`).
+3. Enable **Developer mode**.
+4. **Load unpacked** → select the `build/chromium/` folder.
+5. The extension ID must be `knccbiljmilfmhfellkfbdmilpbdkgni` (pinned by the
    `key` in `manifest.json`).
 
-`NativeMessagingInstaller.chromiumExtensionIDs` lists both the Web Store ID and
-the unpacked ID; the host manifest trusts those two and nothing else.
+`NativeMessagingInstaller.chromiumExtensionIDs` lists both the old Web Store ID
+and the unpacked ID; the host manifest trusts those two and nothing else. If a
+new Web Store listing is ever approved, **its ID must be added there** or capture
+fails silently with no user-visible error.
 
 ### Firefox (temporary add-on)
 
-1. Run `./build.sh` once to sync shared files into `firefox/`.
+1. Run `./build.sh` to assemble `build/firefox/`.
 2. Go to `about:debugging#/runtime/this-firefox`.
-3. **Load Temporary Add-on** → select `firefox/manifest.json`.
+3. **Load Temporary Add-on** → select `build/firefox/manifest.json`.
    (Temporary add-ons are removed when Firefox restarts; for a permanent install,
    sign the `dist/macget-firefox.zip` via addons.mozilla.org.)
 
@@ -56,53 +88,87 @@ and the last 8 captures. The connection state comes from an actual ping to the
 native host, so “Not connected” means the plumbing is genuinely broken, not that a
 checkbox is off.
 
-**Right-click menus** — “Download link with MacGet” on a link, plus image, video,
-and audio targets. Right-clicking the page offers “Send this page's video to
-MacGet,” which hands the page URL to Macget's yt-dlp extractor. Anything you ask
-for by hand skips the size and jumplink filters — those exist to judge downloads
-that started on their own.
+**Right-click menus** — “Download link with MacGet” on a link, plus image targets.
+On Firefox, also video and audio targets and “Send this page's video to MacGet,”
+which hands the page URL to Macget's yt-dlp extractor. Anything you ask for by
+hand skips the size and jumplink filters — those exist to judge downloads that
+started on their own.
 
-**Video button** — hover a video player and a MacGet button appears in the corner.
-It survives fullscreen and reports whether the handoff actually worked.
+**Video button** *(Firefox only)* — hover a video player and a MacGet button
+appears in the corner. It survives fullscreen and reports whether the handoff
+actually worked.
 
 **Options page** (toolbar popup → *All settings*, or the extension's Options) has
-capture, filtering, and video-button settings, plus a **Diagnostics** section: check
-the connection, see the extension ID and host name, and read the last error verbatim.
-Start there when a download isn't being captured.
+capture and filtering settings, video-button settings on Firefox, plus a
+**Diagnostics** section: check the connection, see the extension ID and host name,
+and read the last error verbatim. Start there when a download isn't being captured.
 
 ## Layout
 
 ```
-chromium/            single source of truth for everything but manifest.json
+shared/              media-free core. Ships to every browser.
   heuristics.js      pure logic: jumplink classification, host matching, formatting
   background.js      capture orchestration, health, badge, notifications, menus
-  content.js         in-page video button + user-gesture reporting
+  content.js         user-gesture reporting, and nothing else
   popup.html/.js     toolbar popup
   options.html/.js   settings page
   theme.css          shared tokens and controls
-firefox/             built by build.sh; only manifest.json is hand-maintained
-test/                node --test suites over heuristics.js
+media/               FIREFOX ONLY. Never copied into the Chrome package.
+  media.js           media menus/messages, HLS-DASH sniffing, captureMedia()
+  content-video.js   the in-page video overlay
+  media-ui.js        wires the two HTML fragments below
+  popup-media.html   "Send video" button, spliced into shared/popup.html
+  options-media.html "Video button" settings, spliced into shared/options.html
+targets/             the one file that differs per browser
+  chromium/manifest.json
+  firefox/manifest.json
+test/                node --test: heuristics + the Chrome no-media guard
+build/               generated. build/chromium/ and build/firefox/ are loadable.
 ```
 
 `heuristics.js` is loaded three ways, which is why it defines globals rather than
 using ES modules: `importScripts()` from Chrome's service worker, the
 `background.scripts` array on Firefox, and `require()` from the Node tests.
 
+`media.js` registers itself through extension points the core exposes
+(`MACGET_MENUS`, `MACGET_MESSAGE_HANDLERS`, `MACGET_EXTRA_DEFAULTS`,
+`MACGET_TAB_CLEANUP`, `MACGET_OPTION_SECTIONS`) instead of the core branching on
+a media kind. That is why `shared/` reads as a download-capture extension with no
+removed feature — because it is one. It costs `media.js` a duplicated
+dedupe/breaker/history wrapper around its own payload; that duplication is
+deliberate.
+
 ## Building / packaging
 
 ```sh
-./build.sh   # runs tests, syncs chromium/ into firefox/, writes dist/macget-{chromium,firefox}.zip
-node --test "test/*.test.js"   # tests on their own
+./build.sh                       # assembles build/, verifies, writes dist/*.zip
+node --test "test/*.test.js"     # both suites; the guard needs build.sh run first
+node --test test/heuristics.test.js   # pure-logic tests alone
 ```
 
-Adding a file to `chromium/` means adding it to `SHARED` in `build.sh`, or Firefox
-will silently ship without it.
+Quote the glob. `node --test test/` resolves the directory as a module path and
+fails with `MODULE_NOT_FOUND` rather than scanning it.
+
+`build.sh` copies `shared/` into both targets and `media/` into Firefox only,
+splices the `<!--MEDIA-SECTION-->` marker in the two HTML files, then runs
+`test/no-media-in-chrome.test.js` against the assembled Chrome package and
+**fails the build** on any media identifier it finds. Adding a core file means
+adding it to `CORE_JS` in `build.sh`, or both targets ship without it.
+
+Note the direction of the HTML splice: it inserts into a media-free base rather
+than cutting from a full one. If it ever breaks, Chrome stays clean and Firefox
+loses a settings panel — the failure mode points the safe way.
 
 ## Testing
 
 `heuristics.js` is the only file with no browser API access, and it is where the
 subtle bugs live — host-suffix matching, jumplink classification, buffer bounds.
 It is covered by `test/heuristics.test.js`.
+
+`test/no-media-in-chrome.test.js` covers the policy guarantee: it walks the
+assembled `build/chromium/` and fails on any media identifier, on `webRequest` in
+the manifest, or on any content script beyond the gesture reporter. `build.sh`
+runs it on every build.
 
 Everything else needs a real browser. Manual matrix:
 
@@ -112,10 +178,11 @@ Everything else needs a real browser. Manual matrix:
 | Popup — not connected | Quit Macget / turn integration off → pill reads **Not connected**, hero glows red, **Check again** is offered. A started download stays in the browser. |
 | Popup — paused | Toggle capture off → pill reads **Paused**; downloads stay in the browser. |
 | Recent list | Capture something → it appears with host and relative time. A capture attempted while disconnected appears tagged **Not sent**. |
-| Context menus | Right-click a link, an image, a `<video>`, and page background — each sends and flashes the badge. |
+| Context menus | Right-click a link and an image — each sends and flashes the badge. On Firefox also a `<video>` and the page background. On Chrome those two entries must **not** exist. |
 | Badge | ✓ flashes green after a capture; a red ! persists while the host is unreachable; both vanish when the badge option is off. |
 | Notifications | One per capture; the "isn't connected" warning appears at most once per 10 minutes. |
-| Video button | Hover a player → button appears in the configured corner. Go fullscreen → it is still there. With Macget quit, clicking reports **Macget not connected**. |
+| Video button (Firefox) | Hover a player → button appears in the configured corner. Go fullscreen → it is still there. With Macget quit, clicking reports **Macget not connected**. |
+| Video button (Chrome) | Hover a player on any site → **no** button appears. The popup has no *Send video*, and Options has no *Video button* section. |
 | Worker sleep (the regression this guards) | `chrome://serviceworker-internals` → **Stop** the worker → start a download in a **background** tab → it must be **captured**, not silently dropped. |
 | Options | Every control persists across a reload; Diagnostics → **Check connection** reflects Macget actually running or not. |
 

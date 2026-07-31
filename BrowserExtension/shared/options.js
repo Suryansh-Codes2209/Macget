@@ -13,10 +13,21 @@ const DEFAULTS = {
   gestureWindowMs: 2000,
   notificationsEnabled: true,
   badgeEnabled: true,
-  showVideoButton: true,
-  videoButtonCorner: "top-right",
-  videoButtonHiddenHosts: [],
 };
+
+/**
+ * Optional settings sections contributed by a feature module whose markup was
+ * inserted into this page at build time. Each entry is
+ * `{ defaults, load(cfg), collect(), fields }`; the module registers itself
+ * before this script runs, so core never names what the section contains.
+ */
+const EXTRA_SECTIONS = (globalThis.MACGET_OPTION_SECTIONS = globalThis.MACGET_OPTION_SECTIONS || []);
+
+function allDefaults() {
+  const out = Object.assign({}, DEFAULTS);
+  for (const section of EXTRA_SECTIONS) Object.assign(out, section.defaults || {});
+  return out;
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -62,7 +73,7 @@ function reflectStatus(enabled, health) {
 // ---- load / save ------------------------------------------------------------
 
 async function load() {
-  const cfg = await api.storage.local.get(DEFAULTS);
+  const cfg = await api.storage.local.get(allDefaults());
 
   $("enabled").checked = !!cfg.enabled;
   $("minSize").value = cfg.minSizeBytes > 0 ? Math.round(cfg.minSizeBytes / (1024 * 1024)) : 0;
@@ -73,9 +84,9 @@ async function load() {
   $("gestureWindow").value = Number.isFinite(cfg.gestureWindowMs) ? cfg.gestureWindowMs : 2000;
   $("denylist").value = (cfg.denylist || []).join("\n");
 
-  $("showVideoButton").checked = cfg.showVideoButton !== false;
-  $("videoCorner").value = cfg.videoButtonCorner || "top-right";
-  $("videoHidden").value = (cfg.videoButtonHiddenHosts || []).join("\n");
+  for (const section of EXTRA_SECTIONS) {
+    if (section.load) section.load(cfg);
+  }
 
   const manifest = api.runtime.getManifest();
   $("version").textContent = manifest.version;
@@ -90,7 +101,7 @@ async function save() {
   const mb = parseInt($("minSize").value, 10);
   const gesture = parseInt($("gestureWindow").value, 10);
 
-  await api.storage.local.set({
+  const payload = {
     enabled: $("enabled").checked,
     minSizeBytes: Number.isFinite(mb) && mb > 0 ? mb * 1024 * 1024 : 0,
     notificationsEnabled: $("notifications").checked,
@@ -99,11 +110,12 @@ async function save() {
     jumplinkFilterEnabled: $("jumplinkFilter").checked,
     gestureWindowMs: Number.isFinite(gesture) && gesture >= 0 ? gesture : 2000,
     denylist: parseHostList($("denylist").value),
+  };
+  for (const section of EXTRA_SECTIONS) {
+    if (section.collect) Object.assign(payload, section.collect());
+  }
 
-    showVideoButton: $("showVideoButton").checked,
-    videoButtonCorner: $("videoCorner").value,
-    videoButtonHiddenHosts: parseHostList($("videoHidden").value),
-  });
+  await api.storage.local.set(payload);
 
   reflectStatus($("enabled").checked, lastHealth);
   flashSaved();
@@ -184,8 +196,8 @@ api.storage.onChanged.addListener((changes, area) => {
 const FIELDS = [
   "enabled", "minSize", "notifications", "badge",
   "jumplinkFilter", "gestureWindow", "denylist",
-  "showVideoButton", "videoCorner", "videoHidden",
-];
+].concat(...EXTRA_SECTIONS.map((section) => section.fields || []));
+
 FIELDS.forEach((id) => $(id).addEventListener("change", save));
 
 document.addEventListener("DOMContentLoaded", load);

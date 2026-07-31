@@ -8,7 +8,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert");
-const h = require("../chromium/heuristics.js");
+const h = require("../shared/heuristics.js");
 
 test("hostnameOf", async (t) => {
   await t.test("extracts the host", () => {

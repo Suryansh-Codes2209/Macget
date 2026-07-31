@@ -78,10 +78,12 @@ async function refreshHealth(force) {
 
 // ---- recent -----------------------------------------------------------------
 
-const GLYPHS = {
-  file: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8"/><path d="M4.5 7 8 10.5 11.5 7"/><path d="M3 13h10"/></svg>',
-  media: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M6 4.2v7.6a.5.5 0 0 0 .76.43l6.1-3.8a.5.5 0 0 0 0-.86l-6.1-3.8A.5.5 0 0 0 6 4.2Z"/></svg>',
-};
+// kind -> glyph markup / extra CSS class. A feature module loaded earlier in the
+// page can register its own before this runs; `file` is the fallback.
+const GLYPHS = (globalThis.MACGET_KIND_GLYPHS = globalThis.MACGET_KIND_GLYPHS || {});
+const KIND_CLASSES = (globalThis.MACGET_KIND_CLASSES = globalThis.MACGET_KIND_CLASSES || {});
+
+GLYPHS.file = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v8"/><path d="M4.5 7 8 10.5 11.5 7"/><path d="M3 13h10"/></svg>';
 
 function renderRecent(history) {
   const list = $("recentList");
@@ -96,8 +98,8 @@ function renderRecent(history) {
     const li = document.createElement("li");
 
     const glyph = document.createElement("span");
-    glyph.className = "glyph" + (entry.ok === false ? " failed" : entry.kind === "media" ? " video" : "");
-    glyph.innerHTML = entry.kind === "media" ? GLYPHS.media : GLYPHS.file;
+    glyph.className = "glyph" + (entry.ok === false ? " failed" : (KIND_CLASSES[entry.kind] || ""));
+    glyph.innerHTML = GLYPHS[entry.kind] || GLYPHS.file;
     li.appendChild(glyph);
 
     const body = document.createElement("div");
@@ -204,18 +206,10 @@ $("retry").addEventListener("click", async () => {
   await refreshHealth(true);
 });
 
-$("sendVideo").addEventListener("click", (e) => {
-  runAction(
-    e.currentTarget,
-    (tab) => ({ type: "macget-media", pageUrl: tab.url, title: tab.title }),
-    "Sending the video on this page…"
-  );
-});
-
 $("sendUrl").addEventListener("click", (e) => {
   runAction(
     e.currentTarget,
-    (tab) => ({ type: "macget-capture-url", url: tab.url, kind: "file", tabId: tab.id }),
+    (tab) => ({ type: "macget-capture-url", url: tab.url, tabId: tab.id }),
     "Sending this URL…"
   );
 });

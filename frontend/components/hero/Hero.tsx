@@ -112,6 +112,32 @@ export function Hero() {
             <span className="hidden h-1 w-1 rounded-full bg-mute/60 sm:inline-block" />
             <span>Zero telemetry</span>
           </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: easeEmphasized, delay: 0.55 }}
+            className="mt-7"
+          >
+            <a
+              href="https://www.producthunt.com/products/macget?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-macget"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-85"
+            >
+              {/* Product Hunt serves the badge as an SVG from its own host, so
+                  next/image would need `dangerouslyAllowSVG` plus a remote
+                  pattern to render one fixed 250×54 asset. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1219547&theme=dark&t=1786369263568"
+                alt="MacGet - Free, open-source multi-threaded download manager for Mac | Product Hunt"
+                width={250}
+                height={54}
+                className="h-[54px] w-[250px]"
+              />
+            </a>
+          </motion.div>
         </div>
 
         {/* Visualization column */}

@@ -10,6 +10,18 @@ const CHROME_WEB_STORE =
 
 const LINKEDIN = "https://www.linkedin.com/company/macget-app";
 
+/**
+ * The person, not the product. `LINKEDIN` above is the MacGet company page —
+ * these are the maintainer's own profiles, and the two are deliberately kept
+ * apart so the footer and the JSON-LD `author` don't cross-link the wrong one.
+ */
+const MAINTAINER = {
+  name: "Suryansh Chaudhary",
+  githubUrl: "https://github.com/Suryansh-Codes2209",
+  xUrl: "https://x.com/Suryansh_2001",
+  linkedinUrl: "https://www.linkedin.com/in/suryansh-chaudhary-2209/",
+} as const;
+
 export const siteConfig = {
   name: "MacGet",
   binary: "Macget",
@@ -41,6 +53,7 @@ export const siteConfig = {
   chromeWebStoreUrl: CHROME_WEB_STORE,
   linkedinUrl: LINKEDIN,
   contactEmail: "suryansh.codes2001@gmail.com",
+  maintainer: MAINTAINER,
 
   disclaimer:
     "MacGet is not affiliated with or endorsed by Tonec Inc. or Internet Download Manager.",

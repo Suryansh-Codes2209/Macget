@@ -341,6 +341,8 @@ struct TorrentEngineOptions: Sendable, Equatable {
     /// aria2's own default is 5. MacGet's engine allows up to 16 concurrent
     /// downloads, so leaving aria2 at 5 silently queued the rest.
     var maxConcurrentDownloads: Int = 5
+    /// Inject `TorrentTrackers.bundled` into non-private torrents.
+    var addPublicTrackers: Bool = true
     /// Re-hash data already on disk when a torrent resumes. Off by default —
     /// see `Aria2Daemon.arguments` for why.
     var verifyOnResume: Bool = false
@@ -365,6 +367,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
         maxPeers: Int = 200,
         requireEncryption: Bool = false,
         maxConcurrentDownloads: Int = 5,
+        addPublicTrackers: Bool = true,
         verifyOnResume: Bool = false
     ) {
         self.seedRatio = seedRatio
@@ -376,6 +379,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
         self.maxPeers = max(1, min(500, maxPeers))
         self.requireEncryption = requireEncryption
         self.maxConcurrentDownloads = max(1, maxConcurrentDownloads)
+        self.addPublicTrackers = addPublicTrackers
         self.verifyOnResume = verifyOnResume
     }
 
@@ -390,6 +394,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
             maxPeers: settings.torrentMaxPeers,
             requireEncryption: settings.torrentRequireEncryption,
             maxConcurrentDownloads: settings.maxConcurrentDownloads,
+            addPublicTrackers: settings.torrentAddPublicTrackers,
             verifyOnResume: settings.torrentVerifyOnResume
         )
     }

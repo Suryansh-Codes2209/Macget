@@ -32,6 +32,14 @@ actor TorrentJob {
     /// the real multi-gigabyte transfer never gets reported at all.
     private var isAwaitingMetadata = false
 
+    /// Polls remaining in which to check a resolved magnet's `private` flag.
+    ///
+    /// aria2 writes `<infoHash>.torrent` (via `--bt-save-metadata`) a moment
+    /// after `followedBy` appears, so checking once at the handoff can lose the
+    /// race. Ten polls at 250ms is 2.5s — long enough, and bounded so a torrent
+    /// with no metadata file never re-reads forever.
+    private var privateCheckPollsRemaining = 0
+
     let onStateChange: @Sendable (Download) async -> Void
     let onSnapshot: @Sendable (DownloadSnapshot) async -> Void
 
@@ -80,24 +88,40 @@ actor TorrentJob {
         }
     }
 
+    /// Add-time tracker decision, pure so it can be tested without a daemon.
+    ///
+    /// A magnet passes `nil` here: its `private` flag is unknowable until
+    /// metadata arrives, and the metadata fetch itself needs peers. It is
+    /// corrected at the handoff by `dropTrackersIfPrivate`.
+    static func trackerOption(torrentFileData: Data?, addPublicTrackers: Bool) -> String? {
+        let isPrivate = torrentFileData.map(TorrentMetainfo.isPrivate) ?? false
+        return TorrentTrackers.option(isPrivate: isPrivate, enabled: addPublicTrackers)
+    }
+
     private func add(using client: Aria2RPCClient) async throws -> String {
-        var options: [String: String] = ["dir": download.destinationFolder.path]
+        var addOptions: [String: String] = ["dir": download.destinationFolder.path]
         // Honour an existing file selection across a resume.
         if let files = download.torrentFiles, !files.isEmpty {
             let selected = files.filter(\.selected).map { String($0.index) }
             // Selecting nothing would download nothing; treat it as "everything".
             if !selected.isEmpty, selected.count != files.count {
-                options["select-file"] = selected.joined(separator: ",")
+                addOptions["select-file"] = selected.joined(separator: ",")
             }
+        }
+        if let trackers = Self.trackerOption(
+            torrentFileData: download.torrentFileData,
+            addPublicTrackers: options.addPublicTrackers
+        ) {
+            addOptions["bt-tracker"] = trackers
         }
 
         if let data = download.torrentFileData {
             // A .torrent carries its own metainfo, so there's no metadata phase.
             isAwaitingMetadata = false
-            return try await client.addTorrent(data, options: options)
+            return try await client.addTorrent(data, options: addOptions)
         }
         isAwaitingMetadata = true
-        return try await client.addURI(download.url.absoluteString, options: options)
+        return try await client.addURI(download.url.absoluteString, options: addOptions)
     }
 
     private func startPolling() {
@@ -143,6 +167,7 @@ actor TorrentJob {
                 download.chunks[index].bytesWritten = 0
             }
             log.info("Following metadata handoff \(gid, privacy: .public) → \(next, privacy: .public)")
+            privateCheckPollsRemaining = 10
             return true
         }
 
@@ -168,6 +193,10 @@ actor TorrentJob {
         }
 
         await adoptMetadata(from: status)
+
+        if privateCheckPollsRemaining > 0 {
+            await dropTrackersIfPrivate(status: status)
+        }
 
         if status.isError {
             await fail(with: Self.friendlyError(status.errorMessage))
@@ -251,6 +280,36 @@ actor TorrentJob {
 
         if changed {
             await onStateChange(download)
+        }
+    }
+
+    /// A magnet's trackers were injected before its `private` flag was knowable.
+    /// Once metadata lands, strip them if the torrent turns out to be private.
+    ///
+    /// Best-effort throughout: a failure here leaves a private torrent announcing
+    /// to public trackers, which is bad, but tearing the download down over it
+    /// would be worse and fixes nothing.
+    private func dropTrackersIfPrivate(status: Aria2Status) async {
+        privateCheckPollsRemaining -= 1
+        guard options.addPublicTrackers,
+              let client,
+              let gid,
+              let infoHash = status.infoHash ?? download.torrentInfoHash
+        else { return }
+
+        let url = TorrentTrackers.metainfoURL(infoHash: infoHash, in: download.destinationFolder)
+        guard let data = try? Data(contentsOf: url) else { return }   // not written yet; retry next poll
+
+        privateCheckPollsRemaining = 0
+        guard TorrentMetainfo.isPrivate(data) else { return }
+
+        do {
+            // An empty value clears the injected list without touching the
+            // torrent's own trackers.
+            try await client.changeOption(gid: gid, options: ["bt-tracker": ""])
+            log.info("Dropped injected trackers from private torrent \(infoHash, privacy: .public)")
+        } catch {
+            log.error("Could not drop trackers from private torrent: \(error.localizedDescription, privacy: .public)")
         }
     }
 

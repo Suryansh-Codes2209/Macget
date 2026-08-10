@@ -40,4 +40,47 @@ final class TorrentTrackersTests: XCTestCase {
         XCTAssertEqual(url.lastPathComponent, "abc123.torrent")
         XCTAssertEqual(url.deletingLastPathComponent().path, "/tmp/dl")
     }
+
+    func test_addPublicTrackersFlowsFromSettingsToEngineOptions() {
+        XCTAssertTrue(AppSettings().torrentOptions.addPublicTrackers)
+        XCTAssertFalse(AppSettings(torrentAddPublicTrackers: false).torrentOptions.addPublicTrackers)
+    }
+}
+
+/// The add-time decision, extracted so it can be tested without a daemon.
+final class TorrentTrackerDecisionTests: XCTestCase {
+
+    private func metainfo(privateFlag: Int?) -> Data {
+        // "4:test" is a 4-byte string — the length prefix must match exactly or
+        // the parser reads the next key from the middle of this value.
+        var info = Data("d4:name4:test".utf8)
+        // (no pieces: the parser doesn't require them and this keeps the fixture small)
+        if let privateFlag { info.append(Data("7:privatei\(privateFlag)e".utf8)) }
+        info.append(Data("e".utf8))
+        var root = Data("d4:info".utf8)
+        root.append(info)
+        root.append(Data("e".utf8))
+        return root
+    }
+
+    func test_publicTorrentFileGetsTrackers() {
+        XCTAssertNotNil(TorrentJob.trackerOption(
+            torrentFileData: metainfo(privateFlag: nil), addPublicTrackers: true))
+    }
+
+    func test_privateTorrentFileGetsNone() {
+        XCTAssertNil(TorrentJob.trackerOption(
+            torrentFileData: metainfo(privateFlag: 1), addPublicTrackers: true))
+    }
+
+    /// A magnet has no metainfo yet, so it gets trackers and is corrected later.
+    func test_magnetWithNoMetainfoYetStillGetsTrackers() {
+        XCTAssertNotNil(TorrentJob.trackerOption(torrentFileData: nil, addPublicTrackers: true))
+    }
+
+    func test_settingOffMeansNoneEverywhere() {
+        XCTAssertNil(TorrentJob.trackerOption(torrentFileData: nil, addPublicTrackers: false))
+        XCTAssertNil(TorrentJob.trackerOption(
+            torrentFileData: metainfo(privateFlag: nil), addPublicTrackers: false))
+    }
 }

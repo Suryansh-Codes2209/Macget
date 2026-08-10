@@ -338,8 +338,13 @@ struct TorrentEngineOptions: Sendable, Equatable {
     /// Refuse peers that won't encrypt. Defeats ISP BitTorrent shaping, at the
     /// cost of dropping every peer that only speaks plaintext.
     var requireEncryption: Bool = false
-    /// aria2's own default is 5. MacGet's engine allows up to 16 concurrent
-    /// downloads, so leaving aria2 at 5 silently queued the rest.
+    /// aria2's own default is 5 — the value that applies if MacGet never sets
+    /// this option — not MacGet's own setting default, which is
+    /// `AppSettings.maxConcurrentDownloads` at 3. `init(settings:)` always
+    /// overrides this with the user's setting, so 5 only shows up when a bare
+    /// `TorrentEngineOptions()` is constructed (e.g. in tests). MacGet's engine
+    /// allows up to 16 concurrent downloads, so leaving aria2 at 5 silently
+    /// queued the rest.
     var maxConcurrentDownloads: Int = 5
     /// Inject `TorrentTrackers.bundled` into non-private torrents.
     var addPublicTrackers: Bool = true

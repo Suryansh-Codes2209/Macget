@@ -38,6 +38,12 @@ final class TorrentMetainfoTests: XCTestCase {
         let trap = Array("7:privatei1e".utf8)
         let pieces = [UInt8](repeating: 0xAB, count: 8) + trap + [UInt8](repeating: 0xCD, count: 8)
         XCTAssertFalse(TorrentMetainfo.isPrivate(metainfo(pieces: pieces, privateFlag: nil)))
+
+        // Positive control: `isPrivate` also returns false when parsing fails
+        // outright, so the assertion above would pass vacuously if this fixture
+        // were malformed. Proving the same fixture builder correctly reports
+        // true when the private flag genuinely is set pins it as non-vacuous.
+        XCTAssertTrue(TorrentMetainfo.isPrivate(metainfo(pieces: pieces, privateFlag: 1)))
     }
 
     /// Malformed input must read as public, never crash. Public is the safe

@@ -74,7 +74,7 @@ struct TorrentSettingsView: View {
                 HStack {
                     Text("Maximum peers per torrent")
                     Spacer()
-                    TextField("", value: $vm.settings.torrentMaxPeers, format: .number.grouping(.never))
+                    TextField("", value: maxPeersBinding, format: .number.grouping(.never))
                         .frame(width: 70)
                         .multilineTextAlignment(.trailing)
                 }
@@ -89,6 +89,10 @@ struct TorrentSettingsView: View {
 
                 Toggle("Require encrypted connections", isOn: $vm.settings.torrentRequireEncryption)
                 Text("Hides BitTorrent traffic from providers that slow it down. It also refuses peers that can't encrypt, so fewer peers are available — turn this on only if downloads are being throttled.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("Maximum peers and encryption take effect the next time the torrent engine starts.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -149,6 +153,18 @@ struct TorrentSettingsView: View {
         Binding(
             get: { vm.settings.torrentMaxUploadBytesPerSec.map { $0 / 1024 } },
             set: { vm.settings.torrentMaxUploadBytesPerSec = $0.map { $0 * 1024 } }
+        )
+    }
+
+    /// `AppSettings` only clamps this on decode/init, so typing 9000 here would
+    /// otherwise persist as 9000 while the engine (clamped in
+    /// `TorrentEngineOptions.init`) actually runs at 500 — the field would then
+    /// silently show the clamped value after the next launch. Clamping on write
+    /// keeps what's displayed and what's stored in agreement immediately.
+    private var maxPeersBinding: Binding<Int> {
+        Binding(
+            get: { vm.settings.torrentMaxPeers },
+            set: { vm.settings.torrentMaxPeers = max(1, min(500, $0)) }
         )
     }
 }

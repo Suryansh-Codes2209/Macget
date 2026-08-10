@@ -87,6 +87,58 @@ final class UnknownSizeDownloadTests: XCTestCase {
             "partial file should be moved, not left behind"
         )
     }
+
+    /// Regression: a server that reports `Content-Length` but has no
+    /// `Accept-Ranges` and answers every ranged GET with a plain 200 + full body
+    /// (googleusercontent's video-download endpoint does exactly this).
+    ///
+    /// Planning a single whole-file chunk wasn't enough — the worker still sent
+    /// `Range:`, saw the 200, and raised the non-retryable `rangeRefused`, so the
+    /// download failed at 0 bytes while a browser downloaded it fine.
+    func test_knownSizeButRangeRefused_completesViaSingleStream() async throws {
+        let payload = Data((0..<200_000).map { UInt8($0 & 0xFF) })  // ~195 KB
+        StubURLProtocol.body = payload
+        StubURLProtocol.includeContentLength = true
+        StubURLProtocol.statusCode = 200
+
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("macget-norange-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let download = Download(
+            url: URL(string: "https://example.com/movie.mkv")!,
+            destinationFolder: dir,
+            filename: "movie.mkv",
+            threadCount: 8  // the multi-threaded request is what used to break it
+        )
+
+        let done = expectation(description: "reaches a terminal state")
+        let finalState = StateBox()
+
+        let coordinator = DownloadCoordinator(
+            download: download,
+            session: makeStubSession(),
+            onStateChange: { d in
+                if d.status.isTerminal {
+                    await finalState.set(d)
+                    done.fulfill()
+                }
+            },
+            onSnapshot: { _ in }
+        )
+
+        await coordinator.start()
+        await fulfillment(of: [done], timeout: 10)
+
+        let result = await finalState.value
+        XCTAssertEqual(result?.status, .completed, "expected completion, got error: \(result?.error ?? "nil")")
+        XCTAssertEqual(result?.totalBytes, Int64(payload.count))
+        XCTAssertEqual(result?.supportsRange, false)
+        XCTAssertEqual(result?.chunks.count, 1, "a no-Range server must be one stream, not 8")
+
+        let onDisk = try Data(contentsOf: dir.appendingPathComponent("movie.mkv"))
+        XCTAssertEqual(onDisk, payload)
+    }
 }
 
 /// Sendable holder so the @Sendable callback can stash the terminal Download.

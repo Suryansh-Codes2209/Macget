@@ -61,11 +61,65 @@ struct DownloadInspectorView: View {
             }
         }
 
+        if row.isTorrent, let files = row.torrentFiles, !files.isEmpty {
+            section("Files", subtitle: "\(files.count)") {
+                filesList(files, in: row)
+            }
+        }
+
         section("Source") {
             VStack(alignment: .leading, spacing: 6) {
                 detailRow("Host", row.url.host ?? row.url.absoluteString)
                 detailRow("Saved to", row.destinationURL.deletingLastPathComponent().path)
             }
+        }
+    }
+
+    /// What's actually inside a torrent.
+    ///
+    /// A torrent lands as a folder, so the row's filename names a directory and
+    /// says nothing about its contents. Season packs and discographies run to
+    /// hundreds of entries, so the list is capped — the inspector is a
+    /// fixed-width panel, not a file browser.
+    private static let fileDisplayLimit = 50
+
+    @ViewBuilder
+    private func filesList(_ files: [TorrentFileEntry], in row: DownloadRowItem) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(files.prefix(Self.fileDisplayLimit)) { file in
+                fileRow(file, in: row)
+            }
+            if files.count > Self.fileDisplayLimit {
+                Text("+\(files.count - Self.fileDisplayLimit) more")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func fileRow(_ file: TorrentFileEntry, in row: DownloadRowItem) -> some View {
+        let url = DownloadRowItem.resolve(file.path, under: row.destinationURL)
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        HStack(spacing: 8) {
+            Text(file.displayName)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                // A deselected file was never meant to be downloaded; dimming it
+                // explains its absence rather than looking like a failure.
+                .foregroundStyle(file.selected ? .primary : .secondary)
+            Spacer(minLength: 8)
+            Text(ByteFormatter.string(file.length))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Image(systemName: "arrow.up.forward.app")
+            }
+            .buttonStyle(.plain)
+            .disabled(!exists)
+            .help(exists ? "Open \(file.displayName)" : "Not downloaded")
         }
     }
 

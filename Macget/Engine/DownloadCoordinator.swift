@@ -31,6 +31,10 @@ enum CoordinatorError: Error, LocalizedError {
     case insufficientDiskSpace(required: Int64, available: Int64)
     case finalizeFailed(String)
     case stalled
+    /// A single-stream (no-Range) download ended before `Content-Length` bytes
+    /// arrived. Can't be resumed — the server refuses Range — so the partial is
+    /// kept but the download is failed rather than finalized truncated.
+    case truncatedStream(expected: Int64, received: Int64)
 
     var errorDescription: String? {
         switch self {
@@ -42,6 +46,8 @@ enum CoordinatorError: Error, LocalizedError {
             return "Could not move file to destination: \(s)"
         case .stalled:
             return "Download stalled — no data received."
+        case .truncatedStream(let e, let r):
+            return "Connection closed after \(r) of \(e) bytes. This server does not support resuming, so the download must restart."
         }
     }
 }
@@ -281,7 +287,7 @@ actor DownloadCoordinator {
         guard let total = download.totalBytes else {
             // Server never reported a size (no Content-Length / chunked transfer /
             // HEAD-blocked). Don't refuse — pull the whole body in one connection.
-            try await runUnknownSizeStream()
+            try await runSingleStream(knownTotal: nil)
             return
         }
 
@@ -290,6 +296,17 @@ actor DownloadCoordinator {
             if total > Int64(Double(available) * 0.95) {
                 throw CoordinatorError.insufficientDiskSpace(required: total, available: available)
             }
+        }
+
+        // 2b. Size known, but the server refuses Range. Chunking is impossible:
+        //     *every* worker — including a lone whole-file one — gets a 200 with
+        //     the entire body, which `StreamingDelegate` rightly reports as
+        //     `rangeRefused`, a non-retryable error. Planning one chunk isn't
+        //     enough; the request must also go out without a `Range` header.
+        //     Stream it in a single connection, the way a browser does.
+        if !download.supportsRange {
+            try await runSingleStream(knownTotal: total)
+            return
         }
 
         // 3. Load any cap previously learned for this host.
@@ -344,23 +361,28 @@ actor DownloadCoordinator {
         }
     }
 
-    /// Download a resource whose size the server never reported. Streams a single
-    /// connection with no `Range` header straight to EOF, appending sequentially.
-    /// Not resumable — these servers don't support Range, so a re-run restarts
-    /// from byte 0. `start()` calls `complete()` after this returns to finalize.
-    private func runUnknownSizeStream() async throws {
+    /// Download in one connection with no `Range` header, appending straight to
+    /// EOF. Used for the two cases where ranged chunking is impossible: the
+    /// server never reported a size (`knownTotal == nil`), or it reported one but
+    /// ignores `Range` and answers 200 with the whole body.
+    ///
+    /// Not resumable either way — a re-run restarts from byte 0 — so the partial
+    /// is discarded up front. `start()` calls `complete()` after this returns.
+    private func runSingleStream(knownTotal: Int64?) async throws {
         // Start clean: a leftover partial can't be range-resumed here.
         try? FileManager.default.removeItem(at: download.partialFileURL)
 
         // One synthetic chunk carries `bytesWritten` so progress/snapshots work.
-        let chunk = Chunk(startByte: 0, endByte: -1)
+        // With a known size it spans the whole file so the UI shows a real
+        // percentage and ETA; without one, `endByte = -1` leaves it at 0.
+        let chunk = Chunk(startByte: 0, endByte: knownTotal.map { $0 - 1 } ?? -1)
         download.chunks = [chunk]
         download.supportsRange = false
 
         try FileManager.default.createDirectory(
             at: download.destinationFolder, withIntermediateDirectories: true
         )
-        let writer = try FileWriter(url: download.partialFileURL, totalBytes: 0)
+        let writer = try FileWriter(url: download.partialFileURL, totalBytes: knownTotal ?? 0)
         self.writer = writer
 
         download.status = .downloading
@@ -385,9 +407,21 @@ actor DownloadCoordinator {
         )
         try await worker.run()
 
-        // Clean EOF — what we wrote is the whole file. Record the now-known size
-        // so finalize/snapshot show it and `fractionComplete` reads 100%.
-        download.totalBytes = download.bytesDownloaded
+        guard let knownTotal else {
+            // Clean EOF — what we wrote is the whole file. Record the now-known
+            // size so finalize/snapshot show it and `fractionComplete` reads 100%.
+            download.totalBytes = download.bytesDownloaded
+            return
+        }
+
+        // Size was known up front, so a short read is detectable: the connection
+        // dropped mid-body. Fail instead of finalizing a truncated file — with no
+        // Range support there's nothing to resume, only a full restart.
+        guard download.bytesDownloaded >= knownTotal else {
+            throw CoordinatorError.truncatedStream(
+                expected: knownTotal, received: download.bytesDownloaded
+            )
+        }
     }
 
     /// User's `threadCount`, clamped by anything tighter we've learned (this

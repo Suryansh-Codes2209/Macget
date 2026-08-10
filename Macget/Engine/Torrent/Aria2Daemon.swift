@@ -157,7 +157,21 @@ actor Aria2Daemon {
             "--rpc-allow-origin-all=false",
             "--daemon=false",
             "--continue=true",
-            "--check-integrity=true",
+            // aria2's defaults are tuned for a much slower era.
+            //
+            // `--bt-request-peer-speed-limit` is the consequential one: aria2
+            // stops looking for more peers once a torrent exceeds it, and the
+            // default is 50K. On any modern link that caps peer discovery at
+            // dial-up speed, so a healthy swarm never gets fully exploited.
+            "--bt-max-peers=\(options.maxPeers)",
+            "--bt-request-peer-speed-limit=10M",
+            "--disk-cache=64M",
+            // APFS supports fallocate, so the file is reserved without writing
+            // zeroes across it first.
+            "--file-allocation=falloc",
+            // A tracker that hasn't answered in 30s isn't going to.
+            "--bt-tracker-connect-timeout=30",
+            "--bt-tracker-timeout=30",
             // Keeps metadata beside the data so a resumed magnet doesn't have to
             // re-fetch it over BEP-9.
             "--bt-save-metadata=true",
@@ -176,6 +190,14 @@ actor Aria2Daemon {
         ]
         if options.dhtEnabled {
             args.append("--dht-listen-port=\(Self.portRange(from: options.listenPort))")
+        }
+        // Opt-in, not always-on. aria2 hashes every piece as it arrives, so
+        // transfer corruption is caught regardless; this re-verifies data
+        // already on disk, which only guards against damage done *outside*
+        // aria2 — and costs a full re-read of the partial file at every resume.
+        // On a 25 GB torrent that is gigabytes of disk I/O on every launch.
+        if options.verifyOnResume {
+            args.append("--check-integrity=true")
         }
         for (key, value) in options.mutableGlobalOptions.sorted(by: { $0.key < $1.key }) {
             args.append("--\(key)=\(value)")
@@ -240,6 +262,11 @@ struct TorrentEngineOptions: Sendable, Equatable {
     var dhtEnabled: Bool = true
     var maxUploadBytesPerSec: Int?
     var maxDownloadBytesPerSec: Int?
+    /// aria2's own default is 55, which leaves a healthy swarm underused.
+    var maxPeers: Int = 100
+    /// Re-hash data already on disk when a torrent resumes. Off by default —
+    /// see `Aria2Daemon.arguments` for why.
+    var verifyOnResume: Bool = false
 
     /// Options that can be changed on a running daemon via `changeGlobalOption`.
     /// Ports and session paths are launch-only and deliberately absent.
@@ -256,7 +283,9 @@ struct TorrentEngineOptions: Sendable, Equatable {
         listenPort: Int = 6881,
         dhtEnabled: Bool = true,
         maxUploadBytesPerSec: Int? = nil,
-        maxDownloadBytesPerSec: Int? = nil
+        maxDownloadBytesPerSec: Int? = nil,
+        maxPeers: Int = 100,
+        verifyOnResume: Bool = false
     ) {
         self.seedRatio = seedRatio
         self.seedMinutes = seedMinutes
@@ -264,6 +293,8 @@ struct TorrentEngineOptions: Sendable, Equatable {
         self.dhtEnabled = dhtEnabled
         self.maxUploadBytesPerSec = maxUploadBytesPerSec
         self.maxDownloadBytesPerSec = maxDownloadBytesPerSec
+        self.maxPeers = max(1, min(500, maxPeers))
+        self.verifyOnResume = verifyOnResume
     }
 
     init(settings: AppSettings) {
@@ -273,7 +304,8 @@ struct TorrentEngineOptions: Sendable, Equatable {
             listenPort: settings.torrentListenPort,
             dhtEnabled: settings.torrentDHTEnabled,
             maxUploadBytesPerSec: settings.torrentMaxUploadBytesPerSec,
-            maxDownloadBytesPerSec: settings.globalSpeedLimitBytesPerSec
+            maxDownloadBytesPerSec: settings.globalSpeedLimitBytesPerSec,
+            verifyOnResume: settings.torrentVerifyOnResume
         )
     }
 }

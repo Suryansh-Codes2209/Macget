@@ -55,6 +55,11 @@ struct AppSettings: Codable, Equatable, Sendable {
     /// TCP/UDP port aria2 listens on for peers. Clamped 1024...65535.
     var torrentListenPort: Int
     var torrentDHTEnabled: Bool
+    /// Re-hash a torrent's existing data every time it resumes. Off by default:
+    /// aria2 verifies each piece as it arrives regardless, so this only guards
+    /// against damage done outside aria2 — at the cost of re-reading the whole
+    /// partial file on every launch.
+    var torrentVerifyOnResume: Bool
 
     init(
         defaultDestination: URL = AppSettings.systemDownloadsFolder(),
@@ -84,7 +89,8 @@ struct AppSettings: Codable, Equatable, Sendable {
         torrentSeedMinutes: Int = 60,
         torrentMaxUploadBytesPerSec: Int? = nil,
         torrentListenPort: Int = 6881,
-        torrentDHTEnabled: Bool = true
+        torrentDHTEnabled: Bool = true,
+        torrentVerifyOnResume: Bool = false
     ) {
         self.defaultDestination = defaultDestination
         self.defaultThreadCount = max(1, min(Download.maxThreadCount, defaultThreadCount))
@@ -118,6 +124,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         // Below 1024 needs root to bind.
         self.torrentListenPort = (1024...65535).contains(torrentListenPort) ? torrentListenPort : 6881
         self.torrentDHTEnabled = torrentDHTEnabled
+        self.torrentVerifyOnResume = torrentVerifyOnResume
     }
 
     /// The torrent settings as a value object handed to the aria2 daemon.
@@ -170,6 +177,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         let port = try c.decodeIfPresent(Int.self, forKey: .torrentListenPort) ?? defaults.torrentListenPort
         torrentListenPort = (1024...65535).contains(port) ? port : defaults.torrentListenPort
         torrentDHTEnabled = try c.decodeIfPresent(Bool.self, forKey: .torrentDHTEnabled) ?? defaults.torrentDHTEnabled
+        torrentVerifyOnResume = try c.decodeIfPresent(Bool.self, forKey: .torrentVerifyOnResume) ?? defaults.torrentVerifyOnResume
     }
 
     static func systemDownloadsFolder() -> URL {

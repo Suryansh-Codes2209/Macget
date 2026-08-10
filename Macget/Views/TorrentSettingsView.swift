@@ -79,6 +79,10 @@ struct TorrentSettingsView: View {
                         .multilineTextAlignment(.trailing)
                 }
                 Toggle("Enable DHT (find peers without a tracker)", isOn: $vm.settings.torrentDHTEnabled)
+                Toggle("Verify downloaded data on resume", isOn: $vm.settings.torrentVerifyOnResume)
+                Text("Every piece is checked as it arrives regardless. This re-checks data already on disk each time a torrent resumes, which guards against damage from outside MacGet but re-reads the whole file — slow on large torrents.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text("Port changes take effect the next time the torrent engine starts.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

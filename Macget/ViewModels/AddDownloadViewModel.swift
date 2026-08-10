@@ -24,14 +24,15 @@ final class AddDownloadViewModel {
         self.threadCount = settings.defaultThreadCount
     }
 
-    var isValid: Bool {
-        guard let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              url.host?.isEmpty == false
-        else { return false }
-        return true
+    /// What the sheet would submit, or nil while the field isn't yet something
+    /// MacGet can download. Accepts magnets and `.torrent` files as well as
+    /// http(s) — `AppEnvironment.add(url:)` routes each to the right engine, and
+    /// an http-only check here left the Add button dead for a pasted magnet.
+    private var parsedURL: URL? {
+        URLValidation.parseAcceptableDownloadURL(urlString)
     }
+
+    var isValid: Bool { parsedURL != nil }
 
     func reset() {
         urlString = ""
@@ -49,11 +50,12 @@ final class AddDownloadViewModel {
     }
 
     func prefillFromClipboard() {
-        if let s = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
-           let url = URL(string: s),
-           let scheme = url.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" {
-            urlString = s
+        // A copied magnet prefills too. Unlike `ClipboardWatcher`, this only fills
+        // the field — the user still has to press Add, so nothing starts
+        // uploading behind their back.
+        if let s = NSPasteboard.general.string(forType: .string),
+           let url = URLValidation.parseAcceptableDownloadURL(s) {
+            urlString = url.absoluteString
         }
     }
 
@@ -72,8 +74,7 @@ final class AddDownloadViewModel {
     /// Video URLs are routed to the quality picker by `environment.add`; the
     /// filename/threads/checksum fields below apply only to plain HTTP downloads.
     func submit() async -> Bool {
-        guard isValid else { return false }
-        let url = URL(string: urlString.trimmingCharacters(in: .whitespacesAndNewlines))!
+        guard let url = parsedURL else { return false }
         let suggested = url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent
         let safe = FilenameResolver.sanitize(suggested)
 

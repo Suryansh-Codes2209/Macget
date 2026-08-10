@@ -51,4 +51,37 @@ enum URLValidation {
         guard url.host?.isEmpty == false else { return nil }
         return url
     }
+
+    /// Everything a *user-initiated* entry point may hand to
+    /// `AppEnvironment.add(url:)` — the Add sheet, an OS URL open, a Dock drop.
+    ///
+    /// Deliberately wider than `parsePlausibleHTTPURL`: `Info.plist` registers
+    /// MacGet as a `magnet:` handler, so clicking a magnet on a torrent site
+    /// launches the app with that URL. Validating it as http meant the launch
+    /// succeeded and the link was then silently discarded — the app opened and
+    /// nothing else happened. Local `.torrent` files are the same story from
+    /// Finder. `add(url:)` already routes all three kinds; this is just the gate
+    /// in front of it.
+    ///
+    /// Not used by `ClipboardWatcher`: copying a magnet must not start a torrent
+    /// on its own, since a torrent also uploads and opens a listening port.
+    static func parseAcceptableDownloadURL(_ raw: String) -> URL? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() else { return nil }
+
+        switch scheme {
+        case "magnet":
+            // A real magnet carries a long `tr` list, routinely past the 2048-char
+            // http cap, so it gets its own (generous) bound. The info hash is the
+            // whole payload — without a usable `xt` there is no torrent to add.
+            guard trimmed.count < 16_384, MagnetLink.parse(url) != nil else { return nil }
+            return url
+        case "file":
+            // Only metainfo. Any other local file is not a download.
+            return url.pathExtension.lowercased() == "torrent" ? url : nil
+        default:
+            return parsePlausibleHTTPURL(trimmed)
+        }
+    }
 }

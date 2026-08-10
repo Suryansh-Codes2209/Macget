@@ -227,6 +227,22 @@ actor DownloadEngine {
     ) async -> UUID? {
         guard magnet != nil || torrentData != nil else { return nil }
         let link = magnet.flatMap(MagnetLink.parse)
+
+        // Clicking the same magnet twice is ordinary user behaviour — especially
+        // while a torrent is still fetching metadata and the row looks idle.
+        // Without this the second add reached aria2, came back "InfoHash … is
+        // already registered", and left a phantom *failed* row sitting next to
+        // the download that is actually running. Surface the existing row
+        // instead. Only magnets are covered: a `.torrent`'s info hash isn't
+        // known until aria2 parses the metainfo.
+        if let infoHash = link?.infoHash,
+           let existing = downloads.values.first(where: {
+               $0.torrentInfoHash == infoHash && !$0.status.isTerminal
+           }) {
+            Log.engine.info("Ignoring duplicate torrent add for info hash \(infoHash, privacy: .public)")
+            return existing.id
+        }
+
         let name = suggestedName ?? link?.provisionalName ?? "Torrent"
         let download = Download(
             url: magnet ?? URL(string: "torrent:local")!,

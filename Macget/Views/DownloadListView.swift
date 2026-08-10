@@ -293,11 +293,14 @@ struct DownloadListView: View {
                 NSPasteboard.general.setString(row.destinationURL.path, forType: .string)
             }
             if row.status == .completed {
-                Button("Open File") {
-                    NSWorkspace.shared.open(row.destinationURL)
+                // A torrent's destinationURL is the *folder* aria2 created, so
+                // opening it would just raise Finder. `primaryFileURL` targets
+                // the payload — the movie, not the poster beside it.
+                Button(row.isTorrent ? "Open Main File" : "Open File") {
+                    NSWorkspace.shared.open(row.primaryFileURL)
                 }
                 .keyboardShortcut("o", modifiers: .command)
-                Button("Show in Finder") {
+                Button(row.isTorrent ? "Show Folder in Finder" : "Show in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([row.destinationURL])
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])

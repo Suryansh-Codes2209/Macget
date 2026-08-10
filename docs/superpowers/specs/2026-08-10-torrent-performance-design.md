@@ -62,6 +62,7 @@ pipeline carries almost everything; port mapping is the one genuinely new compon
 | `TorrentEngineOptions` | extend, `Aria2Daemon.swift` | four new fields |
 | `Aria2Daemon.arguments` | extend, `Aria2Daemon.swift` | new launch flags |
 | `TorrentTrackers` | **new**, `Engine/Torrent/TorrentTrackers.swift` | bundled tracker list + private gate; pure and synchronous |
+| `TorrentMetainfo` | **new**, `Engine/Torrent/TorrentMetainfo.swift` | minimal bencode reader; extracts the `private` flag |
 | `PortMapper` | **new**, `Engine/Torrent/PortMapper.swift` | actor: PCP/NAT-PMP mapping, renewal, reachability state |
 | `NATPortMapCodec` | **new**, same file | pure packet encode/decode; no I/O |
 | `TorrentJob.add` | extend, `TorrentJob.swift` | per-download `bt-tracker` option |
@@ -113,7 +114,11 @@ the daemon never starts. IPv6 DHT is instead selected by `--enable-dht6` plus
 the host" — not a range, and not a value MacGet can hardcode.
 
 So the daemon discovers the host's global unicast IPv6 address via `getifaddrs` at launch,
-skipping link-local (`fe80::/10`), loopback, and temporary/privacy addresses, and:
+keeping only addresses in the global unicast range `2000::/3` on an interface that is up
+and not loopback — which excludes link-local (`fe80::/10`), unique-local (`fc00::/7`), and
+multicast (`ff00::/8`) in one predicate. Temporary/privacy addresses are **not** filtered
+out: distinguishing them requires a `SIOCGIFAFLAG_IN6` ioctl, and a temporary address binds
+DHT just as well as a stable one. Then:
 
 - `torrentDHTEnabled` **and** an address found → pass both `--enable-dht6=true` and
   `--dht-listen-addr6=<addr>`
@@ -208,8 +213,26 @@ is the design: aria2 treats DHT as something it may suppress on the torrent's be
 treats an explicitly supplied tracker as user intent it must honour. MacGet therefore owns
 this gate entirely, and a test must pin it rather than trusting engine behaviour.
 
-- **`.torrent` files** — the flag is readable before anything is added, so a private
-  torrent is added with no injected trackers. Clean.
+### Detecting the flag requires parsing bencode ourselves
+
+aria2 does not report it. The `bittorrent` struct returned by `aria2.tellStatus` contains
+only `announceList`, `comment`, `creationDate`, `mode`, and `info.name` — there is no
+`private` key at any depth. So MacGet reads the metainfo directly:
+
+- **`.torrent` files** — `Download.torrentFileData` already holds the bytes.
+- **Magnets** — `--bt-save-metadata=true` is already passed, so aria2 writes
+  `<infoHash>.torrent` into the download directory when metadata resolves. That file is
+  read at the `followedBy` handoff.
+
+This needs a minimal bencode reader (`TorrentMetainfo`), which must be a **real parser, not
+a byte search**. The `info` dictionary contains a `pieces` value that is raw concatenated
+SHA-1 digests — arbitrary binary. Any substring scan for `7:privatei1e` will eventually
+match inside that digest blob and mark a public torrent private, silently disabling
+trackers on a torrent that needed them. The parser only needs enough bencode to walk to
+`info` → `private`, but it must walk it structurally, using each string's length prefix to
+skip payloads rather than scanning through them.
+
+A missing `private` key, or `private` set to `0`, both mean public.
 - **Magnets** — the flag is unknowable until metadata arrives, but fetching metadata
   itself needs peers. MacGet injects at add time and, when `followedBy` hands off and the
   resolved metainfo reports `private`, drops the injected trackers from the child GID via
@@ -366,6 +389,10 @@ New XCTest files under `MacgetTests/`:
 - **`TorrentTrackersTests`** — trackers returned for a public torrent, empty for a
   `private` one, empty when `torrentAddPublicTrackers` is off, and the magnet handoff path
   dropping trackers once metadata resolves private.
+- **`TorrentMetainfoTests`** — `private: 1` detected, `private: 0` and a missing key both
+  read as public, truncated/malformed input returns `nil` rather than crashing, and — the
+  regression that justifies the parser — a torrent whose `pieces` blob literally contains
+  the bytes `7:privatei1e` is still reported **public**.
 - **`AppSettingsTests`** (extend) — the four new fields clamp and round-trip through
   `Codable`, and missing keys fall back to defaults.
 

@@ -15,7 +15,7 @@ for more peers* once a torrent exceeds this value, and that aria2's own 50K defa
 therefore "caps peer discovery at dial-up speed." The reasoning is right and was not
 followed far enough: 10M is 10 MB/s, roughly 80 Mbps. On a gigabit link MacGet stops
 hunting for peers at 8% of the available capacity — the exact failure the comment
-describes, one order of magnitude up.
+describes, ~200x further up the scale.
 
 Four further gaps, in descending order of real-world impact:
 

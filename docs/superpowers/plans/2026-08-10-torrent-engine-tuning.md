@@ -225,7 +225,7 @@ Add to `Aria2DaemonTests` in `MacgetTests/TorrentTests.swift`:
     /// aria2 stops seeking new peers once a torrent exceeds this rate. The old
     /// value was 10M — about 80 Mbps — so on a gigabit link peer discovery
     /// stopped at 8% of capacity. That is aria2's own 50K dial-up-era default
-    /// reproduced one order of magnitude up. 100M is above any consumer link.
+    /// reproduced ~200x further up the scale. 100M is above any consumer link.
     func test_peerDiscoveryCeilingIsAboveAnyConsumerLink() {
         XCTAssertTrue(args().contains("--bt-request-peer-speed-limit=100M"))
     }
@@ -746,7 +746,7 @@ final class TorrentMetainfoTests: XCTestCase {
         }
         info.append(Data("e".utf8))
 
-        var root = Data("d8:announce20:udp://tracker:1337/4:info".utf8)
+        var root = Data("d8:announce19:udp://tracker:1337/4:info".utf8)
         root.append(info)
         root.append(Data("e".utf8))
         return root
@@ -1401,7 +1401,7 @@ In the `### BitTorrent (Macget/Engine/Torrent/)` section, add these bullets afte
 - **`--bt-request-peer-speed-limit` is a discovery ceiling, not a bandwidth cap.** aria2 stops
   looking for more peers above it. It is set to `100M` — above any consumer link — because the
   previous `10M` was only ~80 Mbps and silently stopped peer discovery at 8% of a gigabit link,
-  reproducing aria2's own 50K dial-up default one order of magnitude up.
+  the same defect as aria2's own 50K dial-up default, ~200x further up the scale.
 - **There is no `--dht-listen-port6`.** `--dht-listen-port` covers IPv4 DHT, IPv6 DHT and UDP
   trackers. IPv6 DHT needs `--enable-dht6` *plus* `--dht-listen-addr6`, which aria2 requires to be
   a global unicast address of the host — so `Aria2Daemon` discovers one via `getifaddrs` and emits

@@ -70,6 +70,39 @@ struct TorrentSettingsView: View {
             }
             .disabled(!vm.settings.torrentsEnabled)
 
+            Section("Performance") {
+                HStack {
+                    Text("Maximum peers per torrent")
+                    Spacer()
+                    TextField("", value: $vm.settings.torrentMaxPeers, format: .number.grouping(.never))
+                        .frame(width: 70)
+                        .multilineTextAlignment(.trailing)
+                }
+                Text("More peers means more chances to find a fast one. 200 suits most connections; the maximum is 500.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Add public trackers to magnet links", isOn: $vm.settings.torrentAddPublicTrackers)
+                Text("Helps magnet links whose own trackers have gone offline. Skipped automatically for private torrents, which forbid outside trackers.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Require encrypted connections", isOn: $vm.settings.torrentRequireEncryption)
+                Text("Hides BitTorrent traffic from providers that slow it down. It also refuses peers that can't encrypt, so fewer peers are available — turn this on only if downloads are being throttled.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let limit = vm.settings.globalSpeedLimitBytesPerSec {
+                    Label(
+                        "The global speed limit (\(limit / 1024) KB/s) applies to torrents too. Clear it in General to let torrents run at full speed.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Theme.Palette.paused)
+                }
+            }
+            .disabled(!vm.settings.torrentsEnabled)
+
             Section("Network") {
                 HStack {
                     Text("Listening port")

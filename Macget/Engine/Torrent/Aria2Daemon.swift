@@ -213,6 +213,10 @@ actor Aria2Daemon {
             // reaches it either way, so raising it costs nothing there.
             "--bt-max-peers=\(options.maxPeers)",
             "--bt-request-peer-speed-limit=100M",
+            // Prefer an obfuscated handshake always. Plaintext peers are still
+            // accepted at this level, so it costs no peers — it just stops the
+            // BitTorrent handshake being a free signature for DPI.
+            "--bt-min-crypto-level=arc4",
             "--disk-cache=64M",
             // APFS supports fallocate, so the file is reserved without writing
             // zeroes across it first.
@@ -252,6 +256,12 @@ actor Aria2Daemon {
         // On a 25 GB torrent that is gigabytes of disk I/O on every launch.
         if options.verifyOnResume {
             args.append("--check-integrity=true")
+        }
+        // Opt-in: this drops every peer that won't encrypt, so it trades peers
+        // for invisibility. Worth it only where an ISP is actively shaping.
+        if options.requireEncryption {
+            args.append("--bt-require-crypto=true")
+            args.append("--bt-force-encryption=true")
         }
         for (key, value) in options.mutableGlobalOptions.sorted(by: { $0.key < $1.key }) {
             args.append("--\(key)=\(value)")
@@ -319,6 +329,9 @@ struct TorrentEngineOptions: Sendable, Equatable {
     /// Maximum peer connections per torrent, from `AppSettings.torrentMaxPeers`.
     /// aria2's own default is 55, which leaves a healthy swarm underused.
     var maxPeers: Int = 200
+    /// Refuse peers that won't encrypt. Defeats ISP BitTorrent shaping, at the
+    /// cost of dropping every peer that only speaks plaintext.
+    var requireEncryption: Bool = false
     /// Re-hash data already on disk when a torrent resumes. Off by default —
     /// see `Aria2Daemon.arguments` for why.
     var verifyOnResume: Bool = false
@@ -340,6 +353,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
         maxUploadBytesPerSec: Int? = nil,
         maxDownloadBytesPerSec: Int? = nil,
         maxPeers: Int = 200,
+        requireEncryption: Bool = false,
         verifyOnResume: Bool = false
     ) {
         self.seedRatio = seedRatio
@@ -349,6 +363,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
         self.maxUploadBytesPerSec = maxUploadBytesPerSec
         self.maxDownloadBytesPerSec = maxDownloadBytesPerSec
         self.maxPeers = max(1, min(500, maxPeers))
+        self.requireEncryption = requireEncryption
         self.verifyOnResume = verifyOnResume
     }
 
@@ -361,6 +376,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
             maxUploadBytesPerSec: settings.torrentMaxUploadBytesPerSec,
             maxDownloadBytesPerSec: settings.globalSpeedLimitBytesPerSec,
             maxPeers: settings.torrentMaxPeers,
+            requireEncryption: settings.torrentRequireEncryption,
             verifyOnResume: settings.torrentVerifyOnResume
         )
     }

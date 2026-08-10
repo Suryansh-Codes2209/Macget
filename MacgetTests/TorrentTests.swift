@@ -364,6 +364,28 @@ final class Aria2DaemonTests: XCTestCase {
         XCTAssertTrue(args(TorrentEngineOptions(maxPeers: 321)).contains("--bt-max-peers=321"))
         XCTAssertEqual(AppSettings(torrentMaxPeers: 321).torrentOptions.maxPeers, 321)
     }
+
+    /// `arc4` costs nothing: plaintext peers are still accepted, so no peer is
+    /// lost, while the handshake stops being trivially identifiable by DPI.
+    func test_prefersObfuscatedHandshakeByDefaultWithoutLosingPlaintextPeers() {
+        let a = args()
+        XCTAssertTrue(a.contains("--bt-min-crypto-level=arc4"))
+        XCTAssertFalse(a.contains { $0.hasPrefix("--bt-require-crypto") })
+        XCTAssertFalse(a.contains { $0.hasPrefix("--bt-force-encryption") })
+    }
+
+    /// Opt-in, because refusing plaintext peers shrinks the pool.
+    func test_requiringEncryptionRefusesPlaintextPeers() {
+        let a = args(TorrentEngineOptions(requireEncryption: true))
+        XCTAssertTrue(a.contains("--bt-require-crypto=true"))
+        XCTAssertTrue(a.contains("--bt-force-encryption=true"))
+        XCTAssertTrue(a.contains("--bt-min-crypto-level=arc4"))
+    }
+
+    func test_encryptionRequirementComesFromSettings() {
+        XCTAssertTrue(AppSettings(torrentRequireEncryption: true).torrentOptions.requireEncryption)
+        XCTAssertFalse(AppSettings().torrentOptions.requireEncryption)
+    }
 }
 
 // MARK: - Settings

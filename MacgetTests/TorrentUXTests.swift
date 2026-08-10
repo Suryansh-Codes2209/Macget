@@ -170,15 +170,17 @@ final class Aria2TuningTests: XCTestCase {
 
     func test_raisesPeerAndCacheLimits() {
         let a = args()
-        XCTAssertTrue(a.contains("--bt-max-peers=100"))
+        XCTAssertTrue(a.contains("--bt-max-peers=200"))
         XCTAssertTrue(a.contains("--disk-cache=64M"))
         XCTAssertTrue(a.contains("--file-allocation=falloc"))
     }
 
-    /// aria2 stops hunting for peers once the torrent exceeds this, and the
-    /// default is 50K — dial-up speeds. It is the single most consequential knob.
+    /// aria2 stops hunting for peers once the torrent exceeds this. The default
+    /// is 50K — dial-up speeds. 100M is above any consumer link, so aria2 keeps
+    /// seeking peers until the pipe is genuinely full. It is the single most
+    /// consequential knob.
     func test_raisesRequestPeerSpeedLimit() {
-        XCTAssertTrue(args().contains("--bt-request-peer-speed-limit=10M"))
+        XCTAssertTrue(args().contains("--bt-request-peer-speed-limit=100M"))
     }
 
     func test_shortensTrackerTimeouts() {

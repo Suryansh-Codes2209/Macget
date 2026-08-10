@@ -114,8 +114,8 @@ The third `DownloadKind`. `TorrentJob` is the structural twin of `MediaExtractio
 - **Ports are ranges, not single values** (`6881-6890`). A single value makes aria2 fail with "Errors occurred while binding port" whenever another client holds it.
 - **`--bt-request-peer-speed-limit` is a discovery ceiling, not a bandwidth cap.** aria2 stops
   looking for more peers above it. It is set to `100M` — above any consumer link — because the
-  previous `10M` was only ~80 Mbps and silently stopped peer discovery at 8% of a gigabit link,
-  reproducing aria2's own 50K dial-up default one order of magnitude up.
+  previous `10M` was only ~80 Mbps and silently stopped peer discovery at 8% of a gigabit link —
+  the same class of defect as aria2's own 50K dial-up default, just ~200x higher and still wrong.
 - **There is no `--dht-listen-port6`.** `--dht-listen-port` covers IPv4 DHT, IPv6 DHT and UDP
   trackers. IPv6 DHT needs `--enable-dht6` *plus* `--dht-listen-addr6`, which aria2 requires to be
   a global unicast address of the host — so `Aria2Daemon` discovers one via `getifaddrs` and emits

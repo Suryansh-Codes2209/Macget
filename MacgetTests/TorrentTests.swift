@@ -208,8 +208,8 @@ final class Aria2RPCClientTests: XCTestCase {
 
 final class Aria2DaemonTests: XCTestCase {
 
-    private func args(_ options: TorrentEngineOptions = .init()) -> [String] {
-        Aria2Daemon.arguments(port: 12345, secret: "abc", options: options)
+    private func args(_ options: TorrentEngineOptions = .init(), ipv6: String? = nil) -> [String] {
+        Aria2Daemon.arguments(port: 12345, secret: "abc", options: options, ipv6DHTAddress: ipv6)
     }
 
     /// MacGet owns the queue in queue.json and re-adds torrents itself on launch.
@@ -251,6 +251,41 @@ final class Aria2DaemonTests: XCTestCase {
         let off = args(TorrentEngineOptions(listenPort: 7000, dhtEnabled: false))
         XCTAssertFalse(off.contains { $0.hasPrefix("--dht-listen-port") })
         XCTAssertTrue(off.contains("--enable-dht=false"))
+    }
+
+    /// IPv6 DHT needs the setting *and* a bind address. With the switch but no
+    /// address aria2 still starts, so the flag would silently imply a working
+    /// feature — claim neither instead.
+    func test_ipv6DHTNeedsBothTheSettingAndAnAddress() {
+        let both = args(TorrentEngineOptions(dhtEnabled: true), ipv6: "2001:db8::1")
+        XCTAssertTrue(both.contains("--enable-dht6=true"))
+        XCTAssertTrue(both.contains("--dht-listen-addr6=2001:db8::1"))
+
+        let noAddress = args(TorrentEngineOptions(dhtEnabled: true), ipv6: nil)
+        XCTAssertFalse(noAddress.contains { $0.hasPrefix("--enable-dht6") })
+        XCTAssertFalse(noAddress.contains { $0.hasPrefix("--dht-listen-addr6") })
+
+        let dhtOff = args(TorrentEngineOptions(dhtEnabled: false), ipv6: "2001:db8::1")
+        XCTAssertFalse(dhtOff.contains { $0.hasPrefix("--enable-dht6") })
+        XCTAssertFalse(dhtOff.contains { $0.hasPrefix("--dht-listen-addr6") })
+    }
+
+    /// `--dht-listen-port6` does not exist in aria2. Passing it makes aria2
+    /// reject the argument, the daemon never starts, and every torrent fails.
+    /// This test exists purely to stop it being reintroduced.
+    func test_neverEmitsTheNonexistentIPv6DHTPortFlag() {
+        let a = args(TorrentEngineOptions(dhtEnabled: true), ipv6: "2001:db8::1")
+        XCTAssertFalse(a.contains { $0.hasPrefix("--dht-listen-port6") })
+    }
+
+    /// Whatever this machine reports must be a real global unicast address
+    /// (2000::/3) or nil — never a link-local, which aria2 rejects as a bind
+    /// address. Machines without IPv6 legitimately return nil.
+    func test_discoveredIPv6AddressIsGlobalUnicastOrNil() {
+        guard let address = Aria2Daemon.globalUnicastIPv6Address() else { return }
+        XCTAssertFalse(address.lowercased().hasPrefix("fe80"), "link-local is not bindable for DHT")
+        XCTAssertFalse(address.hasPrefix("::1"))
+        XCTAssertTrue(address.contains(":"))
     }
 
     /// A single listen port makes aria2 fail outright ("Errors occurred while

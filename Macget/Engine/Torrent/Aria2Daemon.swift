@@ -68,7 +68,12 @@ actor Aria2Daemon {
 
         let process = Process()
         process.executableURL = executable
-        process.arguments = Self.arguments(port: port, secret: secret, options: options)
+        process.arguments = Self.arguments(
+            port: port,
+            secret: secret,
+            options: options,
+            ipv6DHTAddress: Self.globalUnicastIPv6Address()
+        )
         process.standardOutput = FileHandle.nullDevice
         // aria2 is chatty on stderr; discard rather than filling the pipe buffer
         // (a full pipe with no reader would block the process).
@@ -131,6 +136,44 @@ actor Aria2Daemon {
 
     // MARK: - Launch configuration
 
+    /// This host's first global unicast IPv6 address, or nil if it has none.
+    ///
+    /// `--enable-dht6` is inert without `--dht-listen-addr6`, which aria2
+    /// documents as requiring "a global unicast IPv6 address of the host" — not
+    /// a range, and not something MacGet can hardcode.
+    ///
+    /// Temporary/privacy addresses are deliberately *not* filtered out:
+    /// distinguishing them needs a `SIOCGIFAFLAG_IN6` ioctl, and a temporary
+    /// address binds DHT just as well as a stable one.
+    static func globalUnicastIPv6Address() -> String? {
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return nil }
+        defer { freeifaddrs(head) }
+
+        for pointer in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let interface = pointer.pointee
+            guard let raw = interface.ifa_addr,
+                  raw.pointee.sa_family == UInt8(AF_INET6) else { continue }
+
+            let flags = Int32(interface.ifa_flags)
+            guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0 else { continue }
+
+            var address = UnsafeRawPointer(raw)
+                .assumingMemoryBound(to: sockaddr_in6.self).pointee
+
+            // Global unicast is 2000::/3. This single mask also excludes
+            // link-local (fe80::/10), unique-local (fc00::/7) and multicast
+            // (ff00::/8) — none of which aria2 can bind DHT to.
+            guard address.sin6_addr.__u6_addr.__u6_addr8.0 & 0xe0 == 0x20 else { continue }
+
+            var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+            guard inet_ntop(AF_INET6, &address.sin6_addr, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil
+            else { continue }
+            return String(cString: buffer)
+        }
+        return nil
+    }
+
     /// Launch arguments.
     ///
     /// Note what's deliberately **absent**: `--save-session` / `--input-file`.
@@ -146,7 +189,8 @@ actor Aria2Daemon {
     static func arguments(
         port: Int,
         secret: String,
-        options: TorrentEngineOptions
+        options: TorrentEngineOptions,
+        ipv6DHTAddress: String? = nil
     ) -> [String] {
         var args = [
             "--enable-rpc=true",
@@ -193,7 +237,13 @@ actor Aria2Daemon {
             "--enable-peer-exchange=true",
         ]
         if options.dhtEnabled {
+            // One port covers IPv4 DHT, IPv6 DHT and UDP trackers. There is no
+            // `--dht-listen-port6`; aria2 rejects it and never starts.
             args.append("--dht-listen-port=\(Self.portRange(from: options.listenPort))")
+            if let ipv6DHTAddress {
+                args.append("--enable-dht6=true")
+                args.append("--dht-listen-addr6=\(ipv6DHTAddress)")
+            }
         }
         // Opt-in, not always-on. aria2 hashes every piece as it arrives, so
         // transfer corruption is caught regardless; this re-verifies data

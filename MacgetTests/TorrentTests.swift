@@ -314,6 +314,21 @@ final class Aria2DaemonTests: XCTestCase {
         let ports = try (0..<5).map { _ in try Aria2Daemon.freePort() }
         XCTAssertGreaterThan(Set(ports).count, 1)
     }
+
+    /// aria2 stops seeking new peers once a torrent exceeds this rate. The old
+    /// value was 10M — about 80 Mbps — so on a gigabit link peer discovery
+    /// stopped at 8% of capacity. That is aria2's own 50K dial-up-era default
+    /// reproduced one order of magnitude up. 100M is above any consumer link.
+    func test_peerDiscoveryCeilingIsAboveAnyConsumerLink() {
+        XCTAssertTrue(args().contains("--bt-request-peer-speed-limit=100M"))
+    }
+
+    /// `bt-max-peers` was hardwired at 100: `TorrentEngineOptions.init(settings:)`
+    /// never passed `maxPeers`, so the field was unreachable from settings.
+    func test_maxPeersComesFromSettingsRatherThanBeingHardwired() {
+        XCTAssertTrue(args(TorrentEngineOptions(maxPeers: 321)).contains("--bt-max-peers=321"))
+        XCTAssertEqual(AppSettings(torrentMaxPeers: 321).torrentOptions.maxPeers, 321)
+    }
 }
 
 // MARK: - Settings

@@ -160,11 +160,15 @@ actor Aria2Daemon {
             // aria2's defaults are tuned for a much slower era.
             //
             // `--bt-request-peer-speed-limit` is the consequential one: aria2
-            // stops looking for more peers once a torrent exceeds it, and the
-            // default is 50K. On any modern link that caps peer discovery at
-            // dial-up speed, so a healthy swarm never gets fully exploited.
+            // stops looking for more peers once a torrent exceeds it. The
+            // default is 50K, which caps discovery at dial-up speed — but 10M
+            // is only ~80 Mbps, so it reproduced the same defect on any
+            // gigabit link. 100M is above any consumer connection, so aria2
+            // keeps hunting until the pipe is genuinely full. It is a
+            // discovery ceiling, not a bandwidth cap: a slow link never
+            // reaches it either way, so raising it costs nothing there.
             "--bt-max-peers=\(options.maxPeers)",
-            "--bt-request-peer-speed-limit=10M",
+            "--bt-request-peer-speed-limit=100M",
             "--disk-cache=64M",
             // APFS supports fallocate, so the file is reserved without writing
             // zeroes across it first.
@@ -262,8 +266,9 @@ struct TorrentEngineOptions: Sendable, Equatable {
     var dhtEnabled: Bool = true
     var maxUploadBytesPerSec: Int?
     var maxDownloadBytesPerSec: Int?
+    /// Maximum peer connections per torrent, from `AppSettings.torrentMaxPeers`.
     /// aria2's own default is 55, which leaves a healthy swarm underused.
-    var maxPeers: Int = 100
+    var maxPeers: Int = 200
     /// Re-hash data already on disk when a torrent resumes. Off by default —
     /// see `Aria2Daemon.arguments` for why.
     var verifyOnResume: Bool = false
@@ -284,7 +289,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
         dhtEnabled: Bool = true,
         maxUploadBytesPerSec: Int? = nil,
         maxDownloadBytesPerSec: Int? = nil,
-        maxPeers: Int = 100,
+        maxPeers: Int = 200,
         verifyOnResume: Bool = false
     ) {
         self.seedRatio = seedRatio
@@ -305,6 +310,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
             dhtEnabled: settings.torrentDHTEnabled,
             maxUploadBytesPerSec: settings.torrentMaxUploadBytesPerSec,
             maxDownloadBytesPerSec: settings.globalSpeedLimitBytesPerSec,
+            maxPeers: settings.torrentMaxPeers,
             verifyOnResume: settings.torrentVerifyOnResume
         )
     }

@@ -112,6 +112,21 @@ The third `DownloadKind`. `TorrentJob` is the structural twin of `MediaExtractio
 - **MacGet owns the queue, not aria2.** `--save-session`/`--input-file` are deliberately absent: `queue.json` is the source of truth and MacGet re-adds torrents itself, so letting aria2 restore its own session would register each info hash twice and aria2 fails the duplicate outright. Resume comes from `--continue=true` plus the `.aria2` control file, with `--bt-save-metadata` so a resumed magnet needn't re-fetch metadata.
 - **Magnets have a metadata phase.** The first GID downloads only the metainfo (a few hundred KB) and reaches `complete` with `completedLength == totalLength` — indistinguishable from a finished download. `isAwaitingMetadata` suppresses completion and byte reporting until `followedBy` hands off to the real GID; the metainfo totals are then cleared so the child's real size replaces them. Getting this wrong marks a 6 GB torrent "Completed" at 500 KB.
 - **Ports are ranges, not single values** (`6881-6890`). A single value makes aria2 fail with "Errors occurred while binding port" whenever another client holds it.
+- **`--bt-request-peer-speed-limit` is a discovery ceiling, not a bandwidth cap.** aria2 stops
+  looking for more peers above it. It is set to `100M` — above any consumer link — because the
+  previous `10M` was only ~80 Mbps and silently stopped peer discovery at 8% of a gigabit link,
+  reproducing aria2's own 50K dial-up default one order of magnitude up.
+- **There is no `--dht-listen-port6`.** `--dht-listen-port` covers IPv4 DHT, IPv6 DHT and UDP
+  trackers. IPv6 DHT needs `--enable-dht6` *plus* `--dht-listen-addr6`, which aria2 requires to be
+  a global unicast address of the host — so `Aria2Daemon` discovers one via `getifaddrs` and emits
+  neither flag when the Mac has no IPv6.
+- **MacGet decides tracker injection itself, per download.** aria2 disables DHT for a `private`
+  torrent on its own, but honours `--bt-tracker` regardless — a supplied tracker is user intent to
+  aria2. `TorrentMetainfo` reads the flag from bencode (aria2's `tellStatus` never reports it), and
+  it must stay a structural parser: `info.pieces` is raw SHA-1 and will eventually contain the
+  literal bytes `7:privatei1e`.
+- **`--bt-max-open-files` stays at aria2's default of 100** — macOS's soft `RLIMIT_NOFILE` is 256
+  and `Process` can't raise it for the child, so a larger value fails at open() time.
 - Torrents are gated behind `AppSettings.torrentsEnabled` (off by default) and a first-run acknowledgement — unlike media extraction, which is switched on silently. BitTorrent uploads on the user's connection, so it always asks.
 
 ### Book catalogs

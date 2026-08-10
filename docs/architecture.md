@@ -178,6 +178,27 @@ Two invariants worth knowing before touching this code:
   shape to a finished download. `TorrentJob.isAwaitingMetadata` suppresses
   progress and completion until `followedBy` hands off to the real GID.
 
+Peer discovery, IPv6 DHT, and private-tracker handling each needed tuning that
+isn't obvious from the flag names alone. `--bt-request-peer-speed-limit` is a
+discovery ceiling, not a bandwidth cap — aria2 stops looking for new peers once
+it's above that number — so the old `10M` (~80 Mbps) was silently capping
+discovery at 8% of a gigabit link; it's now `100M`, and `--bt-max-peers` tracks
+`AppSettings.torrentMaxPeers` (default 200) instead of the hardcoded 100 it
+used before `TorrentEngineOptions.init(settings:)` started threading it
+through. IPv6 DHT is all-or-nothing: `--enable-dht6` and `--dht-listen-addr6`
+are emitted together or not at all, gated on both `torrentDHTEnabled` and a
+global-unicast IPv6 address actually being present, because `Aria2Daemon`
+has to discover that address itself via `getifaddrs` — there is no
+`--dht-listen-port6` in aria2, so `--dht-listen-port` alone covers IPv4 DHT,
+IPv6 DHT, and UDP trackers. Private torrents get an explicit gate rather than
+trusting aria2 to keep them off public trackers: aria2 turns off DHT for a
+`private` torrent on its own but still honors `--bt-tracker` unconditionally,
+and `tellStatus` never reports the flag back, so `TorrentMetainfo` reads it
+directly out of the bencode (deliberately as a structural parser, since
+`info.pieces` is raw SHA-1 that can itself contain the literal bytes
+`7:privatei1e`) and `TorrentTrackers` uses that to decide whether MacGet's
+compiled-in public tracker list gets appended at all.
+
 ---
 
 ## Browser capture

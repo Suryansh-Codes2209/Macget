@@ -330,6 +330,37 @@ final class Aria2DaemonTests: XCTestCase {
         XCTAssertFalse(keys.contains { $0.contains("seed") })
     }
 
+    func test_diskCacheAndMmapAreTunedForModernDisks() {
+        let a = args()
+        XCTAssertTrue(a.contains("--disk-cache=128M"))
+        // Safe specifically because --file-allocation=falloc preallocates; aria2's
+        // documented mmap failure mode is unallocated space.
+        XCTAssertTrue(a.contains("--enable-mmap=true"))
+        XCTAssertTrue(a.contains("--file-allocation=falloc"))
+    }
+
+    /// macOS's default soft RLIMIT_NOFILE is 256 and Foundation.Process offers no
+    /// clean way to raise it for the child, so a bigger value would simply fail
+    /// at open() time on a many-file torrent — worse than the default it replaced.
+    func test_leavesMaxOpenFilesAtAria2Default() {
+        XCTAssertFalse(args().contains { $0.hasPrefix("--bt-max-open-files") })
+    }
+
+    /// A torrent that has finished downloading and is only seeding must stop
+    /// occupying a slot, or a completed torrent blocks a queued one.
+    func test_seedingTorrentsDoNotOccupyDownloadSlots() {
+        XCTAssertTrue(args().contains("--bt-detach-seed-only=true"))
+    }
+
+    /// aria2's own default is 5. With more than five active torrents it silently
+    /// queued the rest while MacGet's rows claimed they were running at 0 B/s.
+    func test_concurrencyLimitTracksTheAppSetting() {
+        let options = AppSettings(maxConcurrentDownloads: 9).torrentOptions
+        XCTAssertEqual(options.mutableGlobalOptions["max-concurrent-downloads"], "9")
+        XCTAssertTrue(Aria2Daemon.arguments(port: 1, secret: "s", options: options)
+            .contains("--max-concurrent-downloads=9"))
+    }
+
     func test_secretIsUnpredictableAndLongEnough() {
         let a = Aria2Daemon.makeSecret()
         let b = Aria2Daemon.makeSecret()

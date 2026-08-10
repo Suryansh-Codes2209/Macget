@@ -171,7 +171,9 @@ final class Aria2TuningTests: XCTestCase {
     func test_raisesPeerAndCacheLimits() {
         let a = args()
         XCTAssertTrue(a.contains("--bt-max-peers=200"))
-        XCTAssertTrue(a.contains("--disk-cache=64M"))
+        // 128M — raised from an earlier 64M for modern disks; see Aria2DaemonTests
+        // for the mmap/falloc reasoning behind that value.
+        XCTAssertTrue(a.contains("--disk-cache=128M"))
         XCTAssertTrue(a.contains("--file-allocation=falloc"))
     }
 

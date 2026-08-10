@@ -217,7 +217,13 @@ actor Aria2Daemon {
             // accepted at this level, so it costs no peers — it just stops the
             // BitTorrent handshake being a free signature for DPI.
             "--bt-min-crypto-level=arc4",
-            "--disk-cache=64M",
+            "--disk-cache=128M",
+            // Safe here because --file-allocation=falloc below preallocates the
+            // file; aria2's documented mmap failure mode is unallocated space.
+            "--enable-mmap=true",
+            // A finished-but-seeding torrent stops counting against
+            // --max-concurrent-downloads, so it can't block a queued one.
+            "--bt-detach-seed-only=true",
             // APFS supports fallocate, so the file is reserved without writing
             // zeroes across it first.
             "--file-allocation=falloc",
@@ -332,6 +338,9 @@ struct TorrentEngineOptions: Sendable, Equatable {
     /// Refuse peers that won't encrypt. Defeats ISP BitTorrent shaping, at the
     /// cost of dropping every peer that only speaks plaintext.
     var requireEncryption: Bool = false
+    /// aria2's own default is 5. MacGet's engine allows up to 16 concurrent
+    /// downloads, so leaving aria2 at 5 silently queued the rest.
+    var maxConcurrentDownloads: Int = 5
     /// Re-hash data already on disk when a torrent resumes. Off by default —
     /// see `Aria2Daemon.arguments` for why.
     var verifyOnResume: Bool = false
@@ -342,6 +351,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
         [
             "max-overall-upload-limit": String(maxUploadBytesPerSec ?? 0),
             "max-overall-download-limit": String(maxDownloadBytesPerSec ?? 0),
+            "max-concurrent-downloads": String(maxConcurrentDownloads),
         ]
     }
 
@@ -354,6 +364,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
         maxDownloadBytesPerSec: Int? = nil,
         maxPeers: Int = 200,
         requireEncryption: Bool = false,
+        maxConcurrentDownloads: Int = 5,
         verifyOnResume: Bool = false
     ) {
         self.seedRatio = seedRatio
@@ -364,6 +375,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
         self.maxDownloadBytesPerSec = maxDownloadBytesPerSec
         self.maxPeers = max(1, min(500, maxPeers))
         self.requireEncryption = requireEncryption
+        self.maxConcurrentDownloads = max(1, maxConcurrentDownloads)
         self.verifyOnResume = verifyOnResume
     }
 
@@ -377,6 +389,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
             maxDownloadBytesPerSec: settings.globalSpeedLimitBytesPerSec,
             maxPeers: settings.torrentMaxPeers,
             requireEncryption: settings.torrentRequireEncryption,
+            maxConcurrentDownloads: settings.maxConcurrentDownloads,
             verifyOnResume: settings.torrentVerifyOnResume
         )
     }

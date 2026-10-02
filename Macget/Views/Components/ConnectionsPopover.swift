@@ -32,7 +32,7 @@ struct ConnectionsToolbarButton: View {
               ? "Combining connections — click to choose which networks MacGet uses"
               : "Connected networks — click to combine them for faster downloads")
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(ConnectionsSummary.accessibilityLabel(chips: chips, combining: combining))
+        .accessibilityLabel(ConnectionsSummary.accessibilityLabel(chips: chips, totalSpeed: listVM.totalSpeed, combining: combining))
         .accessibilityHint("Shows connection options")
         .accessibilityAddTraits(.isButton)
         .popover(isPresented: $showingPopover, arrowEdge: .bottom) {
@@ -50,8 +50,7 @@ struct ConnectionsPopover: View {
         Binding(
             get: { settingsVM.settings.bonding.enabled },
             set: { newValue in
-                settingsVM.settings.bonding.enabled = newValue
-                settingsVM.persistAndPropagate()
+                settingsVM.edit { $0.bonding.enabled = newValue }
             }
         )
     }
@@ -60,8 +59,7 @@ struct ConnectionsPopover: View {
         Binding(
             get: { settingsVM.settings.bonding.isLinkEnabled(id) },
             set: { newValue in
-                settingsVM.settings.bonding.setLink(id, enabled: newValue)
-                settingsVM.persistAndPropagate()
+                settingsVM.edit { $0.bonding.setLink(id, enabled: newValue) }
             }
         )
     }
@@ -113,7 +111,7 @@ struct ConnectionsPopover: View {
                 }
                 Spacer(minLength: 8)
                 if chip.speedBytesPerSec > 0 {
-                    SpeedText(bytesPerSec: chip.speedBytesPerSec)
+                    SpeedText(bytesPerSec: chip.speedBytesPerSec, isEstimate: chip.isEstimate)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }

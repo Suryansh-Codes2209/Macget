@@ -16,6 +16,8 @@ final class AppEnvironment {
     /// Drives the credential prompt for password-protected downloads.
     let authPrompt = AuthPromptModel()
     var settings: AppSettings
+    /// Set by the shared `SettingsViewModel`; see `SettingsHost`.
+    var onSettingsChanged: ((AppSettings) -> Void)?
 
     init() {
         let store = DownloadStore()
@@ -421,6 +423,7 @@ final class AppEnvironment {
         if bridgeChanged {
             applyExtensionBridgeState(for: newSettings)
         }
+        onSettingsChanged?(newSettings)
     }
 
     /// The extension talks to Macget through one native-messaging host + inbox
@@ -442,3 +445,5 @@ final class AppEnvironment {
         }
     }
 }
+
+extension AppEnvironment: SettingsHost {}

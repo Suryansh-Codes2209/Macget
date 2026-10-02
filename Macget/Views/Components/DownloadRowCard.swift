@@ -198,21 +198,26 @@ struct DownloadRowCard: View {
     private var activeLine: some View {
         let indeterminate = row.phase.map { $0 == .merging || row.fractionComplete == 0 } ?? false
 
-        HStack(spacing: 8) {
-            ProgressTrack(value: indeterminate ? nil : row.fractionComplete)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                ProgressTrack(value: indeterminate ? nil : row.fractionComplete)
 
-            if indeterminate, let phase = row.phase {
-                Text(phase.label)
-                    .font(.caption)
-                    .foregroundStyle(secondaryText)
-            } else {
-                Text(percentString(row.fractionComplete))
-                    .monospacedDigit().font(.caption)
-                    .foregroundStyle(primaryText)
-                    .frame(minWidth: 34, alignment: .trailing)
+                if indeterminate, let phase = row.phase {
+                    Text(phase.label)
+                        .font(.caption)
+                        .foregroundStyle(secondaryText)
+                } else {
+                    Text(percentString(row.fractionComplete))
+                        .monospacedDigit().font(.caption)
+                        .foregroundStyle(primaryText)
+                        .frame(minWidth: 34, alignment: .trailing)
+                }
+
+                speedAndETA
             }
-
-            speedAndETA
+            if row.links.count >= 2 {
+                LinkBreakdownView(links: row.links)
+            }
         }
     }
 

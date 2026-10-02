@@ -84,6 +84,8 @@ struct DownloadRowItem: Identifiable, Equatable {
     let isSeeding: Bool
     /// Files inside a multi-file torrent, once aria2 has resolved metadata.
     let torrentFiles: [TorrentFileEntry]?
+    /// Per-link speed breakdown when several network links carry this download.
+    var links: [LinkStat] = []
 
     var fractionComplete: Double {
         guard let total = totalBytes, total > 0 else { return 0 }
@@ -132,6 +134,9 @@ final class DownloadListViewModel {
     var selectedKind: KindFilter = .all
     var searchText: String = ""
     var totalSpeed: Double = 0
+    /// Per-link speed summed across every active download, for the toolbar strip
+    /// and menu bar. Empty unless two or more links are carrying traffic.
+    private(set) var linkTotals: [LinkStat] = []
 
     private var downloadsByID: [UUID: Download] = [:]
     private var snapshotsByID: [UUID: DownloadSnapshot] = [:]
@@ -224,12 +229,14 @@ final class DownloadListViewModel {
                 seeders: snap?.seeders,
                 peers: snap?.peers,
                 isSeeding: snap?.isSeeding ?? false,
-                torrentFiles: d.torrentFiles
+                torrentFiles: d.torrentFiles,
+                links: snap?.links ?? []
             )
         }
         rows = filtered(items)
         totalSpeed = items.filter { $0.status == .downloading }
                           .reduce(0) { $0 + $1.speedBytesPerSec }
+        linkTotals = LinkStat.aggregate(items.filter { $0.status == .downloading }.map(\.links))
     }
 
     private func filtered(_ items: [DownloadRowItem]) -> [DownloadRowItem] {

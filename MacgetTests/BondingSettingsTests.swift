@@ -28,4 +28,17 @@ final class BondingSettingsTests: XCTestCase {
         XCTAssertTrue(b.isLinkEnabled("en0"))
         XCTAssertFalse(b.isLinkEnabled("en7"))
     }
+
+    func test_emptyBondingObjectDecodesAsDefault() throws {
+        let json = #"{"bonding":{}}"#.data(using: .utf8)!
+        let s = try JSONDecoder().decode(AppSettings.self, from: json)
+        XCTAssertEqual(s.bonding, BondingSettings())
+    }
+
+    func test_partialBondingObjectKeepsPresentFields() throws {
+        let json = #"{"bonding":{"enabled":true}}"#.data(using: .utf8)!
+        let s = try JSONDecoder().decode(AppSettings.self, from: json)
+        XCTAssertTrue(s.bonding.enabled)
+        XCTAssertTrue(s.bonding.disabledLinkIDs.isEmpty)
+    }
 }

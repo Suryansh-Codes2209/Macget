@@ -15,6 +15,14 @@ struct BondingSettings: Codable, Equatable, Sendable {
         self.disabledLinkIDs = disabledLinkIDs
     }
 
+    // Explicit so a partial `bonding` object decodes missing fields as defaults;
+    // the synthesized decoder would throw keyNotFound and fail all of AppSettings.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        disabledLinkIDs = try c.decodeIfPresent(Set<String>.self, forKey: .disabledLinkIDs) ?? []
+    }
+
     func isLinkEnabled(_ id: String) -> Bool {
         !disabledLinkIDs.contains(id)
     }

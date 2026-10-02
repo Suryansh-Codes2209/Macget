@@ -27,6 +27,10 @@ struct LinkStat: Sendable, Equatable, Identifiable {
     /// Sums per-link stats across downloads for the global strip and menu bar.
     /// Empty unless at least two links are actually carrying bytes — a single
     /// link has nothing to break down.
+    ///
+    /// This totals traffic across downloads for the global strip and menu bar, so
+    /// `status` in the output is always `.active`; callers who need per-link status
+    /// must read the per-download stats instead.
     static func aggregate(_ perDownload: [[LinkStat]]) -> [LinkStat] {
         var order: [String] = []
         var byID: [String: LinkStat] = [:]

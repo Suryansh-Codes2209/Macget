@@ -293,6 +293,7 @@ actor DownloadCoordinator {
         }
         workerTask = nil
         inFlight.removeAll()
+        inFlightRoute.removeAll()
         await writer?.close()
         writer = nil
     }
@@ -1030,6 +1031,7 @@ actor DownloadCoordinator {
         publishTask?.cancel(); publishTask = nil
         for t in inFlight.values { t.cancel() }
         inFlight.removeAll()
+        inFlightRoute.removeAll()
         await writer?.close(); writer = nil
         pendingFatalError = nil
 

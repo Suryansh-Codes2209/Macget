@@ -38,7 +38,9 @@ actor DownloadEngine {
     /// Watches network reachability so a dropped connection pauses active
     /// downloads into a holding state and auto-resumes them when the network
     /// returns — instead of burning retries through an outage.
-    private var pathMonitor: NWPathMonitor?
+    private var linkMonitorTask: Task<Void, Never>?
+    /// Most recent link set; Task 11 derives aria2's bonding addresses from it.
+    private var lastLinkSnapshot = LinkSnapshot(links: [], isOnline: true)
     private var networkPausedIDs: Set<UUID> = []
     private var lastPathSatisfied = true
 
@@ -405,8 +407,8 @@ actor DownloadEngine {
 
     /// Called from AppDelegate on app termination.
     func suspendAllForShutdown() async {
-        pathMonitor?.cancel()
-        pathMonitor = nil
+        linkMonitorTask?.cancel()
+        linkMonitorTask = nil
         scheduleTimer?.cancel()
         scheduleTimer = nil
         for id in coordinators.keys {
@@ -454,14 +456,18 @@ actor DownloadEngine {
     // MARK: - Network reachability
 
     private func startNetworkMonitoring() {
-        guard pathMonitor == nil else { return }
-        let monitor = NWPathMonitor()
-        pathMonitor = monitor
-        monitor.pathUpdateHandler = { [weak self] path in
-            let satisfied = path.status == .satisfied
-            Task { await self?.handleNetworkPath(satisfied: satisfied) }
+        guard linkMonitorTask == nil else { return }
+        linkMonitorTask = Task { [weak self] in
+            await NetworkLinkMonitor.shared.start()
+            for await snapshot in await NetworkLinkMonitor.shared.updates() {
+                await self?.handleLinkSnapshot(snapshot)
+            }
         }
-        monitor.start(queue: DispatchQueue(label: "com.macget.network-monitor"))
+    }
+
+    private func handleLinkSnapshot(_ snapshot: LinkSnapshot) async {
+        lastLinkSnapshot = snapshot
+        await handleNetworkPath(satisfied: snapshot.isOnline)
     }
 
     private func handleNetworkPath(satisfied: Bool) async {

@@ -71,6 +71,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     var torrentRequireEncryption: Bool
     /// Ask the router to forward `torrentListenPort` via PCP/NAT-PMP.
     var torrentAutoPortMapping: Bool
+    /// Combine several internet links (Wi-Fi + tethered phone, …) for one download.
+    var bonding: BondingSettings
 
     init(
         defaultDestination: URL = AppSettings.systemDownloadsFolder(),
@@ -105,7 +107,8 @@ struct AppSettings: Codable, Equatable, Sendable {
         torrentMaxPeers: Int = 200,
         torrentAddPublicTrackers: Bool = true,
         torrentRequireEncryption: Bool = false,
-        torrentAutoPortMapping: Bool = true
+        torrentAutoPortMapping: Bool = true,
+        bonding: BondingSettings = BondingSettings()
     ) {
         self.defaultDestination = defaultDestination
         self.defaultThreadCount = max(1, min(Download.maxThreadCount, defaultThreadCount))
@@ -144,6 +147,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         self.torrentAddPublicTrackers = torrentAddPublicTrackers
         self.torrentRequireEncryption = torrentRequireEncryption
         self.torrentAutoPortMapping = torrentAutoPortMapping
+        self.bonding = bonding
     }
 
     /// The torrent settings as a value object handed to the aria2 daemon.
@@ -201,6 +205,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         torrentAddPublicTrackers = try c.decodeIfPresent(Bool.self, forKey: .torrentAddPublicTrackers) ?? defaults.torrentAddPublicTrackers
         torrentRequireEncryption = try c.decodeIfPresent(Bool.self, forKey: .torrentRequireEncryption) ?? defaults.torrentRequireEncryption
         torrentAutoPortMapping = try c.decodeIfPresent(Bool.self, forKey: .torrentAutoPortMapping) ?? defaults.torrentAutoPortMapping
+        bonding = try c.decodeIfPresent(BondingSettings.self, forKey: .bonding) ?? defaults.bonding
     }
 
     static func systemDownloadsFolder() -> URL {

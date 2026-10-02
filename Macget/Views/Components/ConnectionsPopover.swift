@@ -29,7 +29,7 @@ struct ConnectionsToolbarButton: View {
             LinkStripView(chips: chips, totalSpeed: listVM.totalSpeed, combining: combining)
         }
         .help(combining
-              ? "Combining connections — click to choose which networks MacGet uses"
+              ? "Combining connections — click to choose which networks to use"
               : "Connected networks — click to combine them for faster downloads")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(ConnectionsSummary.accessibilityLabel(chips: chips, totalSpeed: listVM.totalSpeed, combining: combining))

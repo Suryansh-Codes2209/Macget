@@ -222,7 +222,11 @@ actor TorrentJob {
 
         var links: [LinkStat] = []
         if !options.bondingAddresses.isEmpty, !seeding {
+            // Only links aria2 is actually bound to: a link that appeared since
+            // launch is usable but carries none of this torrent's traffic.
+            let bound = Set(options.bondingAddresses)
             let usable = await NetworkLinkMonitor.shared.usableLinks()
+                .filter { $0.addresses.contains(where: bound.contains) }
             links = await TorrentLinkAttributor.shared.linkStats(
                 for: download.id, speed: Double(status.downloadSpeed), links: usable)
         }

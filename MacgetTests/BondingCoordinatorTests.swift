@@ -55,6 +55,30 @@ final class DeadDefaultLinkURLProtocol: BondingStubURLProtocol {
     }
 }
 
+/// Default link that answers each ranged GET only after a delay, so a test can
+/// change settings while the first wave of workers is still in flight.
+final class SlowDefaultLinkURLProtocol: BondingStubURLProtocol {
+    static let delay: TimeInterval = 0.6
+    private let lock = NSLock()
+    private var stopped = false
+
+    override func startLoading() {
+        guard request.httpMethod != "HEAD" else { return super.startLoading() }
+        DispatchQueue.global().asyncAfter(deadline: .now() + Self.delay) {
+            self.serveUnlessStopped()
+        }
+    }
+
+    private func serveUnlessStopped() {
+        lock.lock(); let isStopped = stopped; lock.unlock()
+        if !isStopped { super.startLoading() }
+    }
+
+    override func stopLoading() {
+        lock.lock(); stopped = true; lock.unlock()
+    }
+}
+
 final class StubLinkProvider: LinkProvider, @unchecked Sendable {
     private let lock = NSLock()
     private var _links: [NetworkLink]
@@ -235,6 +259,44 @@ final class BondingCoordinatorTests: XCTestCase {
         XCTAssertEqual(final?.status, .completed, final?.error ?? "")
         try assertFileIsCorrect()
         XCTAssertLessThan(Date().timeIntervalSince(start), 15, "should not wait for the 30s stall watchdog")
+    }
+
+    func test_enablingBondingMidDownload_startsUsingPinnedLink() async throws {
+        // Bonding was off when the run decided eligibility. Switching it on must
+        // reach this download — new spawns fill the phone's quota, no restart.
+        let total: Int64 = 64 * 1024 * 1024
+        BondingStubURLProtocol.totalBytes = total
+        let transport = StubPinnedTransport(mode: .serve, totalBytes: total)
+        var download = Download(url: URL(string: "https://bond.example.com/big.bin")!, destinationFolder: dir, filename: "big.bin")
+        download.threadCount = 4
+        let log = SnapshotLog()
+        let done = expectation(description: "terminal")
+        let coordinator = DownloadCoordinator(
+            download: download, session: session(SlowDefaultLinkURLProtocol.self),
+            hostCapStore: HostCapStore(fileURL: capStoreURL),
+            linkProvider: StubLinkProvider([Self.wifi, Self.tether]), pinnedTransport: transport,
+            bonding: BondingSettings(enabled: false),
+            systemProxyCheck: { _ in false },
+            onStateChange: { d in if d.status.isTerminal { await log.finish(d); done.fulfill() } },
+            onSnapshot: { s in await log.add(s) }
+        )
+        await coordinator.start()
+        // Wait for the run to be past eligibility (first snapshot), still inside
+        // the default link's first-response delay.
+        var waited = 0
+        while await log.snapshots.isEmpty, waited < 40 {
+            try await Task.sleep(for: .milliseconds(25))
+            waited += 1
+        }
+        XCTAssertEqual(transport.requestCount, 0, "bonding was off; the phone must be untouched so far")
+        await coordinator.updateBonding(BondingSettings(enabled: true))
+        await fulfillment(of: [done], timeout: 30)
+        let final = await log.final
+        XCTAssertEqual(final?.status, .completed, final?.error ?? "")
+        XCTAssertGreaterThan(transport.requestCount, 0, "switching bonding on mid-download never used the phone")
+        let data = try Data(contentsOf: dir.appendingPathComponent("big.bin"))
+        XCTAssertEqual(data.count, Int(total))
+        XCTAssertEqual(data, BondingTestData.bytes(0...(total - 1)))
     }
 
     func test_bondingOffNeverTouchesPinnedTransport() async throws {

@@ -124,7 +124,8 @@ actor DownloadCoordinator {
     private let appProxyConfigured: Bool
     /// Injectable so tests don't depend on the machine's real proxy settings.
     private let systemProxyCheck: @Sendable (URL) -> Bool
-    /// Decided once per run after the probe: range support + no proxy + http(s).
+    /// Decided after the probe: range support + no proxy + http(s). Re-decided
+    /// if bonding is switched on mid-run; never reverts to false within a run.
     private var bondingEligible = false
     private var currentLinks: [NetworkLink] = []
     /// Route each in-flight piece is using, keyed like `inFlight`.
@@ -379,20 +380,7 @@ actor DownloadCoordinator {
         writer = try FileWriter(url: download.partialFileURL, totalBytes: total)
 
         // 5b. Decide whether this run may use extra network links.
-        bondingEligible = bonding.enabled
-            && linkProvider != nil
-            && pinnedTransport != nil
-            && BondingEligibility.isEligible(
-                url: download.url,
-                supportsRange: download.supportsRange,
-                appProxyConfigured: appProxyConfigured,
-                systemProxyActive: systemProxyCheck(download.url)
-            )
-        if bondingEligible, let linkProvider {
-            currentLinks = await linkProvider.usableLinks()
-            urlSessionLinkID = currentLinks.first(where: \.isDefaultRoute)?.id
-            for link in currentLinks { knownLinkNames[link.id] = (link.displayName, link.kind) }
-        }
+        await decideBondingEligibility()
 
         // 6. Mark downloading and start the publish loop.
         download.status = .downloading
@@ -650,7 +638,7 @@ actor DownloadCoordinator {
         // Only the default link's own meter counts — and a link that has never
         // delivered a byte has no meter yet, which reads as zero, not aggregate.
         let throughput: Double
-        if bondingEligible, !currentQuotas().isEmpty {
+        if bondingEligible, !currentQuotas().isEmpty || hasPinnedInFlight {
             if let id = urlSessionLinkID, let meter = linkMeters[id] {
                 throughput = await meter.currentSpeed()
             } else {
@@ -886,7 +874,12 @@ actor DownloadCoordinator {
             eta = nil
         }
         var links: [LinkStat] = []
-        if bondingEligible {
+        // Only while extra links are (or just were) in play: with bonding switched
+        // off, or too few threads to split, a breakdown would show the phone
+        // idling at 0 B/s for no reason. A link's failure status still shows
+        // while bonding is on — it explains why only one link is carrying bytes.
+        if bondingEligible,
+           !currentQuotas().isEmpty || hasPinnedInFlight || (bonding.enabled && !linkStatuses.isEmpty) {
             var speeds: [String: Double] = [:]
             for (id, meter) in linkMeters { speeds[id] = await meter.currentSpeed() }
             var connections: [String: Int] = [:]
@@ -1144,6 +1137,28 @@ actor DownloadCoordinator {
         return BondingPolicy.quotas(links: active, threadCount: effectiveThreadCount())
     }
 
+    /// Whether this run may use extra links, and if so the links to start from.
+    private func decideBondingEligibility() async {
+        bondingEligible = bonding.enabled
+            && linkProvider != nil
+            && pinnedTransport != nil
+            && BondingEligibility.isEligible(
+                url: download.url,
+                supportsRange: download.supportsRange,
+                appProxyConfigured: appProxyConfigured,
+                systemProxyActive: systemProxyCheck(download.url)
+            )
+        if bondingEligible, let linkProvider {
+            currentLinks = await linkProvider.usableLinks()
+            urlSessionLinkID = currentLinks.first(where: \.isDefaultRoute)?.id
+            for link in currentLinks { knownLinkNames[link.id] = (link.displayName, link.kind) }
+        }
+    }
+
+    private var hasPinnedInFlight: Bool {
+        inFlightRoute.values.contains { if case .pinned = $0 { return true } else { return false } }
+    }
+
     /// Picks the link with the most free slots. URLSession counts against the
     /// default-route link's quota.
     private func pickRoute() -> WorkerRoute {
@@ -1307,6 +1322,13 @@ actor DownloadCoordinator {
     /// fall back to URLSession-only once fewer than two links remain active.
     func updateBonding(_ settings: BondingSettings) async {
         bonding = settings
+        // Switched on mid-run: eligibility was decided (false) at step 5b, so
+        // decide again. No restart — new spawns fill the extra links' quota as
+        // the current pieces finish.
+        if !bondingEligible, settings.enabled, download.status == .downloading,
+           writer != nil, download.supportsRange {
+            await decideBondingEligibility()
+        }
         for (id, route) in inFlightRoute {
             if case .pinned(let linkID) = route, !settings.enabled || !settings.isLinkEnabled(linkID) {
                 inFlight[id]?.cancel()

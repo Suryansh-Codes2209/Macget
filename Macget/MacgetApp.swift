@@ -70,7 +70,7 @@ struct MacgetApp: App {
         }
 
         Settings {
-            SettingsView(vm: settingsVM)
+            SettingsView(vm: settingsVM, connections: connections)
         }
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var vm: SettingsViewModel
+    let connections: ConnectionsModel
     @State private var mediaToolStatus: String?
     /// nil until the first read of `HostCapStore` lands.
     @State private var learnedHostCount: Int?
@@ -205,6 +206,35 @@ struct SettingsView: View {
     private var networkTab: some View {
         Form {
             Section {
+                Toggle("Combine internet connections", isOn: $vm.settings.bonding.enabled)
+                if vm.settings.bonding.enabled {
+                    if connections.links.isEmpty {
+                        Text("Looking for connections…").foregroundStyle(.secondary)
+                    }
+                    ForEach(connections.links) { link in
+                        Toggle(isOn: Binding(
+                            get: { vm.settings.bonding.isLinkEnabled(link.id) },
+                            set: { vm.settings.bonding.setLink(link.id, enabled: $0) }
+                        )) {
+                            HStack(spacing: 6) {
+                                Circle().fill(LinkPalette.color(for: link.kind)).frame(width: 8, height: 8)
+                                Text(link.displayName)
+                                Text(link.isDefaultRoute ? "Connected · default route" : "Connected")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("Combine connections")
+            } footer: {
+                Text("Uses every enabled connection at once for multi-connection downloads and torrents — for example Wi-Fi plus a USB-tethered phone. Data from a tethered phone counts against your mobile plan. Downloads through a proxy, and servers that don't support resuming, use only the default connection.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 Stepper(
                     "Request timeout: \(vm.settings.requestTimeoutSeconds)s",
                     value: $vm.settings.requestTimeoutSeconds,
@@ -287,7 +317,10 @@ struct SettingsView: View {
             }
         }
         .padding(20)
-        .task { learnedHostCount = await HostCapStore.shared.learnedHostCount() }
+        .task {
+            learnedHostCount = await HostCapStore.shared.learnedHostCount()
+            connections.start()
+        }
     }
 
     private var learnedHostCountLabel: String {

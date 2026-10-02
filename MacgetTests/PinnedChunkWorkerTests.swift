@@ -85,7 +85,8 @@ final class PinnedChunkWorkerTests: XCTestCase {
 
     override func tearDown() { try? FileManager.default.removeItem(at: dir) }
 
-    private func runWorker(_ transport: StubPinnedTransport, chunk: Chunk, total: Int64) async throws -> Data {
+    private func runWorker(_ transport: StubPinnedTransport, chunk: Chunk, total: Int64,
+                           credential: URLCredential? = nil, headers: [String: String]? = nil) async throws -> Data {
         let url = dir.appendingPathComponent("f.bin")
         let writer = try FileWriter(url: url, totalBytes: total)
         let worker = ChunkWorker(
@@ -98,7 +99,10 @@ final class PinnedChunkWorkerTests: XCTestCase {
             pinned: PinnedRoute(linkID: "en7", transport: transport),
             report: { _, _ in }
         )
-        try await worker.run()
+        var w = worker
+        w.credential = credential
+        w.headers = headers
+        try await w.run()
         await writer.close()
         return try Data(contentsOf: url)
     }
@@ -157,6 +161,41 @@ final class PinnedChunkWorkerTests: XCTestCase {
         XCTAssertEqual(file, BondingTestData.bytes(0...1999))
         XCTAssertEqual(transport.lastURL?.absoluteString, "https://example.com/real/f.bin")
         XCTAssertEqual(transport.requestCount, 2)
+    }
+
+    private func has(_ name: String, _ transport: StubPinnedTransport) -> Bool {
+        transport.lastHeaders.contains { $0.0.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    func test_crossHostRedirectDropsCredentials() async throws {
+        let transport = StubPinnedTransport(mode: .redirect("https://other.example.com/f.bin"), totalBytes: 2000)
+        _ = try await runWorker(transport, chunk: Chunk(startByte: 0, endByte: 1999), total: 2000,
+                                credential: URLCredential(user: "u", password: "p", persistence: .none),
+                                headers: ["Cookie": "a=b"])
+        XCTAssertEqual(transport.requestCount, 2)
+        XCTAssertEqual(transport.lastURL?.host, "other.example.com")
+        XCTAssertFalse(has("Authorization", transport))
+        XCTAssertFalse(has("Cookie", transport))
+    }
+
+    func test_sameHostRedirectKeepsCredentials() async throws {
+        let transport = StubPinnedTransport(mode: .redirect("https://example.com/real/f.bin"), totalBytes: 2000)
+        _ = try await runWorker(transport, chunk: Chunk(startByte: 0, endByte: 1999), total: 2000,
+                                credential: URLCredential(user: "u", password: "p", persistence: .none))
+        XCTAssertEqual(transport.requestCount, 2)
+        XCTAssertTrue(has("Authorization", transport))
+    }
+
+    func test_httpsToHttpRedirectIsRejected() async throws {
+        let transport = StubPinnedTransport(mode: .redirect("http://example.com/f.bin"), totalBytes: 2000)
+        do {
+            _ = try await runWorker(transport, chunk: Chunk(startByte: 0, endByte: 1999), total: 2000,
+                                    credential: URLCredential(user: "u", password: "p", persistence: .none))
+            XCTFail("expected throw")
+        } catch ChunkError.linkRejected(_, let refused) {
+            XCTAssertTrue(refused)
+            XCTAssertEqual(transport.requestCount, 1)
+        }
     }
 
     func test_pinnedFailureMapping() {

@@ -69,13 +69,13 @@ struct ChunkWorker {
     var rateLimiter: RateLimiter? = nil
     /// Optional credential for HTTP Basic/Digest/NTLM challenges on this host.
     var credential: URLCredential? = nil
-    /// Called periodically with bytes flushed to disk for this chunk.
     /// When set, this attempt runs over a specific network link through the
     /// pinned transport instead of URLSession. Never set for unbounded streams.
     var pinned: PinnedRoute? = nil
     /// URLSession path only: called with the local IP the connection used, so
     /// the coordinator can attribute default-link bytes to the right interface.
     var onLocalAddress: (@Sendable (String) -> Void)? = nil
+    /// Called periodically with bytes flushed to disk for this chunk.
     let report: @Sendable (UUID, Int) async -> Void
 
     /// Per-write buffer size. Workers accumulate small Data deliveries from the
@@ -145,13 +145,15 @@ struct ChunkWorker {
         }
         headers.append(("Accept-Encoding", "identity"))
         // Preemptive Basic only over TLS — never send a password in the clear.
+        // Skipped when the caller already captured an Authorization header.
         if let credential, let user = credential.user, let password = credential.password,
-           request.url?.scheme?.lowercased() == "https" {
+           request.url?.scheme?.lowercased() == "https",
+           !headers.contains(where: { $0.0.caseInsensitiveCompare("Authorization") == .orderedSame }) {
             let token = Data("\(user):\(password)".utf8).base64EncodedString()
             headers.append(("Authorization", "Basic \(token)"))
         }
 
-        guard var url = request.url else { throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: false) }
+        guard var url = request.url, let originalURL = request.url else { throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: false) }
         var response: PinnedResponse
         var redirects = 0
         while true {
@@ -160,6 +162,10 @@ struct ChunkWorker {
             } catch is CancellationError {
                 throw CancellationError()
             } catch let error as PinnedTransportError where error.isTLS {
+                throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: false)
+            } catch PinnedTransportError.unsupportedURL {
+                throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: false)
+            } catch PinnedTransportError.interfaceUnavailable {
                 throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: false)
             } catch {
                 throw ChunkError.linkTransport(linkID: route.linkID, detail: error.localizedDescription)
@@ -170,6 +176,14 @@ struct ChunkWorker {
                   let location = response.head.value("location"),
                   let next = URL(string: location, relativeTo: url)?.absoluteURL
             else { throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: true) }
+            // Never downgrade TLS, and never carry credentials or cookies to a
+            // different origin than the one the caller asked for.
+            if url.scheme?.lowercased() == "https", next.scheme?.lowercased() != "https" {
+                throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: true)
+            }
+            if !Self.sameOrigin(next, originalURL) {
+                headers.removeAll { ["authorization", "cookie"].contains($0.0.lowercased()) }
+            }
             redirects += 1
             url = next
         }
@@ -201,6 +215,12 @@ struct ChunkWorker {
             continuation.onTermination = { _ in pump.cancel() }
         }
         try await write(translated, startingOffset: expectedStart, expectedEnd: expectedEnd, unbounded: false)
+    }
+
+    private static func sameOrigin(_ a: URL, _ b: URL) -> Bool {
+        a.scheme?.lowercased() == b.scheme?.lowercased()
+            && a.host?.lowercased() == b.host?.lowercased()
+            && a.port == b.port
     }
 
     /// Validation failures on a pinned link mean "this link can't serve this

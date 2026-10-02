@@ -1,7 +1,7 @@
 # Connection bonding
 
 **Date:** 2026-10-03
-**Status:** approved design, spec under review
+**Status:** implemented
 
 ## Why
 
@@ -306,5 +306,8 @@ Manual verification on real hardware (Wi-Fi + iPhone USB tethering):
   connections but not yet verified. If it turns out to do nothing for BT, torrent
   bonding is dropped and the torrent row simply never shows a split.
 - **A second, hand-written HTTP/1.1 client** is new surface area. It is kept narrow
-  (range GET only, no redirects/proxy/HTTP/2) and only ever runs on extra links, so its
+  (range GET only, same-link redirects capped at 5, no proxy/HTTP/2) and only ever runs on extra links, so its
   failure mode is "that link isn't used", never a failed download.
+- **Deferred hardware validation (Task 1):** the aria2 `--multiple-interface` / `nettop`
+  check over Wi-Fi + iPhone USB is pending the user's hardware test. If BitTorrent traffic
+  does not flow on both interfaces, torrent bonding should be reverted or disabled.

@@ -67,6 +67,10 @@ and queue state desync if shutdown skips it.
    the destination collides, then `moveItem` promotes the `.macget-partial` file
    to its final name.
 
+### Connection bonding
+
+When the user has two usable internet links (for example Wi-Fi plus a USB-tethered phone) and has enabled bonding, a range-capable download pins some of its workers to each link: `BondingPolicy` splits the existing thread budget across links, and the normal piece-stealing scheduler lets the faster link finish more pieces. URLSession cannot bind to an interface on macOS, so non-default links use `NWPinnedTransport`, a small `NWConnection`-based HTTP/1.1 range client; a failure there only removes that link from that download. Host demotion judges the default link on its own throughput while bonding is active. Torrents use aria2's launch-only `--multiple-interface`, so a link change restarts the daemon. See the [design spec](superpowers/specs/2026-10-03-connection-bonding-design.md).
+
 ### Adaptive parallelism
 
 Modern CDNs treat naive multi-connection downloads as leech behavior. The

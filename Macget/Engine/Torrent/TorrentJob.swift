@@ -220,6 +220,13 @@ actor TorrentJob {
         // job running until aria2 stops it at the ratio/time limit.
         let seeding = status.isComplete || (status.totalLength > 0 && downloaded >= status.totalLength)
 
+        var links: [LinkStat] = []
+        if !options.bondingAddresses.isEmpty, !seeding {
+            let usable = await NetworkLinkMonitor.shared.usableLinks()
+            links = await TorrentLinkAttributor.shared.linkStats(
+                for: download.id, speed: Double(status.downloadSpeed), links: usable)
+        }
+
         await onSnapshot(
             DownloadSnapshot(
                 id: download.id,
@@ -232,7 +239,8 @@ actor TorrentJob {
                 uploadedBytes: status.uploadLength,
                 seeders: status.numSeeders,
                 peers: status.connections,
-                isSeeding: seeding
+                isSeeding: seeding,
+                links: links
             )
         )
 

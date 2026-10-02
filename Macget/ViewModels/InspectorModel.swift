@@ -29,6 +29,27 @@ final class InspectorModel {
     /// connections it was allowed, and how quickly.
     private(set) var workerSeries = SpeedSeries()
 
+    /// Per-link throughput for the selected download, keyed by link ID, sampled
+    /// on the same tick as `selectedSeries`.
+    private(set) var linkSeries: [String: SpeedSeries] = [:]
+
+    /// The selected download's current links, in display order.
+    var linkOrder: [LinkStat] { targetRow?.links ?? [] }
+
+    /// Every known series gets a sample each tick (zero when the link carried
+    /// nothing), so stacked areas stay aligned on one time base.
+    nonisolated static func appendLinkSamples(_ links: [LinkStat], to series: [String: SpeedSeries]) -> [String: SpeedSeries] {
+        var out = series
+        let now = Date()
+        let speeds = Dictionary(links.map { ($0.linkID, $0.speedBytesPerSec) }, uniquingKeysWith: +)
+        for id in Set(out.keys).union(speeds.keys) {
+            var s = out[id] ?? SpeedSeries()
+            s.append(speeds[id] ?? 0, at: now)
+            out[id] = s
+        }
+        return out
+    }
+
     /// Whether the panel is on screen. Polling only runs while it is.
     var isPresented = false {
         didSet {
@@ -58,6 +79,7 @@ final class InspectorModel {
         targetID = id
         selectedSeries.reset()
         workerSeries.reset()
+        linkSeries = [:]
         inspection = nil
         if isPresented { Task { await tick() } }
     }
@@ -103,6 +125,9 @@ final class InspectorModel {
             return
         }
         selectedSeries.append(targetRow?.speedBytesPerSec ?? 0)
+        if let links = targetRow?.links, !links.isEmpty {
+            linkSeries = Self.appendLinkSamples(links, to: linkSeries)
+        }
         let snapshot = await engine.inspection(for: targetID)
         workerSeries.append(Double(snapshot?.activeWorkers ?? 0))
         inspection = snapshot

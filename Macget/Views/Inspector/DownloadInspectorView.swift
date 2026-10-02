@@ -55,6 +55,35 @@ struct DownloadInspectorView: View {
             statGrid(transferStats(row))
         }
 
+        if row.links.count >= 2 {
+            section("Network links", subtitle: row.links.contains(where: \.isEstimate) ? "estimated" : "\(row.links.count)") {
+                VStack(alignment: .leading, spacing: 8) {
+                    LinkSpeedChartView(series: model.linkSeries, links: row.links)
+                    ForEach(row.links) { link in
+                        HStack(spacing: 6) {
+                            Circle().fill(LinkPalette.color(for: link.kind)).frame(width: 7, height: 7)
+                            Text(link.displayName).lineLimit(1)
+                            Spacer()
+                            if link.status == .active {
+                                Text(ByteFormatter.speedString(link.speedBytesPerSec)).monospacedDigit()
+                            } else {
+                                Text(LinkBreakdownText.statusText(link.status)).foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.caption)
+                        HStack {
+                            Text(ByteCountFormatter.string(fromByteCount: link.bytesThisSession, countStyle: .file))
+                            Text("·")
+                            Text(row.isTorrent && link.activeConnections == 0 ? "— connections" : "\(link.activeConnections) connections")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 13)
+                    }
+                }
+            }
+        }
+
         if let inspection = model.inspection {
             section("Connections", subtitle: connectionsSubtitle(inspection)) {
                 statGrid(connectionStats(inspection))

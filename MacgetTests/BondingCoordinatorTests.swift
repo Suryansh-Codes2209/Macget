@@ -1,0 +1,181 @@
+import XCTest
+@testable import Macget
+
+/// Ranged URLSession stub for the default link: HEAD advertises ranges, GET serves `BondingTestData`.
+final class BondingStubURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var totalBytes: Int64 = 0
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        let total = Self.totalBytes
+        var headers = ["Accept-Ranges": "bytes", "ETag": "\"v1\""]
+        var status = 200
+        var body = Data()
+        if request.httpMethod == "HEAD" {
+            headers["Content-Length"] = String(total)
+        } else if let raw = request.value(forHTTPHeaderField: "Range"),
+                  let (s, e) = BondingTestData.parseRange(raw, total: total) {
+            status = 206
+            headers["Content-Range"] = "bytes \(s)-\(e)/\(total)"
+            headers["Content-Length"] = String(e - s + 1)
+            body = BondingTestData.bytes(s...e)
+        } else {
+            headers["Content-Length"] = String(total)
+            body = BondingTestData.bytes(0...(total - 1))
+        }
+        let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        if !body.isEmpty { client?.urlProtocol(self, didLoad: body) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
+}
+
+final class StubLinkProvider: LinkProvider, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _links: [NetworkLink]
+    init(_ links: [NetworkLink]) { _links = links }
+    var links: [NetworkLink] {
+        get { lock.lock(); defer { lock.unlock() }; return _links }
+        set { lock.lock(); _links = newValue; lock.unlock() }
+    }
+    func usableLinks() async -> [NetworkLink] { links }
+}
+
+actor SnapshotLog {
+    private(set) var snapshots: [DownloadSnapshot] = []
+    private(set) var final: Download?
+    func add(_ s: DownloadSnapshot) { snapshots.append(s) }
+    func finish(_ d: Download) { final = d }
+}
+
+final class BondingCoordinatorTests: XCTestCase {
+    static let wifi = NetworkLink(id: "en0", displayName: "Wi-Fi", kind: .wifi, addresses: ["192.168.0.5"], isDefaultRoute: true)
+    static let tether = NetworkLink(id: "en7", displayName: "iPhone USB", kind: .tethered, addresses: ["172.20.10.2"], isDefaultRoute: false)
+    let total: Int64 = 32 * 1024 * 1024
+
+    private var dir: URL!
+    private var capStoreURL: URL!
+
+    override func setUp() {
+        BondingStubURLProtocol.totalBytes = total
+        dir = FileManager.default.temporaryDirectory.appendingPathComponent("macget-bond-\(UUID().uuidString)")
+        capStoreURL = FileManager.default.temporaryDirectory.appendingPathComponent("caps-\(UUID().uuidString).json")
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: dir)
+        try? FileManager.default.removeItem(at: capStoreURL)
+    }
+
+    private func session() -> URLSession {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [BondingStubURLProtocol.self]
+        return URLSession(configuration: config)
+    }
+
+    private func run(
+        transport: StubPinnedTransport,
+        provider: StubLinkProvider,
+        capStore: HostCapStore? = nil,
+        timeout: TimeInterval = 30
+    ) async throws -> (Download?, [DownloadSnapshot]) {
+        var download = Download(url: URL(string: "https://bond.example.com/big.bin")!, destinationFolder: dir, filename: "big.bin")
+        download.threadCount = 8
+        let log = SnapshotLog()
+        let done = expectation(description: "terminal")
+        let coordinator = DownloadCoordinator(
+            download: download,
+            session: session(),
+            hostCapStore: capStore ?? HostCapStore(fileURL: capStoreURL),
+            linkProvider: provider,
+            pinnedTransport: transport,
+            bonding: BondingSettings(enabled: true),
+            onStateChange: { d in
+                if d.status.isTerminal { await log.finish(d); done.fulfill() }
+            },
+            onSnapshot: { s in await log.add(s) }
+        )
+        await coordinator.start()
+        await fulfillment(of: [done], timeout: timeout)
+        return (await log.final, await log.snapshots)
+    }
+
+    private func assertFileIsCorrect() throws {
+        let data = try Data(contentsOf: dir.appendingPathComponent("big.bin"))
+        XCTAssertEqual(data.count, Int(total))
+        XCTAssertEqual(data, BondingTestData.bytes(0...(total - 1)))
+    }
+
+    func test_bothLinksCarryBytesAndFileIsCorrect() async throws {
+        let transport = StubPinnedTransport(mode: .serve, totalBytes: total)
+        let (final, snaps) = try await run(transport: transport, provider: StubLinkProvider([Self.wifi, Self.tether]))
+        XCTAssertEqual(final?.status, .completed, final?.error ?? "")
+        try assertFileIsCorrect()
+        XCTAssertGreaterThan(transport.requestCount, 0, "pinned link was never used")
+        let withLinks = snaps.first { $0.links.count == 2 }
+        XCTAssertNotNil(withLinks, "no snapshot carried a two-link breakdown")
+        XCTAssertEqual(withLinks?.links.map(\.linkID), ["en0", "en7"])
+    }
+
+    func test_pinned403_dropsLinkAndCompletes() async throws {
+        let transport = StubPinnedTransport(mode: .status(403), totalBytes: total)
+        let (final, snaps) = try await run(transport: transport, provider: StubLinkProvider([Self.wifi, Self.tether]))
+        XCTAssertEqual(final?.status, .completed, final?.error ?? "")
+        try assertFileIsCorrect()
+        XCTAssertTrue(snaps.contains { $0.links.contains { $0.linkID == "en7" && $0.status == .rejectedByServer } })
+        // One rejection excludes the link; later spawns never try it again.
+        XCTAssertLessThanOrEqual(transport.requestCount, 4)
+    }
+
+    func test_pinnedRangeIgnored_doesNotFailDownload() async throws {
+        let transport = StubPinnedTransport(mode: .status(200), totalBytes: total)
+        let (final, _) = try await run(transport: transport, provider: StubLinkProvider([Self.wifi, Self.tether]))
+        XCTAssertEqual(final?.status, .completed, final?.error ?? "")
+        try assertFileIsCorrect()
+    }
+
+    func test_linkDisappears_workersReassigned() async throws {
+        let transport = StubPinnedTransport(mode: .hang, totalBytes: total)
+        let provider = StubLinkProvider([Self.wifi, Self.tether])
+        Task {
+            try? await Task.sleep(for: .milliseconds(800))
+            provider.links = [Self.wifi]   // phone unplugged
+        }
+        let start = Date()
+        let (final, snaps) = try await run(transport: transport, provider: provider, timeout: 20)
+        XCTAssertEqual(final?.status, .completed, final?.error ?? "")
+        try assertFileIsCorrect()
+        XCTAssertLessThan(Date().timeIntervalSince(start), 15, "should not wait for the 30s stall watchdog")
+        XCTAssertTrue(snaps.contains { $0.links.contains { $0.linkID == "en7" && $0.status == .down } })
+    }
+
+    func test_flakyPinnedLink_neverWritesHostCap() async throws {
+        let capStore = HostCapStore(fileURL: capStoreURL)
+        let transport = StubPinnedTransport(mode: .fail, totalBytes: total)
+        let (final, _) = try await run(transport: transport, provider: StubLinkProvider([Self.wifi, Self.tether]), capStore: capStore)
+        XCTAssertEqual(final?.status, .completed, final?.error ?? "")
+        let cap = await capStore.cap(for: "bond.example.com")
+        XCTAssertNil(cap, "a failing pinned link must not teach a host cap")
+    }
+
+    func test_bondingOffNeverTouchesPinnedTransport() async throws {
+        let transport = StubPinnedTransport(mode: .serve, totalBytes: total)
+        var download = Download(url: URL(string: "https://bond.example.com/big.bin")!, destinationFolder: dir, filename: "big.bin")
+        download.threadCount = 8
+        let done = expectation(description: "terminal")
+        let coordinator = DownloadCoordinator(
+            download: download, session: session(), hostCapStore: HostCapStore(fileURL: capStoreURL),
+            linkProvider: StubLinkProvider([Self.wifi, Self.tether]), pinnedTransport: transport,
+            bonding: BondingSettings(enabled: false),
+            onStateChange: { d in if d.status.isTerminal { done.fulfill() } },
+            onSnapshot: { _ in }
+        )
+        await coordinator.start()
+        await fulfillment(of: [done], timeout: 30)
+        XCTAssertEqual(transport.requestCount, 0)
+    }
+}

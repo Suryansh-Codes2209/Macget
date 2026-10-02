@@ -6,6 +6,7 @@ struct SettingsView: View {
     @State private var mediaToolStatus: String?
     /// nil until the first read of `HostCapStore` lands.
     @State private var learnedHostCount: Int?
+    @State private var torrentBondingFallback = false
 
     var body: some View {
         TabView {
@@ -225,6 +226,11 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    if torrentBondingFallback {
+                        Label("Torrents are using only the default connection — the torrent engine couldn't bind to every link.", systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             } header: {
                 Text("Combine connections")
@@ -320,6 +326,10 @@ struct SettingsView: View {
         .task {
             learnedHostCount = await HostCapStore.shared.learnedHostCount()
             connections.start()
+            torrentBondingFallback = await Aria2Daemon.shared.isBondingFallbackActive
+        }
+        .task(id: connections.links.map(\.id)) {
+            torrentBondingFallback = await Aria2Daemon.shared.isBondingFallbackActive
         }
     }
 

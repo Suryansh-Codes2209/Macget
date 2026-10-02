@@ -48,7 +48,24 @@ actor Aria2Daemon {
         if let client, isRunning { return client }
         if let startTask { return try await startTask.value }
 
-        let task = Task { try await start(options: options) }
+        let task = Task { () throws -> Aria2RPCClient in
+            do {
+                let started = try await start(options: options)
+                isBondingFallbackActive = false
+                return started
+            } catch where !options.bondingAddresses.isEmpty {
+                // A stale address (link dropped mid-restart) must not take
+                // torrents down with it — retry on the default route.
+                log.error("aria2c failed with --multiple-interface; retrying without it")
+                process?.terminate()
+                process = nil
+                var plain = options
+                plain.bondingAddresses = []
+                let started = try await start(options: plain)
+                isBondingFallbackActive = true
+                return started
+            }
+        }
         startTask = task
         defer { startTask = nil }
         let started = try await task.value
@@ -58,6 +75,16 @@ actor Aria2Daemon {
 
     var isRunning: Bool {
         process?.isRunning ?? false
+    }
+
+    /// True when the last launch with `--multiple-interface` failed and the
+    /// daemon fell back to the default route. Shown in Settings.
+    private(set) var isBondingFallbackActive = false
+
+    /// aria2's pid while it runs — `TorrentLinkAttributor` samples it with `nettop`.
+    var processIdentifier: Int32? {
+        guard let process, process.isRunning else { return nil }
+        return process.processIdentifier
     }
 
     private func start(options: TorrentEngineOptions) async throws -> Aria2RPCClient {
@@ -269,6 +296,11 @@ actor Aria2Daemon {
             args.append("--bt-require-crypto=true")
             args.append("--bt-force-encryption=true")
         }
+        if !options.bondingAddresses.isEmpty {
+            // Binds outgoing sockets round-robin across these addresses; macOS's
+            // scoped routing then sends each out of the interface that owns it.
+            args.append("--multiple-interface=\(options.bondingAddresses.joined(separator: ","))")
+        }
         for (key, value) in options.mutableGlobalOptions.sorted(by: { $0.key < $1.key }) {
             args.append("--\(key)=\(value)")
         }
@@ -351,6 +383,10 @@ struct TorrentEngineOptions: Sendable, Equatable {
     /// Re-hash data already on disk when a torrent resumes. Off by default —
     /// see `Aria2Daemon.arguments` for why.
     var verifyOnResume: Bool = false
+    /// Local IPv4 addresses to spread peer connections across (aria2
+    /// `--multiple-interface`). Empty = default route only. Launch-only: changing
+    /// it means restarting the daemon, which `DownloadEngine` does.
+    var bondingAddresses: [String] = []
 
     /// Options that can be changed on a running daemon via `changeGlobalOption`.
     /// Ports and session paths are launch-only and deliberately absent.

@@ -41,6 +41,8 @@ actor DownloadEngine {
     private var linkMonitorTask: Task<Void, Never>?
     /// Most recent link set; Task 11 derives aria2's bonding addresses from it.
     private var lastLinkSnapshot = LinkSnapshot(links: [], isOnline: true)
+    /// Addresses the running (or next) aria2 daemon binds to.
+    private var torrentBondingAddresses: [String] = []
     private var networkPausedIDs: Set<UUID> = []
     private var lastPathSatisfied = true
 
@@ -135,6 +137,7 @@ actor DownloadEngine {
                 await coordinator.updateBonding(newSettings.bonding)
             }
         }
+        if newSettings.bonding != oldBonding { await applyTorrentBonding() }
         await rateLimiter.setLimit(newSettings.globalSpeedLimitBytesPerSec)
         if ownsSession, sessionChanged {
             session = URLSessionFactory.makeSession(
@@ -485,6 +488,38 @@ actor DownloadEngine {
     private func handleLinkSnapshot(_ snapshot: LinkSnapshot) async {
         lastLinkSnapshot = snapshot
         await handleNetworkPath(satisfied: snapshot.isOnline)
+        await applyTorrentBonding()
+    }
+
+    private func currentTorrentOptions() -> TorrentEngineOptions {
+        var options = settings.torrentOptions
+        options.bondingAddresses = torrentBondingAddresses
+        return options
+    }
+
+    func torrentBondingFallbackActive() async -> Bool {
+        await Aria2Daemon.shared.isBondingFallbackActive
+    }
+
+    /// `--multiple-interface` is launch-only, so a changed link set means
+    /// restarting aria2. MacGet owns the torrent queue: stop the jobs, stop the
+    /// daemon, start the jobs again — aria2's `--continue` and control files
+    /// resume them from their pieces on disk.
+    private func applyTorrentBonding() async {
+        let addresses = BondingPolicy.torrentAddresses(links: lastLinkSnapshot.links, settings: settings.bonding)
+        guard addresses != torrentBondingAddresses else { return }
+        torrentBondingAddresses = addresses
+        let active = Array(torrents.keys)
+        guard !active.isEmpty else { return }
+        Log.engine.info("Network links changed — restarting \(active.count) torrent(s) on \(addresses.isEmpty ? "the default route" : addresses.joined(separator: ","), privacy: .public)")
+        for id in active {
+            await torrents[id]?.suspendForShutdown()
+            torrents[id] = nil
+        }
+        await Aria2Daemon.shared.shutdown()
+        for id in active {
+            if let d = downloads[id] { startTorrent(for: d) }
+        }
     }
 
     private func handleNetworkPath(satisfied: Bool) async {
@@ -686,7 +721,7 @@ actor DownloadEngine {
         }
         let job = TorrentJob(
             download: download,
-            options: settings.torrentOptions,
+            options: currentTorrentOptions(),
             onStateChange: { [weak self] updated in
                 await self?.handleStateChange(updated)
             },

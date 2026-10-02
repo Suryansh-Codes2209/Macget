@@ -41,4 +41,23 @@ final class BondingSettingsTests: XCTestCase {
         XCTAssertTrue(s.bonding.enabled)
         XCTAssertTrue(s.bonding.disabledLinkIDs.isEmpty)
     }
+
+    func test_setLinkDisabledThenEnabled() {
+        var b = BondingSettings(enabled: true)
+        b.setLink("en7", enabled: false)
+        XCTAssertEqual(b.disabledLinkIDs, ["en7"])
+        XCTAssertFalse(b.isLinkEnabled("en7"))
+        b.setLink("en7", enabled: true)
+        XCTAssertTrue(b.disabledLinkIDs.isEmpty)
+        XCTAssertTrue(b.isLinkEnabled("en7"))
+    }
+
+    func test_setLinkIsIdempotentAndLeavesOthersAlone() {
+        var b = BondingSettings(enabled: true, disabledLinkIDs: ["en5"])
+        b.setLink("en7", enabled: false)
+        b.setLink("en7", enabled: false)
+        b.setLink("en0", enabled: true)
+        XCTAssertEqual(b.disabledLinkIDs, ["en5", "en7"])
+        XCTAssertTrue(b.enabled, "toggling one link must not touch the master switch")
+    }
 }

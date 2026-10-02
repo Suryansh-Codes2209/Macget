@@ -8,6 +8,10 @@ struct ContentView: View {
     @Bindable var mediaPick: MediaPickModel
     @Bindable var authPrompt: AuthPromptModel
     let inspector: InspectorModel
+    /// The app's one settings model — the toolbar's Connections popover writes
+    /// through it so the Settings window never holds a stale copy.
+    let settingsVM: SettingsViewModel
+    let connections: ConnectionsModel
 
     @State private var showingAddSheet = false
     @State private var showingBookBrowser = false
@@ -68,6 +72,19 @@ struct ContentView: View {
                     }
 
                     ToolbarSpacer(.flexible)
+
+                    // Always shown while any network is up, not only while a
+                    // combined download runs: knowing the phone is plugged in is
+                    // what makes "combine connections" discoverable.
+                    if !connections.links.isEmpty {
+                        ToolbarItem {
+                            ConnectionsToolbarButton(connections: connections,
+                                                     listVM: listVM,
+                                                     settingsVM: settingsVM)
+                        }
+
+                        ToolbarSpacer(.fixed)
+                    }
 
                     ToolbarItemGroup {
                         // Where the table's column-header sorting went.
@@ -145,6 +162,7 @@ struct ContentView: View {
         .onChange(of: selection, initial: true) { _, ids in
             inspector.setTarget(ids.count == 1 ? ids.first : nil)
         }
+        .task { connections.start() }
         .onReceive(NotificationCenter.default.publisher(for: .openAddDownload)) { _ in
             showingAddSheet = true
         }

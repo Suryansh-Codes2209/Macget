@@ -26,4 +26,12 @@ struct BondingSettings: Codable, Equatable, Sendable {
     func isLinkEnabled(_ id: String) -> Bool {
         !disabledLinkIDs.contains(id)
     }
+
+    mutating func setLink(_ id: String, enabled: Bool) {
+        if enabled {
+            disabledLinkIDs.remove(id)
+        } else {
+            disabledLinkIDs.insert(id)
+        }
+    }
 }

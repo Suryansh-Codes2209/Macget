@@ -8,6 +8,7 @@ struct MacgetApp: App {
     @State private var listVM: DownloadListViewModel
     @State private var settingsVM: SettingsViewModel
     @State private var inspector: InspectorModel
+    @State private var connections = ConnectionsModel()
 
     init() {
         let env = AppEnvironment()
@@ -20,7 +21,8 @@ struct MacgetApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(listVM: listVM, appEnvironment: environment, mediaPick: environment.mediaPick, authPrompt: environment.authPrompt, inspector: inspector)
+            ContentView(listVM: listVM, appEnvironment: environment, mediaPick: environment.mediaPick, authPrompt: environment.authPrompt, inspector: inspector,
+                        settingsVM: settingsVM, connections: connections)
                 .frame(minWidth: 720, minHeight: 420)
                 .task {
                     appDelegate.environment = environment

@@ -122,4 +122,23 @@ final class StatusBarModelTests: XCTestCase {
         let model = StatusBarModel(rows: rows, totalSpeed: 1000)
         XCTAssertTrue(model.headerText.contains("2"), "header should count only the active ones: \(model.headerText)")
     }
+
+    // MARK: - Link summary
+
+    func test_linkSummaryAbsentWithoutBonding() {
+        let model = StatusBarModel(rows: [], totalSpeed: 0)
+        XCTAssertNil(model.linkSummaryText)
+    }
+
+    func test_linkSummaryListsLinksAndTotal() {
+        let totals = [
+            LinkStat(linkID: "en0", displayName: "Wi-Fi", kind: .wifi, speedBytesPerSec: 1_000_000, bytesThisSession: 0,
+                     activeConnections: 4, status: .active, isEstimate: false),
+            LinkStat(linkID: "en7", displayName: "iPhone USB", kind: .tethered, speedBytesPerSec: 3_000_000, bytesThisSession: 0,
+                     activeConnections: 4, status: .active, isEstimate: false),
+        ]
+        let model = StatusBarModel(rows: [], totalSpeed: 4_000_000, linkTotals: totals)
+        XCTAssertEqual(model.linkSummaryText,
+                       LinkBreakdownText.caption(totals) + " · Total " + ByteFormatter.speedString(4_000_000))
+    }
 }

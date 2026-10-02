@@ -34,7 +34,11 @@ struct StatusBarModel: Equatable {
     /// "+N more" when the active list was truncated, else nil.
     let overflowText: String?
 
-    init(rows: [DownloadRowItem], totalSpeed: Double) {
+    /// "Wi-Fi 1.0 MB/s · iPhone USB 3.0 MB/s · Total 4.0 MB/s" while bonding is
+    /// carrying traffic; nil otherwise.
+    let linkSummaryText: String?
+
+    init(rows: [DownloadRowItem], totalSpeed: Double, linkTotals: [LinkStat] = []) {
         // Queued counts as active: the user asked for it and it is about to
         // move, so the menu bar should not claim MacGet is idle.
         let active = rows.filter { $0.status == .downloading || $0.status == .queued }
@@ -66,5 +70,9 @@ struct StatusBarModel: Equatable {
 
         let hidden = active.count - entries.count
         overflowText = hidden > 0 ? "+\(hidden) more" : nil
+
+        linkSummaryText = linkTotals.count >= 2
+            ? LinkBreakdownText.caption(linkTotals) + " · Total " + ByteFormatter.speedString(totalSpeed)
+            : nil
     }
 }

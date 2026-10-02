@@ -21,7 +21,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     init(listVM: DownloadListViewModel) {
         self.listVM = listVM
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        self.model = StatusBarModel(rows: listVM.rows, totalSpeed: listVM.totalSpeed)
+        self.model = StatusBarModel(rows: listVM.rows, totalSpeed: listVM.totalSpeed, linkTotals: listVM.linkTotals)
         super.init()
 
         let menu = NSMenu()
@@ -42,6 +42,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         withObservationTracking {
             _ = listVM.rows
             _ = listVM.totalSpeed
+            _ = listVM.linkTotals
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -52,7 +53,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     private func render() {
-        let next = StatusBarModel(rows: listVM.rows, totalSpeed: listVM.totalSpeed)
+        let next = StatusBarModel(rows: listVM.rows, totalSpeed: listVM.totalSpeed, linkTotals: listVM.linkTotals)
         guard next != model || statusItem.button?.image == nil else { return }
         model = next
 
@@ -123,6 +124,12 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let header = NSMenuItem(title: model.headerText, action: nil, keyEquivalent: "")
         header.isEnabled = false
         menu.addItem(header)
+
+        if let summary = model.linkSummaryText {
+            let item = NSMenuItem(title: summary, action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            menu.addItem(item)
+        }
 
         if !model.entries.isEmpty {
             menu.addItem(.separator())

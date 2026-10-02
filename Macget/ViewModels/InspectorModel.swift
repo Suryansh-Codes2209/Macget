@@ -42,8 +42,15 @@ final class InspectorModel {
         var out = series
         let now = Date()
         let speeds = Dictionary(links.map { ($0.linkID, $0.speedBytesPerSec) }, uniquingKeysWith: +)
+        // A link that joins mid-download starts with zeros back to the longest
+        // series, so every band shares one x-axis (capacity bounds the padding).
+        let longest = out.values.map { $0.samples.count }.max() ?? 0
         for id in Set(out.keys).union(speeds.keys) {
-            var s = out[id] ?? SpeedSeries()
+            var s = out[id] ?? {
+                var fresh = SpeedSeries()
+                for _ in 0..<longest { fresh.append(0, at: now) }
+                return fresh
+            }()
             s.append(speeds[id] ?? 0, at: now)
             out[id] = s
         }

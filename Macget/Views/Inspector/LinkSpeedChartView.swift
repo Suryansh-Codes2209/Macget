@@ -11,7 +11,6 @@ struct LinkSpeedChartView: View {
     private struct Point: Identifiable {
         let index: Int
         let linkID: String
-        let name: String
         let value: Double
         var id: String { "\(linkID)-\(index)" }
     }
@@ -19,7 +18,7 @@ struct LinkSpeedChartView: View {
     private var points: [Point] {
         links.flatMap { link -> [Point] in
             (series[link.linkID]?.samples ?? []).enumerated().map {
-                Point(index: $0.offset, linkID: link.linkID, name: link.displayName, value: $0.element)
+                Point(index: $0.offset, linkID: link.linkID, value: $0.element)
             }
         }
     }
@@ -31,11 +30,11 @@ struct LinkSpeedChartView: View {
                 y: .value("Speed", point.value),
                 stacking: .standard
             )
-            .foregroundStyle(by: .value("Link", point.name))
+            .foregroundStyle(by: .value("Link", point.linkID))
             .interpolationMethod(.monotone)
         }
         .chartForegroundStyleScale(
-            domain: links.map(\.displayName),
+            domain: links.map(\.linkID),
             range: links.map { LinkPalette.color(for: $0.kind) }
         )
         .chartXAxis(.hidden)

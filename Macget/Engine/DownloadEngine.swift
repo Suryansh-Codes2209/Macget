@@ -55,6 +55,9 @@ actor DownloadEngine {
     /// window. Released once no coordinators are running.
     private var activityToken: NSObjectProtocol?
 
+    private let linkProvider: LinkProvider
+    private let pinnedTransport: any PinnedTransport
+
     private let eventsContinuation: AsyncStream<EngineEvent>.Continuation
     nonisolated let events: AsyncStream<EngineEvent>
 
@@ -62,7 +65,15 @@ actor DownloadEngine {
     /// app can prompt the user. Set once by `AppEnvironment`.
     private var authHandler: (@Sendable (UUID, String) async -> Void)?
 
-    init(store: DownloadStore, settings: AppSettings, session: URLSession? = nil) {
+    init(
+        store: DownloadStore,
+        settings: AppSettings,
+        session: URLSession? = nil,
+        linkProvider: LinkProvider = NetworkLinkMonitor.shared,
+        pinnedTransport: any PinnedTransport = NWPinnedTransport.shared
+    ) {
+        self.linkProvider = linkProvider
+        self.pinnedTransport = pinnedTransport
         self.store = store
         self.settings = settings
         if let session {
@@ -114,10 +125,16 @@ actor DownloadEngine {
 
     func updateSettings(_ newSettings: AppSettings) async {
         let oldMax = settings.maxConcurrentDownloads
+        let oldBonding = settings.bonding
         let sessionChanged = newSettings.requestTimeoutSeconds != settings.requestTimeoutSeconds
             || newSettings.proxyHost != settings.proxyHost
             || newSettings.proxyPort != settings.proxyPort
         settings = newSettings
+        if newSettings.bonding != oldBonding {
+            for coordinator in coordinators.values {
+                await coordinator.updateBonding(newSettings.bonding)
+            }
+        }
         await rateLimiter.setLimit(newSettings.globalSpeedLimitBytesPerSec)
         if ownsSession, sessionChanged {
             session = URLSessionFactory.makeSession(
@@ -738,6 +755,10 @@ actor DownloadEngine {
             rateLimiter: rateLimiter,
             maxAttemptsPerChunk: settings.maxRetriesPerChunk,
             autoSortByType: settings.autoSortByType,
+            linkProvider: linkProvider,
+            pinnedTransport: pinnedTransport,
+            bonding: settings.bonding,
+            appProxyConfigured: settings.proxyHost != nil,
             onStateChange: { [weak self] updated in
                 await self?.handleStateChange(updated)
             },

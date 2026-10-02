@@ -19,22 +19,27 @@ protocol LinkProvider: Sendable {
 /// the internet.
 ///
 /// One whole-machine `NWPathMonitor` lists candidate interfaces in preference
-/// order (first = default route). Each candidate then gets its own
-/// `NWPathMonitor(requiredInterfaceType:)`, because the whole-machine path being
-/// satisfied says nothing about whether *this* interface reaches anything — a
-/// tethered phone with no signal is still "plugged in".
+/// order (first = default route). Each candidate is then probed directly: a TCP
+/// connection to `captive.apple.com:80` forced onto that interface. Neither the
+/// whole-machine path nor a type-scoped monitor can say whether *this*
+/// interface reaches anything — a tethered phone with no signal is still
+/// "plugged in", and a dead USB tether is typed `wiredEthernet` beside a
+/// working Ethernet port. Candidates are re-probed on every main-path change
+/// and every 30 s.
 ///
 /// Changes are debounced so a tether that drops for a second doesn't churn
 /// every download's workers or restart the aria2 daemon.
 actor NetworkLinkMonitor: LinkProvider {
     static let shared = NetworkLinkMonitor()
     static let debounce: Duration = .seconds(2)
+    static let probeInterval: Duration = .seconds(30)
 
     private let queue = DispatchQueue(label: "com.macget.link-monitor")
     private let log = Logger(subsystem: "com.macget", category: "Links")
 
     private var mainMonitor: NWPathMonitor?
-    private var perInterface: [String: NWPathMonitor] = [:]
+    private var probes: [String: Task<Void, Never>] = [:]
+    private var probeLoop: Task<Void, Never>?
     private var interfaces: [String: NWInterface] = [:]
     private var satisfied: Set<String> = []
     private var defaultID: String?
@@ -51,6 +56,13 @@ actor NetworkLinkMonitor: LinkProvider {
         }
         monitor.start(queue: queue)
         mainMonitor = monitor
+        probeLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.probeInterval)
+                guard !Task.isCancelled else { return }
+                await self?.probeAll()
+            }
+        }
     }
 
     func usableLinks() -> [NetworkLink] { published.links }
@@ -77,32 +89,95 @@ actor NetworkLinkMonitor: LinkProvider {
         defaultID = candidates.first?.name
 
         let names = Set(candidates.map(\.name))
-        for iface in candidates where perInterface[iface.name] == nil {
-            interfaces[iface.name] = iface
-            let name = iface.name
-            let monitor = NWPathMonitor(requiredInterfaceType: iface.type)
-            monitor.pathUpdateHandler = { [weak self] (p: NWPath) in
-                // `requiredInterfaceType` is the finest scope this SDK offers (there is
-                // no per-interface initializer), so also require this interface to be
-                // among the path's candidates.
-                let ok = p.status == .satisfied && p.availableInterfaces.contains { $0.name == name }
-                Task { await self?.handleInterfacePath(name: name, satisfied: ok) }
-            }
-            monitor.start(queue: queue)
-            perInterface[name] = monitor
-        }
-        for (name, monitor) in perInterface where !names.contains(name) {
-            monitor.cancel()
-            perInterface[name] = nil
+        for iface in candidates { interfaces[iface.name] = iface }
+        for name in interfaces.keys where !names.contains(name) {
+            probes[name]?.cancel()
+            probes[name] = nil
             interfaces[name] = nil
             satisfied.remove(name)
         }
+        probeAll()
         scheduleRepublish()
     }
 
-    private func handleInterfacePath(name: String, satisfied ok: Bool) {
+    /// Probes every candidate that isn't already being probed.
+    private func probeAll() {
+        for (name, iface) in interfaces where probes[name] == nil {
+            probes[name] = Task { [weak self] in
+                let ok = await Self.probe(iface)
+                await self?.finishProbe(name: name, reachable: ok)
+            }
+        }
+    }
+
+    private func finishProbe(name: String, reachable ok: Bool) {
+        probes[name] = nil
+        // A late result for an interface that has since gone away must not resurrect it.
+        guard interfaces[name] != nil else { return }
+        let was = satisfied.contains(name)
         if ok { satisfied.insert(name) } else { satisfied.remove(name) }
-        scheduleRepublish()
+        if ok != was { scheduleRepublish() }
+    }
+
+    /// True if a TCP connection to captive.apple.com:80 becomes ready on `iface`.
+    private static func probe(_ iface: NWInterface) async -> Bool {
+        let params = NWParameters.tcp
+        params.requiredInterface = iface
+        if let tcp = params.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options {
+            tcp.connectionTimeout = 5
+        }
+        let connection = NWConnection(host: "captive.apple.com", port: 80, using: params)
+        let gate = ProbeGate()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                gate.install(continuation, connection: connection)
+                connection.stateUpdateHandler = { state in
+                    switch state {
+                    case .ready: gate.finish(true)
+                    case .failed, .waiting, .cancelled: gate.finish(false)
+                    default: break
+                    }
+                }
+                connection.start(queue: DispatchQueue(label: "com.macget.link-probe"))
+            }
+        } onCancel: {
+            gate.finish(false)
+        }
+    }
+
+    /// Resumes the probe's continuation exactly once and cancels the connection.
+    private final class ProbeGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Bool, Never>?
+        private var connection: NWConnection?
+        private var done = false
+
+        func install(_ c: CheckedContinuation<Bool, Never>, connection: NWConnection) {
+            lock.lock()
+            if done {
+                lock.unlock()
+                connection.cancel()
+                c.resume(returning: false)
+                return
+            }
+            continuation = c
+            self.connection = connection
+            lock.unlock()
+        }
+
+        func finish(_ result: Bool) {
+            lock.lock()
+            guard !done else { lock.unlock(); return }
+            done = true
+            let c = continuation
+            let conn = connection
+            continuation = nil
+            connection = nil
+            lock.unlock()
+            conn?.stateUpdateHandler = nil
+            conn?.cancel()
+            c?.resume(returning: result)
+        }
     }
 
     private func scheduleRepublish() {

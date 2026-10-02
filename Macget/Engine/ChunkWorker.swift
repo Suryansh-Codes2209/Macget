@@ -182,52 +182,19 @@ private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchec
             completionHandler(.cancel)
             return
         }
-        if unbounded {
-            // No Range was sent — any 2xx is the full body. 200 is expected here.
-            guard (200..<300).contains(http.statusCode) else {
-                continuation?.finish(throwing: Self.statusError(http))
-                completionHandler(.cancel)
-                return
-            }
-            completionHandler(.allow)
-            return
-        }
-        if http.statusCode == 200 {
-            continuation?.finish(throwing: ChunkError.rangeRefused(200))
+        if let error = RangeResponseValidator.validate(
+            status: http.statusCode,
+            contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+            retryAfter: http.value(forHTTPHeaderField: "Retry-After"),
+            expectedStart: expectedStart,
+            expectedEnd: expectedEnd,
+            unbounded: unbounded
+        ) {
+            continuation?.finish(throwing: error)
             completionHandler(.cancel)
             return
-        }
-        if http.statusCode != 206 {
-            continuation?.finish(throwing: Self.statusError(http))
-            completionHandler(.cancel)
-            return
-        }
-        if let cr = http.value(forHTTPHeaderField: "Content-Range") {
-            let expected = "bytes \(expectedStart)-\(expectedEnd)/"
-            if !cr.hasPrefix(expected) {
-                continuation?.finish(throwing: ChunkError.wrongContentRange(expected: expected + "<total>", got: cr))
-                completionHandler(.cancel)
-                return
-            }
         }
         completionHandler(.allow)
-    }
-
-    /// Maps an error status into the right `ChunkError`. 429/503 carry the
-    /// parsed `Retry-After` so the coordinator can honor the server's backoff;
-    /// 401/407 surface as `authRequired` so the engine can prompt for credentials.
-    private static func statusError(_ http: HTTPURLResponse) -> ChunkError {
-        switch http.statusCode {
-        case 429, 503:
-            return .serverBusy(
-                code: http.statusCode,
-                retryAfter: RetryAfter.parse(http.value(forHTTPHeaderField: "Retry-After"))
-            )
-        case 401, 407:
-            return .authRequired(code: http.statusCode)
-        default:
-            return .unexpectedStatus(http.statusCode)
-        }
     }
 
     /// Answer HTTP Basic/Digest/NTLM challenges with the host credential (first

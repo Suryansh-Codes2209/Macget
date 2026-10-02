@@ -990,7 +990,7 @@ actor DownloadCoordinator {
                 return true
             case .unexpectedStatus(let code):
                 return isTerminalHTTPStatus(code)
-            case .noHttpResponse, .serverBusy:
+            case .noHttpResponse, .serverBusy, .linkRejected, .linkTransport:
                 return false
             }
         }

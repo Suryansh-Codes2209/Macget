@@ -122,6 +122,8 @@ actor DownloadCoordinator {
     private let pinnedTransport: (any PinnedTransport)?
     private var bonding: BondingSettings
     private let appProxyConfigured: Bool
+    /// Injectable so tests don't depend on the machine's real proxy settings.
+    private let systemProxyCheck: @Sendable (URL) -> Bool
     /// Decided once per run after the probe: range support + no proxy + http(s).
     private var bondingEligible = false
     private var currentLinks: [NetworkLink] = []
@@ -174,6 +176,7 @@ actor DownloadCoordinator {
         pinnedTransport: (any PinnedTransport)? = nil,
         bonding: BondingSettings = BondingSettings(),
         appProxyConfigured: Bool = false,
+        systemProxyCheck: @escaping @Sendable (URL) -> Bool = { BondingEligibility.systemProxyActive(for: $0) },
         onStateChange: @escaping @Sendable (Download) async -> Void,
         onSnapshot: @escaping @Sendable (DownloadSnapshot) async -> Void,
         onAuthRequired: (@Sendable () async -> Void)? = nil
@@ -189,6 +192,7 @@ actor DownloadCoordinator {
         self.pinnedTransport = pinnedTransport
         self.bonding = bonding
         self.appProxyConfigured = appProxyConfigured
+        self.systemProxyCheck = systemProxyCheck
         self.onStateChange = onStateChange
         self.onSnapshot = onSnapshot
         self.onAuthRequired = onAuthRequired
@@ -382,7 +386,7 @@ actor DownloadCoordinator {
                 url: download.url,
                 supportsRange: download.supportsRange,
                 appProxyConfigured: appProxyConfigured,
-                systemProxyActive: BondingEligibility.systemProxyActive(for: download.url)
+                systemProxyActive: systemProxyCheck(download.url)
             )
         if bondingEligible, let linkProvider {
             currentLinks = await linkProvider.usableLinks()
@@ -643,9 +647,15 @@ actor DownloadCoordinator {
 
         // With extra links in play, aggregate speed would hide a dead default
         // link behind a healthy phone and teach the host a cap it didn't earn.
+        // Only the default link's own meter counts — and a link that has never
+        // delivered a byte has no meter yet, which reads as zero, not aggregate.
         let throughput: Double
-        if bondingEligible, !currentQuotas().isEmpty, let id = urlSessionLinkID, let meter = linkMeters[id] {
-            throughput = await meter.currentSpeed()
+        if bondingEligible, !currentQuotas().isEmpty {
+            if let id = urlSessionLinkID, let meter = linkMeters[id] {
+                throughput = await meter.currentSpeed()
+            } else {
+                throughput = 0
+            }
         } else {
             throughput = await speedMeter.currentSpeed()
         }
@@ -1235,8 +1245,16 @@ actor DownloadCoordinator {
         let links = await linkProvider.usableLinks()
         guard links != currentLinks else { return }
         let usable = Set(links.map(\.id))
+        let previous = Set(currentLinks.map(\.id))
         for link in links {
             knownLinkNames[link.id] = (link.displayName, link.kind)
+            // A link that comes back gets another chance. Spawning onto it in the
+            // moment before a refresh noticed it was gone excludes it as `.down`,
+            // which would otherwise keep a replugged phone out for the whole run.
+            // A server rejection is about the link's IP, so that one stays.
+            if !previous.contains(link.id), excludedLinks.contains(link.id), linkStatuses[link.id] == .down {
+                excludedLinks.remove(link.id)
+            }
             if linkStatuses[link.id] == .down, !excludedLinks.contains(link.id) { linkStatuses[link.id] = nil }
         }
         for (id, route) in inFlightRoute {
@@ -1246,7 +1264,10 @@ actor DownloadCoordinator {
             }
         }
         currentLinks = links
-        if let newDefault = links.first(where: \.isDefaultRoute)?.id { urlSessionLinkID = newDefault }
+        // Keep the metrics-corrected interface unless it's gone.
+        if urlSessionLinkID == nil || !usable.contains(urlSessionLinkID!) {
+            urlSessionLinkID = links.first(where: \.isDefaultRoute)?.id
+        }
         fillIdleSlots()
     }
 
@@ -1280,10 +1301,19 @@ actor DownloadCoordinator {
 
     // MARK: - Dynamic threading (live adjust)
 
-    /// Settings changed mid-download. Takes effect at the next slot fill.
+    /// Settings changed mid-download. Workers on a link the user just switched
+    /// off (or on any extra link, when bonding itself was switched off) stop now;
+    /// their pieces keep their progress and respawn under the new quotas, which
+    /// fall back to URLSession-only once fewer than two links remain active.
     func updateBonding(_ settings: BondingSettings) async {
         bonding = settings
+        for (id, route) in inFlightRoute {
+            if case .pinned(let linkID) = route, !settings.enabled || !settings.isLinkEnabled(linkID) {
+                inFlight[id]?.cancel()
+            }
+        }
         await refreshLinks()
+        fillIdleSlots()
     }
 
     /// Re-target the number of parallel chunks. When increasing, repeatedly halves

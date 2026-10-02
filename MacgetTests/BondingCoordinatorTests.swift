@@ -2,7 +2,7 @@ import XCTest
 @testable import Macget
 
 /// Ranged URLSession stub for the default link: HEAD advertises ranges, GET serves `BondingTestData`.
-final class BondingStubURLProtocol: URLProtocol {
+class BondingStubURLProtocol: URLProtocol {
     nonisolated(unsafe) static var totalBytes: Int64 = 0
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -32,6 +32,27 @@ final class BondingStubURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+}
+
+/// Default link that is dead from the start: HEAD succeeds, but the first
+/// `failingGets` ranged GETs get 503 before any byte arrives. Afterwards it
+/// serves normally so the download can finish either way.
+final class DeadDefaultLinkURLProtocol: BondingStubURLProtocol {
+    static let failingGets = 12
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var gets = 0
+
+    static func reset() { lock.lock(); gets = 0; lock.unlock() }
+
+    override func startLoading() {
+        guard request.httpMethod != "HEAD" else { return super.startLoading() }
+        Self.lock.lock(); Self.gets += 1; let n = Self.gets; Self.lock.unlock()
+        guard n <= Self.failingGets else { return super.startLoading() }
+        let response = HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Length": "0"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocolDidFinishLoading(self)
+    }
 }
 
 final class StubLinkProvider: LinkProvider, @unchecked Sendable {
@@ -71,9 +92,9 @@ final class BondingCoordinatorTests: XCTestCase {
         try? FileManager.default.removeItem(at: capStoreURL)
     }
 
-    private func session() -> URLSession {
+    private func session(_ protocolClass: AnyClass = BondingStubURLProtocol.self) -> URLSession {
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [BondingStubURLProtocol.self]
+        config.protocolClasses = [protocolClass]
         return URLSession(configuration: config)
     }
 
@@ -81,6 +102,7 @@ final class BondingCoordinatorTests: XCTestCase {
         transport: StubPinnedTransport,
         provider: StubLinkProvider,
         capStore: HostCapStore? = nil,
+        sessionProtocol: AnyClass = BondingStubURLProtocol.self,
         timeout: TimeInterval = 30
     ) async throws -> (Download?, [DownloadSnapshot]) {
         var download = Download(url: URL(string: "https://bond.example.com/big.bin")!, destinationFolder: dir, filename: "big.bin")
@@ -89,11 +111,12 @@ final class BondingCoordinatorTests: XCTestCase {
         let done = expectation(description: "terminal")
         let coordinator = DownloadCoordinator(
             download: download,
-            session: session(),
+            session: session(sessionProtocol),
             hostCapStore: capStore ?? HostCapStore(fileURL: capStoreURL),
             linkProvider: provider,
             pinnedTransport: transport,
             bonding: BondingSettings(enabled: true),
+            systemProxyCheck: { _ in false },
             onStateChange: { d in
                 if d.status.isTerminal { await log.finish(d); done.fulfill() }
             },
@@ -162,6 +185,58 @@ final class BondingCoordinatorTests: XCTestCase {
         XCTAssertNil(cap, "a failing pinned link must not teach a host cap")
     }
 
+    func test_deadDefaultLinkBesideHealthyPhone_neverWritesHostCap() async throws {
+        // URLSession workers fail with no progress while the phone moves bytes.
+        // Aggregate speed looks healthy, but it's the default link's own
+        // throughput (zero) that must judge demotion — the host is blameless.
+        DeadDefaultLinkURLProtocol.reset()
+        let capStore = HostCapStore(fileURL: capStoreURL)
+        let transport = StubPinnedTransport(mode: .serve, totalBytes: total)
+        let (final, _) = try await run(transport: transport, provider: StubLinkProvider([Self.wifi, Self.tether]),
+                                       capStore: capStore, sessionProtocol: DeadDefaultLinkURLProtocol.self)
+        XCTAssertEqual(final?.status, .completed, final?.error ?? "")
+        try assertFileIsCorrect()
+        XCTAssertGreaterThan(transport.requestCount, 0)
+        let cap = await capStore.cap(for: "bond.example.com")
+        XCTAssertNil(cap, "a dead default link must not teach the host a cap")
+    }
+
+    func test_disablingBondingMidDownload_stopsPinnedWorkersNow() async throws {
+        // Pinned workers hang; only turning bonding off can free their pieces
+        // before the 30 s stall watchdog would.
+        let transport = StubPinnedTransport(mode: .hang, totalBytes: total)
+        var download = Download(url: URL(string: "https://bond.example.com/big.bin")!, destinationFolder: dir, filename: "big.bin")
+        download.threadCount = 8
+        let log = SnapshotLog()
+        let done = expectation(description: "terminal")
+        let coordinator = DownloadCoordinator(
+            download: download, session: session(), hostCapStore: HostCapStore(fileURL: capStoreURL),
+            linkProvider: StubLinkProvider([Self.wifi, Self.tether]), pinnedTransport: transport,
+            bonding: BondingSettings(enabled: true),
+            systemProxyCheck: { _ in false },
+            onStateChange: { d in if d.status.isTerminal { await log.finish(d); done.fulfill() } },
+            onSnapshot: { s in await log.add(s) }
+        )
+        let start = Date()
+        await coordinator.start()
+        try await Task.sleep(for: .milliseconds(800))
+        XCTAssertGreaterThan(transport.requestCount, 0, "pinned link was never used")
+        await coordinator.updateBonding(BondingSettings(enabled: false))
+        // Endgame splitting would eventually free the hung pieces anyway, so the
+        // sharp check is that the phone's connections are gone right away.
+        let before = await log.snapshots.count
+        try await Task.sleep(for: .milliseconds(500))
+        let after = await log.snapshots.dropFirst(before + 1)
+        XCTAssertFalse(after.isEmpty, "no snapshot published after disabling")
+        let pinnedConnections = after.last?.links.first { $0.linkID == "en7" }?.activeConnections ?? 0
+        XCTAssertEqual(pinnedConnections, 0, "pinned workers kept running after bonding was switched off")
+        await fulfillment(of: [done], timeout: 20)
+        let final = await log.final
+        XCTAssertEqual(final?.status, .completed, final?.error ?? "")
+        try assertFileIsCorrect()
+        XCTAssertLessThan(Date().timeIntervalSince(start), 15, "should not wait for the 30s stall watchdog")
+    }
+
     func test_bondingOffNeverTouchesPinnedTransport() async throws {
         let transport = StubPinnedTransport(mode: .serve, totalBytes: total)
         var download = Download(url: URL(string: "https://bond.example.com/big.bin")!, destinationFolder: dir, filename: "big.bin")
@@ -171,6 +246,7 @@ final class BondingCoordinatorTests: XCTestCase {
             download: download, session: session(), hostCapStore: HostCapStore(fileURL: capStoreURL),
             linkProvider: StubLinkProvider([Self.wifi, Self.tether]), pinnedTransport: transport,
             bonding: BondingSettings(enabled: false),
+            systemProxyCheck: { _ in false },
             onStateChange: { d in if d.status.isTerminal { done.fulfill() } },
             onSnapshot: { _ in }
         )

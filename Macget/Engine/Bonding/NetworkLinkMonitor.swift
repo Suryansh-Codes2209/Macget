@@ -42,6 +42,8 @@ actor NetworkLinkMonitor: LinkProvider {
     private var probeLoop: Task<Void, Never>?
     private var interfaces: [String: NWInterface] = [:]
     private var satisfied: Set<String> = []
+    /// Consecutive failed probes per interface, for `LinkProbeHysteresis`.
+    private var failureStreaks: [String: Int] = [:]
     private var defaultID: String?
     private var online = true
     private var published = LinkSnapshot(links: [], isOnline: true)
@@ -95,6 +97,7 @@ actor NetworkLinkMonitor: LinkProvider {
             probes[name] = nil
             interfaces[name] = nil
             satisfied.remove(name)
+            failureStreaks[name] = nil
         }
         probeAll()
         scheduleRepublish()
@@ -115,9 +118,17 @@ actor NetworkLinkMonitor: LinkProvider {
         // A late result for an interface that has since gone away must not resurrect it.
         guard interfaces[name] != nil else { return }
         let was = satisfied.contains(name)
-        if ok { satisfied.insert(name) } else { satisfied.remove(name) }
-        if ok != was { scheduleRepublish() }
+        let next = LinkProbeHysteresis.next(wasSatisfied: was, probeSucceeded: ok,
+                                            failureStreak: failureStreaks[name] ?? 0)
+        failureStreaks[name] = next.failureStreak == 0 ? nil : next.failureStreak
+        if next.satisfied { satisfied.insert(name) } else { satisfied.remove(name) }
+        if next.satisfied != was { scheduleRepublish() }
     }
+
+    /// Longest a probe may take before it counts as failed. The TCP connect
+    /// timeout doesn't bound a connection stuck in `.preparing` (e.g. waiting on
+    /// DNS), and a probe that never resolves blocks every later re-probe.
+    static let probeBackstop: Duration = .seconds(8)
 
     /// True if a TCP connection to captive.apple.com:80 becomes ready on `iface`.
     private static func probe(_ iface: NWInterface) async -> Bool {
@@ -128,6 +139,12 @@ actor NetworkLinkMonitor: LinkProvider {
         }
         let connection = NWConnection(host: "captive.apple.com", port: 80, using: params)
         let gate = ProbeGate()
+        let backstop = Task {
+            try? await Task.sleep(for: Self.probeBackstop)
+            guard !Task.isCancelled else { return }
+            gate.finish(false)
+        }
+        defer { backstop.cancel() }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 gate.install(continuation, connection: connection)
@@ -230,5 +247,22 @@ actor NetworkLinkMonitor: LinkProvider {
             }
         }
         return out
+    }
+}
+
+/// Whether a probed interface counts as usable. A link that is up stays up
+/// through one failed probe: a saturated tether can miss a 5 s connect, and
+/// dropping it restarts aria2 twice and kills every pinned worker on it — far
+/// costlier than carrying a dead link for one more 30 s probe cycle. A link
+/// that is down comes up on its first success.
+enum LinkProbeHysteresis {
+    static let failuresToDrop = 2
+
+    static func next(wasSatisfied: Bool, probeSucceeded: Bool, failureStreak: Int)
+        -> (satisfied: Bool, failureStreak: Int) {
+        if probeSucceeded { return (true, 0) }
+        let streak = failureStreak + 1
+        guard wasSatisfied else { return (false, streak) }
+        return (streak < failuresToDrop, streak)
     }
 }

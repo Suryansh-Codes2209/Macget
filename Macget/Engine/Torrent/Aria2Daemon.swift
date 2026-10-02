@@ -56,9 +56,15 @@ actor Aria2Daemon {
                 let started = try await start(options: options)
                 isBondingFallbackActive = false
                 return started
-            } catch where !options.bondingAddresses.isEmpty {
+            } catch {
                 // A stale address (link dropped mid-restart) must not take
-                // torrents down with it — retry on the default route.
+                // torrents down with it — retry on the default route. But not
+                // when the failure *is* a shutdown cancelling this start:
+                // relaunching then would orphan an aria2 nobody will stop.
+                guard !options.bondingAddresses.isEmpty,
+                      !(error is CancellationError), !Task.isCancelled,
+                      shutdownTask == nil
+                else { throw error }
                 log.error("aria2c failed with --multiple-interface; retrying without it")
                 process?.terminate()
                 process = nil
@@ -229,7 +235,8 @@ actor Aria2Daemon {
         port: Int,
         secret: String,
         options: TorrentEngineOptions,
-        ipv6DHTAddress: String? = nil
+        ipv6DHTAddress: String? = nil,
+        parentPID: Int32 = ProcessInfo.processInfo.processIdentifier
     ) -> [String] {
         var args = [
             "--enable-rpc=true",
@@ -239,6 +246,10 @@ actor Aria2Daemon {
             "--rpc-listen-all=false",
             "--rpc-allow-origin-all=false",
             "--daemon=false",
+            // Backstop for every path that skips a clean shutdown (a crash, a
+            // force quit, a restart racing termination): aria2 exits by itself
+            // once MacGet's pid is gone instead of seeding on as an orphan.
+            "--stop-with-process=\(parentPID)",
             "--continue=true",
             // aria2's defaults are tuned for a much slower era.
             //

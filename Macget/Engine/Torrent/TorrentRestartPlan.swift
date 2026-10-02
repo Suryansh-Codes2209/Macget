@@ -19,6 +19,14 @@ enum TorrentRestartPlan {
         return (restart, drop)
     }
 
+    /// Re-checked for each torrent at the moment it would be restarted. The plan
+    /// is computed before the multi-second daemon shutdown, and a user who paused
+    /// (or cancelled) a torrent in that window must not see it come back running.
+    static func shouldStartNow(currentStatus: DownloadStatus?, shuttingDown: Bool) -> Bool {
+        guard !shuttingDown, let currentStatus else { return false }
+        return currentStatus == .downloading || currentStatus == .queued
+    }
+
     /// Link order isn't meaningful to aria2, so reordering is not a change.
     static func sameAddressSet(_ a: [String], _ b: [String]) -> Bool {
         Set(a) == Set(b)

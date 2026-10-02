@@ -43,6 +43,7 @@ actor DownloadEngine {
     private var lastLinkSnapshot = LinkSnapshot(links: [], isOnline: true)
     /// Addresses the running (or next) aria2 daemon binds to.
     private var torrentBondingAddresses: [String] = []
+    private var torrentRestartTask: Task<Void, Never>?
     private var networkPausedIDs: Set<UUID> = []
     private var lastPathSatisfied = true
 
@@ -502,22 +503,45 @@ actor DownloadEngine {
     }
 
     /// `--multiple-interface` is launch-only, so a changed link set means
-    /// restarting aria2. MacGet owns the torrent queue: stop the jobs, stop the
-    /// daemon, start the jobs again — aria2's `--continue` and control files
-    /// resume them from their pieces on disk.
+    /// restarting aria2. Restarts are chained so a later call waits for the
+    /// in-flight one and then re-evaluates against the latest addresses.
     private func applyTorrentBonding() async {
+        let previous = torrentRestartTask
+        let task = Task { [weak self] in
+            await previous?.value
+            await self?.performTorrentBonding()
+        }
+        torrentRestartTask = task
+        await task.value
+    }
+
+    /// MacGet owns the torrent queue: stop the jobs, stop the daemon, start the
+    /// active ones again — aria2's `--continue` and control files resume them
+    /// from their pieces on disk. Paused and seeding jobs are dropped, not
+    /// restarted (resume re-adds a paused one through the scheduler).
+    private func performTorrentBonding() async {
         let addresses = BondingPolicy.torrentAddresses(links: lastLinkSnapshot.links, settings: settings.bonding)
-        guard addresses != torrentBondingAddresses else { return }
+        guard !TorrentRestartPlan.sameAddressSet(addresses, torrentBondingAddresses) else { return }
         torrentBondingAddresses = addresses
-        let active = Array(torrents.keys)
-        guard !active.isEmpty else { return }
-        Log.engine.info("Network links changed — restarting \(active.count) torrent(s) on \(addresses.isEmpty ? "the default route" : addresses.joined(separator: ","), privacy: .public)")
-        for id in active {
+
+        let plan = TorrentRestartPlan.plan(torrents.keys.map { ($0, downloads[$0]?.status ?? .cancelled) })
+        let seeding = plan.drop.filter { downloads[$0]?.status == .completed }.count
+        if !plan.restart.isEmpty {
+            Log.engine.info("Network links changed — restarting \(plan.restart.count) torrent(s) on \(addresses.isEmpty ? "the default route" : addresses.joined(separator: ","), privacy: .public)")
+        }
+        if seeding > 0 {
+            Log.engine.info("Network links changed — ending seeding for \(seeding) torrent(s)")
+        }
+        for id in plan.restart + plan.drop {
             await torrents[id]?.suspendForShutdown()
             torrents[id] = nil
         }
-        await Aria2Daemon.shared.shutdown()
-        for id in active {
+        // Even with no job to restart, a running daemon holds the old flag.
+        if await Aria2Daemon.shared.isRunning {
+            await Aria2Daemon.shared.shutdown()
+        }
+        updateActivityState()
+        for id in plan.restart {
             if let d = downloads[id] { startTorrent(for: d) }
         }
     }

@@ -76,8 +76,11 @@ actor TorrentJob {
 
         do {
             let client = try await daemon.client(options: options)
+            // A restart can suspend this job while it awaits the daemon.
+            guard !isStopping else { return }
             self.client = client
             let gid = try await add(using: client)
+            guard !isStopping else { return }
             self.gid = gid
             download.status = .downloading
             download.error = nil

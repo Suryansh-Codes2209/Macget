@@ -17,6 +17,7 @@ actor Aria2Daemon {
     private var process: Process?
     private var client: Aria2RPCClient?
     private var startTask: Task<Aria2RPCClient, Error>?
+    private var shutdownTask: Task<Void, Never>?
     private let log = Logger(subsystem: "com.macget", category: "Aria2Daemon")
 
     /// Options applied at launch and refreshed via `changeGlobalOption`.
@@ -45,6 +46,8 @@ actor Aria2Daemon {
     /// callers share one startup.
     func client(options: TorrentEngineOptions) async throws -> Aria2RPCClient {
         currentOptions = options
+        // A shutdown in flight would otherwise hand out the dying client.
+        while let shutdownTask { await shutdownTask.value }
         if let client, isRunning { return client }
         if let startTask { return try await startTask.value }
 
@@ -141,6 +144,15 @@ actor Aria2Daemon {
     /// Ask aria2 to exit and wait for it. Called from the app-termination path —
     /// killing it instead would lose the session file and in-flight piece state.
     func shutdown() async {
+        if let shutdownTask { return await shutdownTask.value }
+        let task = Task { await performShutdown() }
+        shutdownTask = task
+        await task.value
+        shutdownTask = nil
+    }
+
+    private func performShutdown() async {
+        isBondingFallbackActive = false
         startTask?.cancel()
         if let client, isRunning {
             try? await client.shutdown()

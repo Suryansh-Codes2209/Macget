@@ -18,6 +18,10 @@ final class NWPinnedTransport: PinnedTransport, @unchecked Sendable {
         await NetworkLinkMonitor.shared.interface(for: id)
     }
 
+    func purgeIdle(linkID: String) async {
+        await pool.purge(linkID: linkID)
+    }
+
     /// How long a server may take to deliver a complete response head.
     private static let headTimeout: TimeInterval = 30
 
@@ -178,6 +182,11 @@ final class NWPinnedTransport: PinnedTransport, @unchecked Sendable {
 
 /// Idle keep-alive connections per (link, host, port, scheme), so stealing the
 /// next piece doesn't cost another TLS handshake over a slow tethered link.
+///
+/// Idle entries expire: servers drop keep-alives after a few seconds to a
+/// minute, and an `NWConnection` the server closed can still read `.ready`
+/// until it's used — each one holding a socket. Without expiry a finished
+/// download left its connections open until the process exited.
 actor PinnedConnectionPool {
     struct Key: Hashable, Sendable {
         let linkID: String
@@ -187,14 +196,31 @@ actor PinnedConnectionPool {
     }
 
     static let maxIdlePerKey = 16
-    private var idle: [Key: [NWConnection]] = [:]
+    /// Longer than most servers keep an idle HTTP/1.1 connection anyway.
+    static let maxIdleSeconds: TimeInterval = 30
+
+    private struct Entry {
+        let connection: NWConnection
+        let checkedInAt: Date
+    }
+
+    private var idle: [Key: [Entry]] = [:]
+    private var sweeper: Task<Void, Never>?
+
+    /// Whether a connection idle since `checkedInAt` is too old to reuse.
+    static func isStale(checkedInAt: Date, now: Date) -> Bool {
+        now.timeIntervalSince(checkedInAt) > maxIdleSeconds
+    }
 
     func checkout(_ key: Key) -> NWConnection? {
         var list = idle[key] ?? []
         defer { idle[key] = list.isEmpty ? nil : list }
-        while let connection = list.popLast() {
-            if case .ready = connection.state { return connection }
-            connection.cancel()
+        let now = Date()
+        while let entry = list.popLast() {
+            if case .ready = entry.connection.state, !Self.isStale(checkedInAt: entry.checkedInAt, now: now) {
+                return entry.connection
+            }
+            entry.connection.cancel()
         }
         return nil
     }
@@ -203,8 +229,46 @@ actor PinnedConnectionPool {
         guard case .ready = connection.state else { connection.cancel(); return }
         var list = idle[key] ?? []
         guard list.count < Self.maxIdlePerKey else { connection.cancel(); return }
-        list.append(connection)
+        list.append(Entry(connection: connection, checkedInAt: Date()))
         idle[key] = list
+        startSweeperIfNeeded()
+    }
+
+    /// Closes every idle connection on `linkID` — the link has gone away.
+    func purge(linkID: String) {
+        for key in idle.keys where key.linkID == linkID {
+            idle[key]?.forEach { $0.connection.cancel() }
+            idle[key] = nil
+        }
+    }
+
+    /// Runs only while something is idle, so an unused pool costs nothing.
+    private func startSweeperIfNeeded() {
+        guard sweeper == nil else { return }
+        sweeper = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.maxIdleSeconds))
+                guard let self, await self.sweep() else { return }
+            }
+        }
+    }
+
+    /// Cancels stale entries. Returns false (and retires the sweeper) once empty.
+    private func sweep() -> Bool {
+        let now = Date()
+        for (key, list) in idle {
+            var kept: [Entry] = []
+            for entry in list {
+                if Self.isStale(checkedInAt: entry.checkedInAt, now: now) {
+                    entry.connection.cancel()
+                } else {
+                    kept.append(entry)
+                }
+            }
+            idle[key] = kept.isEmpty ? nil : kept
+        }
+        if idle.isEmpty { sweeper = nil }
+        return !idle.isEmpty
     }
 }
 

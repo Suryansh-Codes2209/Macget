@@ -9,6 +9,13 @@ import Foundation
 protocol PinnedTransport: Sendable {
     /// Returns once the response head has arrived. The body streams afterwards.
     func get(url: URL, headers: [(String, String)], linkID: String) async throws -> PinnedResponse
+    /// Drops idle keep-alive connections on a link that has left the snapshot.
+    func purgeIdle(linkID: String) async
+}
+
+extension PinnedTransport {
+    /// A no-op for transports that don't pool.
+    func purgeIdle(linkID: String) async {}
 }
 
 struct PinnedResponse: Sendable {

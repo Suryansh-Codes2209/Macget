@@ -3,6 +3,43 @@
     <channel>
         <title>Macget</title>
         <item>
+            <title>1.4.0</title>
+            <pubDate>Mon, 12 Oct 2026 13:02:21 +0530</pubDate>
+            <link>https://macget.suryansh.work/</link>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>1.4.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.4</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <description sparkle:format="markdown"><![CDATA[Connection bonding, a tuned BitTorrent engine, and a menu bar presence.
+
+### Added
+- **Connection bonding.** MacGet can download one file over several internet links at once — Wi-Fi plus a USB-tethered iPhone or Android phone, Ethernet, or any other interface macOS sees. Off by default; turn it on from the new **Connections** toolbar item or Settings › Network.
+  - Each link must prove it reaches the internet before it joins, and drops out only after two consecutive failed probes.
+  - The existing 1–16 connection budget is split across links rather than enlarged; work stealing gives the faster link more pieces.
+  - A link the server rejects sits out the rest of that download without restarting it or being counted against the host.
+  - Download rows and the inspector show a per-link speed breakdown and a stacked chart.
+  - Applies to resumable HTTP(S) downloads. Any proxy disables it, so it can never bypass one.
+  - Torrent peer connections can be spread across bonded links too (experimental).
+- **Menu bar item** — a progress ring and total speed, with a menu to check or pause downloads without opening the window.
+- **Torrent Performance settings** — max peers, public tracker injection (skipped for private torrents), encryption preference with an opt-in strict mode, and port mapping.
+- **IPv6 DHT** when the Mac has a global IPv6 address.
+
+### Changed
+- **Faster torrents.** The peer-discovery ceiling rises from 10M to 100M (the old value stopped looking for peers at ~80 Mbps), the disk cache is larger, seeding no longer holds a download slot, and the concurrency setting is honoured.
+- **Chrome extension ships without media capture.** Media extraction now lives in the Firefox build only, as required by the Chrome Web Store; download capture, cookies and referrer are unchanged.
+
+### Fixed
+- **Downloads without a `Content-Length` work.** Servers using chunked transfer no longer fail with "Server did not report file size."
+- **Clicking a magnet link adds it.** MacGet launched as the `magnet:` handler but then dropped the URL.
+- **The list keeps updating after the window is closed and reopened** from the Dock, instead of going silent.
+- **Fast downloads no longer fail with "Chunk not found" or "Unexpected HTTP status 0".** When workers finished during the 100 ms spawn stagger, the engine could start a worker on a piece that had just been split, or treat a download that completed mid-stagger as stalled.
+
+---
+**First launch:** this build is free and un-notarized — on first open, use **System Settings → Privacy & Security → Open Anyway** (one time). See the README's *First launch on macOS* section.
+]]></description>
+            <enclosure url="https://github.com/Suryansh-Codes2209/Macget/releases/download/v1.4.0/macget.dmg" length="139514970" type="application/octet-stream" sparkle:edSignature="Ogc1Ds/YI4QMY/B0djHNz3wkyBMopBf9aGrCLkBYuQBJtf33pIfsjwN9iuowUBXUB9xm37bvm5C+NnOHb58MAw=="/>
+        </item>
+        <item>
             <title>1.3.0</title>
             <pubDate>Wed, 29 Jul 2026 03:58:03 +0530</pubDate>
             <link>https://macget.suryansh.work/</link>

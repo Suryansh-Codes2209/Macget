@@ -4,6 +4,31 @@ All notable changes to Macget. Format follows [Keep a Changelog](https://keepach
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-10-12
+
+Connection bonding, a tuned BitTorrent engine, and a menu bar presence.
+
+### Added
+- **Connection bonding.** MacGet can download one file over several internet links at once — Wi-Fi plus a USB-tethered iPhone or Android phone, Ethernet, or any other interface macOS sees. Off by default; turn it on from the new **Connections** toolbar item or Settings › Network.
+  - Each link must prove it reaches the internet before it joins, and drops out only after two consecutive failed probes.
+  - The existing 1–16 connection budget is split across links rather than enlarged; work stealing gives the faster link more pieces.
+  - A link the server rejects sits out the rest of that download without restarting it or being counted against the host.
+  - Download rows and the inspector show a per-link speed breakdown and a stacked chart.
+  - Applies to resumable HTTP(S) downloads. Any proxy disables it, so it can never bypass one.
+  - Torrent peer connections can be spread across bonded links too (experimental).
+- **Menu bar item** — a progress ring and total speed, with a menu to check or pause downloads without opening the window.
+- **Torrent Performance settings** — max peers, public tracker injection (skipped for private torrents), encryption preference with an opt-in strict mode, and port mapping.
+- **IPv6 DHT** when the Mac has a global IPv6 address.
+
+### Changed
+- **Faster torrents.** The peer-discovery ceiling rises from 10M to 100M (the old value stopped looking for peers at ~80 Mbps), the disk cache is larger, seeding no longer holds a download slot, and the concurrency setting is honoured.
+- **Chrome extension ships without media capture.** Media extraction now lives in the Firefox build only, as required by the Chrome Web Store; download capture, cookies and referrer are unchanged.
+
+### Fixed
+- **Downloads without a `Content-Length` work.** Servers using chunked transfer no longer fail with "Server did not report file size."
+- **Clicking a magnet link adds it.** MacGet launched as the `magnet:` handler but then dropped the URL.
+- **The list keeps updating after the window is closed and reopened** from the Dock, instead of going silent.
+
 ## [1.3.0] — 2026-07-29
 
 Book catalogs, BitTorrent, a reworked browser extension, and an engine that backs off on evidence instead of guesswork.

@@ -130,7 +130,7 @@ export function Hero() {
                   pattern to render one fixed 250×54 asset. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1219547&theme=dark&t=1786369263568"
+                src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1219547&theme=light&t=1786375523045"
                 alt="MacGet - Free, open-source multi-threaded download manager for Mac | Product Hunt"
                 width={250}
                 height={54}

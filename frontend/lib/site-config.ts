@@ -61,6 +61,7 @@ export const siteConfig = {
   nav: [
     { label: "Features", href: "/#features" },
     { label: "Inspector", href: "/#inspector" },
+    { label: "Bonding", href: "/#bonding" },
     { label: "How it works", href: "/#how" },
     { label: "Docs", href: "/docs" },
     { label: "Install", href: "/install" },
@@ -73,6 +74,7 @@ export const siteConfig = {
       links: [
         { label: "Features", href: "/#features" },
         { label: "Inspector", href: "/#inspector" },
+        { label: "Connection bonding", href: "/#bonding" },
         { label: "Browser capture", href: "/#extension" },
         { label: "How it works", href: "/#how" },
         { label: "Changelog", href: "/changelog" },
@@ -120,6 +122,12 @@ export const siteConfig = {
       blurb:
         "An inspector panel charts throughput over a rolling 30-second window and draws the file as its actual pieces — cells filling in file order, the ones a worker holds pulsing. One bar creeping right looks the same whether you have 1 connection or 16; this doesn't.",
       icon: "Gauge",
+    },
+    {
+      title: "Combine your connections",
+      blurb:
+        "Download over Wi-Fi, Ethernet, and a USB-tethered iPhone or Android phone at the same time. Each link gets its own workers, and the faster one simply takes more pieces.",
+      icon: "Network",
     },
     {
       title: "Adapts to throttled hosts",
@@ -217,6 +225,40 @@ export const siteConfig = {
       },
     ],
     browsers: ["Chrome", "Edge", "Brave", "Firefox"],
+  },
+
+  /**
+   * The connection-bonding section. Mirrors `Macget/Engine/Bonding/` — keep the
+   * claims here in step with the "Connection bonding" notes in CLAUDE.md.
+   */
+  bonding: {
+    links: [
+      { name: "Wi-Fi", kind: "en0", share: 0.58 },
+      { name: "iPhone (USB)", kind: "en7", share: 0.42 },
+    ],
+    devices: ["Wi-Fi", "Ethernet", "iPhone over USB", "Android over USB", "Thunderbolt / USB adapters"],
+    facts: [
+      {
+        title: "Every link is proven, not assumed",
+        detail:
+          "Each interface has to reach the internet on its own before it joins — and a link drops out only after two failed probes in a row, so a busy tether that misses one check isn't kicked.",
+      },
+      {
+        title: "Same thread budget, more paths",
+        detail:
+          "Bonding splits the existing 1–16 connections across links instead of adding more. No speed weighting to tune: work stealing hands the faster link more pieces.",
+      },
+      {
+        title: "A bad link costs only itself",
+        detail:
+          "If a server rejects your phone's connection, that link sits out the rest of the download while the others carry on. The server isn't blamed and the download doesn't restart.",
+      },
+      {
+        title: "Off by default, one switch to try",
+        detail:
+          "Flip it on from the toolbar's Connections popover or Settings ▸ Network. Applies to resumable HTTP(S) downloads; any proxy turns it off so it can never bypass one.",
+      },
+    ],
   },
 
   pipeline: [

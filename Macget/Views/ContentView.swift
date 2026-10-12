@@ -8,6 +8,10 @@ struct ContentView: View {
     @Bindable var mediaPick: MediaPickModel
     @Bindable var authPrompt: AuthPromptModel
     let inspector: InspectorModel
+    /// The app's one settings model — the toolbar's Connections popover writes
+    /// through it so the Settings window never holds a stale copy.
+    let settingsVM: SettingsViewModel
+    let connections: ConnectionsModel
 
     @State private var showingAddSheet = false
     @State private var showingBookBrowser = false
@@ -68,6 +72,19 @@ struct ContentView: View {
                     }
 
                     ToolbarSpacer(.flexible)
+
+                    // Always shown while any network is up, not only while a
+                    // combined download runs: knowing the phone is plugged in is
+                    // what makes "combine connections" discoverable.
+                    if !connections.links.isEmpty {
+                        ToolbarItem {
+                            ConnectionsToolbarButton(connections: connections,
+                                                     listVM: listVM,
+                                                     settingsVM: settingsVM)
+                        }
+
+                        ToolbarSpacer(.fixed)
+                    }
 
                     ToolbarItemGroup {
                         // Where the table's column-header sorting went.
@@ -135,6 +152,7 @@ struct ContentView: View {
         .searchable(text: $listVM.searchText, prompt: "Search downloads")
         .onChange(of: listVM.searchText) { _, _ in listVM.filterRefreshed() }
         .onChange(of: listVM.selectedFilter) { _, _ in listVM.filterRefreshed() }
+        .onChange(of: listVM.selectedKind) { _, _ in listVM.filterRefreshed() }
         // The panel polls the engine, so it only samples while it's on screen.
         .onChange(of: showingInspector, initial: true) { _, shown in
             inspector.isPresented = shown
@@ -144,6 +162,7 @@ struct ContentView: View {
         .onChange(of: selection, initial: true) { _, ids in
             inspector.setTarget(ids.count == 1 ? ids.first : nil)
         }
+        .task { connections.start() }
         .onReceive(NotificationCenter.default.publisher(for: .openAddDownload)) { _ in
             showingAddSheet = true
         }
@@ -188,21 +207,68 @@ struct ContentView: View {
 
     @ViewBuilder
     private var sidebar: some View {
-        List(StatusFilter.allCases, selection: $listVM.selectedFilter) { filter in
-            let isSelected = listVM.selectedFilter == filter
-            HStack(spacing: 8) {
-                Image(systemName: icon(for: filter))
-                    .foregroundStyle(isSelected ? Theme.Palette.amber : .secondary)
-                    .frame(width: 18)
-                Text(filter.displayName)
-                Spacer(minLength: 6)
-                countPill(listVM.count(for: filter), isSelected: isSelected)
+        List {
+            Section("Status") {
+                ForEach(StatusFilter.allCases) { filter in
+                    sidebarRow(
+                        label: filter.displayName,
+                        systemImage: icon(for: filter),
+                        count: listVM.count(for: filter),
+                        isSelected: listVM.selectedFilter == filter
+                    ) {
+                        listVM.selectedFilter = filter
+                    }
+                }
             }
-            .tag(filter)
+            Section("Type") {
+                ForEach(KindFilter.allCases) { kind in
+                    sidebarRow(
+                        label: kind.displayName,
+                        systemImage: icon(for: kind),
+                        count: listVM.count(for: kind),
+                        isSelected: listVM.selectedKind == kind
+                    ) {
+                        listVM.selectedKind = kind
+                    }
+                }
+            }
         }
         .navigationTitle("Filter")
         .listStyle(.sidebar)
         .frame(minWidth: 170)
+    }
+
+    /// One sidebar entry.
+    ///
+    /// `List(selection:)` binds a single value, and the sidebar now carries two
+    /// independent selections — status and kind compose, so "Active × Torrents"
+    /// has to be expressible. Rows therefore drive their own selection and
+    /// highlight rather than going through list selection.
+    private func sidebarRow(
+        label: String,
+        systemImage: String,
+        count: Int,
+        isSelected: Bool,
+        select: @escaping () -> Void
+    ) -> some View {
+        Button(action: select) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .foregroundStyle(isSelected ? Theme.Palette.amber : .secondary)
+                    .frame(width: 18)
+                Text(label)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 6)
+                countPill(count, isSelected: isSelected)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Theme.Palette.amber.opacity(0.16) : Color.clear)
+                .padding(.horizontal, 4)
+        )
     }
 
     /// Count badge on a filter row. Reads as a quiet chip at rest and picks up
@@ -232,6 +298,15 @@ struct ContentView: View {
         case .paused:    return "pause.circle"
         case .completed: return "checkmark.circle"
         case .failed:    return "exclamationmark.triangle"
+        }
+    }
+
+    private func icon(for kind: KindFilter) -> String {
+        switch kind {
+        case .all:      return "square.stack.3d.up"
+        case .files:    return "doc"
+        case .media:    return "play.rectangle"
+        case .torrents: return "shippingbox"
         }
     }
 }

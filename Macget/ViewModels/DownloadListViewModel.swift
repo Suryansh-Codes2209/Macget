@@ -23,6 +23,39 @@ enum StatusFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// The sidebar's second, orthogonal axis.
+///
+/// Kind is deliberately *not* another `StatusFilter` case: mixing the two into
+/// one enum would make them mutually exclusive, and "show me only the torrents
+/// that are still running" is the exact question a queue of thirty finished HTTP
+/// downloads makes worth asking.
+enum KindFilter: String, CaseIterable, Identifiable {
+    case all
+    case files
+    case media
+    case torrents
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .all:      return "All Types"
+        case .files:    return "Files"
+        case .media:    return "Media"
+        case .torrents: return "Torrents"
+        }
+    }
+
+    func matches(_ kind: DownloadKind) -> Bool {
+        switch self {
+        case .all:      return true
+        case .files:    return kind == .httpFile
+        case .media:    return kind == .media
+        case .torrents: return kind == .torrent
+        }
+    }
+}
+
 /// Combines a `Download` (terminal facts) with the latest `DownloadSnapshot`
 /// (live progress/speed/eta) for display.
 struct DownloadRowItem: Identifiable, Equatable {
@@ -51,6 +84,8 @@ struct DownloadRowItem: Identifiable, Equatable {
     let isSeeding: Bool
     /// Files inside a multi-file torrent, once aria2 has resolved metadata.
     let torrentFiles: [TorrentFileEntry]?
+    /// Per-link speed breakdown when several network links carry this download.
+    var links: [LinkStat] = []
 
     var fractionComplete: Double {
         guard let total = totalBytes, total > 0 else { return 0 }
@@ -58,6 +93,31 @@ struct DownloadRowItem: Identifiable, Equatable {
     }
 
     var isTorrent: Bool { kind == .torrent }
+
+    /// The file a user means when they say "open this download".
+    ///
+    /// A finished torrent lands as a *folder*, so `destinationURL` points at a
+    /// directory and opening it merely raises a Finder window. The payload
+    /// dwarfs its companions — a 1.98 GB `.mp4` beside a 128 KB poster `.jpg` —
+    /// so the largest file is the one worth opening.
+    ///
+    /// Falls back to `destinationURL` when the guess can't be made (not a
+    /// torrent, metadata not yet fetched) or when the chosen file isn't on disk:
+    /// files the user deselected are legitimately absent, and a dead menu item
+    /// is worse than revealing the folder.
+    var primaryFileURL: URL {
+        guard kind == .torrent,
+              let largest = torrentFiles?.max(by: { $0.length < $1.length })
+        else { return destinationURL }
+        let candidate = Self.resolve(largest.path, under: destinationURL)
+        return FileManager.default.fileExists(atPath: candidate.path) ? candidate : destinationURL
+    }
+
+    /// aria2 reports absolute paths, but resolve defensively against the
+    /// download's own folder in case a relative one ever arrives.
+    static func resolve(_ path: String, under folder: URL) -> URL {
+        path.hasPrefix("/") ? URL(fileURLWithPath: path) : folder.appendingPathComponent(path)
+    }
 
     /// Share ratio for a torrent row, or nil before anything is downloaded.
     var ratio: Double? {
@@ -71,8 +131,12 @@ struct DownloadRowItem: Identifiable, Equatable {
 final class DownloadListViewModel {
     private(set) var rows: [DownloadRowItem] = []
     var selectedFilter: StatusFilter = .all
+    var selectedKind: KindFilter = .all
     var searchText: String = ""
     var totalSpeed: Double = 0
+    /// Per-link speed summed across every active download, for the toolbar strip
+    /// and menu bar. Empty unless two or more links are carrying traffic.
+    private(set) var linkTotals: [LinkStat] = []
 
     private var downloadsByID: [UUID: Download] = [:]
     private var snapshotsByID: [UUID: DownloadSnapshot] = [:]
@@ -86,8 +150,20 @@ final class DownloadListViewModel {
         self.engine = engine
     }
 
+    /// Start draining `engine.events`. Safe to call repeatedly — and it *is*
+    /// called repeatedly, from `ContentView`'s `.task`, which re-runs whenever
+    /// the content view is recreated (closing the window and reopening it from
+    /// the Dock is enough, since the app outlives its last window).
+    ///
+    /// The guard is load-bearing: `engine.events` is one `AsyncStream`, and an
+    /// `AsyncStream` supports exactly one consumer. Cancelling the listener and
+    /// re-iterating the same stream yields *nothing* forever, so a second
+    /// bootstrap used to leave the list permanently deaf to the engine —
+    /// downloads kept running and persisting while the UI silently stopped
+    /// showing new rows. If a `teardown()` is ever wired up, this needs a fresh
+    /// stream from the engine, not just a new task.
     func bootstrap() {
-        listenerTask?.cancel()
+        guard listenerTask == nil else { return }
         let stream = engine.events
         listenerTask = Task { [weak self] in
             guard let self else { return }
@@ -153,15 +229,18 @@ final class DownloadListViewModel {
                 seeders: snap?.seeders,
                 peers: snap?.peers,
                 isSeeding: snap?.isSeeding ?? false,
-                torrentFiles: d.torrentFiles
+                torrentFiles: d.torrentFiles,
+                links: snap?.links ?? []
             )
         }
         rows = filtered(items)
         totalSpeed = items.filter { $0.status == .downloading }
                           .reduce(0) { $0 + $1.speedBytesPerSec }
+        linkTotals = LinkStat.aggregate(items.filter { $0.status == .downloading }.map(\.links))
     }
 
     private func filtered(_ items: [DownloadRowItem]) -> [DownloadRowItem] {
+        let items = selectedKind == .all ? items : items.filter { selectedKind.matches($0.kind) }
         let byFilter: [DownloadRowItem]
         switch selectedFilter {
         case .all:       byFilter = items
@@ -196,6 +275,14 @@ final class DownloadListViewModel {
     }
 
     // MARK: - Counts for sidebar
+
+    /// Counts on each axis deliberately ignore the *other* axis. Counting within
+    /// the other selection makes the numbers shift as the user clicks around,
+    /// which reads as a bug rather than as a feature.
+    func count(for kind: KindFilter) -> Int {
+        guard kind != .all else { return downloadsByID.count }
+        return downloadsByID.values.filter { kind.matches($0.kind) }.count
+    }
 
     func count(for filter: StatusFilter) -> Int {
         switch filter {

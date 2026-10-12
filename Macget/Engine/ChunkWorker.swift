@@ -13,6 +13,12 @@ enum ChunkError: Error, LocalizedError {
     /// Server demands credentials (401) or proxy auth (407) we don't have (or the
     /// stored ones were rejected). Non-retryable; the engine prompts the user.
     case authRequired(code: Int)
+    /// A pinned (non-default) link was refused by the server or can't serve this
+    /// file — drop the link for this download. Never fails the download.
+    case linkRejected(linkID: String, serverRefused: Bool)
+    /// A pinned link's connection failed. Counts as a strike against the link;
+    /// the piece goes straight back to the pool rather than backing off.
+    case linkTransport(linkID: String, detail: String)
 
     var errorDescription: String? {
         switch self {
@@ -29,8 +35,17 @@ enum ChunkError: Error, LocalizedError {
             return c == 407
                 ? "Proxy authentication required."
                 : "This download requires a username and password."
+        case .linkRejected(let id, let refused):
+            return refused ? "Server refused connections over \(id)." : "Network link \(id) is unusable for this download."
+        case .linkTransport(let id, let detail):
+            return "Connection over \(id) failed: \(detail)"
         }
     }
+}
+
+struct PinnedRoute: Sendable {
+    let linkID: String
+    let transport: any PinnedTransport
 }
 
 /// Streams a single byte-range from `request.url` into `writer` once. Retries
@@ -54,6 +69,12 @@ struct ChunkWorker {
     var rateLimiter: RateLimiter? = nil
     /// Optional credential for HTTP Basic/Digest/NTLM challenges on this host.
     var credential: URLCredential? = nil
+    /// When set, this attempt runs over a specific network link through the
+    /// pinned transport instead of URLSession. Never set for unbounded streams.
+    var pinned: PinnedRoute? = nil
+    /// URLSession path only: called with the local IP the connection used, so
+    /// the coordinator can attribute default-link bytes to the right interface.
+    var onLocalAddress: (@Sendable (String) -> Void)? = nil
     /// Called periodically with bytes flushed to disk for this chunk.
     let report: @Sendable (UUID, Int) async -> Void
 
@@ -88,12 +109,17 @@ struct ChunkWorker {
             req.setValue(lastModified, forHTTPHeaderField: "If-Range")
         }
 
-        try await stream(request: req, expectedStart: requestStart, expectedEnd: requestEnd, startingOffset: requestStart, unbounded: false)
+        if let pinned {
+            try await streamPinned(route: pinned, request: req, expectedStart: requestStart, expectedEnd: requestEnd)
+        } else {
+            try await stream(request: req, expectedStart: requestStart, expectedEnd: requestEnd, startingOffset: requestStart, unbounded: false)
+        }
     }
 
     private func stream(request: URLRequest, expectedStart: Int64, expectedEnd: Int64, startingOffset: Int64, unbounded: Bool) async throws {
         let delegate = StreamingDelegate()
         delegate.credential = credential
+        delegate.onLocalAddress = onLocalAddress
         let stream = AsyncThrowingStream<Data, Error> { continuation in
             delegate.attach(continuation: continuation, expectedRangeStart: expectedStart, expectedRangeEnd: expectedEnd, unbounded: unbounded)
             let task = session.dataTask(with: request)
@@ -105,7 +131,114 @@ struct ChunkWorker {
             continuation.onTermination = { _ in task.cancel() }
             task.resume()
         }
+        try await write(stream, startingOffset: startingOffset, expectedEnd: expectedEnd, unbounded: unbounded)
+    }
 
+    static let maxRedirects = 5
+
+    /// The pinned-link equivalent of `stream`. Every failure is translated so it
+    /// can only ever cost this download the link, never the download itself.
+    private func streamPinned(route: PinnedRoute, request: URLRequest, expectedStart: Int64, expectedEnd: Int64) async throws {
+        var headers: [(String, String)] = (request.allHTTPHeaderFields ?? [:]).map { ($0.key, $0.value) }
+        if !headers.contains(where: { $0.0.caseInsensitiveCompare("User-Agent") == .orderedSame }) {
+            headers.append(("User-Agent", URLSessionFactory.userAgent))
+        }
+        headers.append(("Accept-Encoding", "identity"))
+        // Preemptive Basic only over TLS — never send a password in the clear.
+        // Skipped when the caller already captured an Authorization header.
+        if let credential, let user = credential.user, let password = credential.password,
+           request.url?.scheme?.lowercased() == "https",
+           !headers.contains(where: { $0.0.caseInsensitiveCompare("Authorization") == .orderedSame }) {
+            let token = Data("\(user):\(password)".utf8).base64EncodedString()
+            headers.append(("Authorization", "Basic \(token)"))
+        }
+
+        guard var url = request.url, let originalURL = request.url else { throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: false) }
+        var response: PinnedResponse
+        var redirects = 0
+        while true {
+            do {
+                response = try await route.transport.get(url: url, headers: headers, linkID: route.linkID)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch let error as PinnedTransportError where error.isTLS {
+                throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: false)
+            } catch PinnedTransportError.unsupportedURL {
+                throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: false)
+            } catch PinnedTransportError.interfaceUnavailable {
+                throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: false)
+            } catch {
+                throw ChunkError.linkTransport(linkID: route.linkID, detail: error.localizedDescription)
+            }
+            let status = response.head.status
+            guard [301, 302, 303, 307, 308].contains(status) else { break }
+            guard redirects < Self.maxRedirects,
+                  let location = response.head.value("location"),
+                  let next = URL(string: location, relativeTo: url)?.absoluteURL
+            else { throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: true) }
+            // Never downgrade TLS, and never carry credentials or cookies to a
+            // different origin than the one the caller asked for.
+            if url.scheme?.lowercased() == "https", next.scheme?.lowercased() != "https" {
+                throw ChunkError.linkRejected(linkID: route.linkID, serverRefused: true)
+            }
+            if !Self.sameOrigin(next, originalURL) {
+                headers.removeAll { ["authorization", "cookie"].contains($0.0.lowercased()) }
+            }
+            redirects += 1
+            url = next
+        }
+
+        if let error = RangeResponseValidator.validate(
+            status: response.head.status,
+            contentRange: response.head.value("content-range"),
+            retryAfter: response.head.value("retry-after"),
+            expectedStart: expectedStart,
+            expectedEnd: expectedEnd,
+            unbounded: false
+        ) {
+            throw Self.pinnedFailure(error, linkID: route.linkID)
+        }
+
+        let linkID = route.linkID
+        let body = response.body
+        let translated = AsyncThrowingStream<Data, Error> { continuation in
+            let pump = Task {
+                do {
+                    for try await data in body { continuation.yield(data) }
+                    continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: CancellationError())
+                } catch {
+                    continuation.finish(throwing: ChunkError.linkTransport(linkID: linkID, detail: error.localizedDescription))
+                }
+            }
+            continuation.onTermination = { _ in pump.cancel() }
+        }
+        try await write(translated, startingOffset: expectedStart, expectedEnd: expectedEnd, unbounded: false)
+    }
+
+    private static func sameOrigin(_ a: URL, _ b: URL) -> Bool {
+        a.scheme?.lowercased() == b.scheme?.lowercased()
+            && a.host?.lowercased() == b.host?.lowercased()
+            && a.port == b.port
+    }
+
+    /// Validation failures on a pinned link mean "this link can't serve this
+    /// file" — a signed URL bound to the other IP, a different CDN edge, auth the
+    /// pinned transport can't do. Only transient server states stay retryable.
+    static func pinnedFailure(_ error: ChunkError, linkID: String) -> ChunkError {
+        switch error {
+        case .rangeRefused, .wrongContentRange, .authRequired:
+            return .linkRejected(linkID: linkID, serverRefused: true)
+        case .unexpectedStatus(let code) where (300..<500).contains(code):
+            return .linkRejected(linkID: linkID, serverRefused: true)
+        default:
+            return error
+        }
+    }
+
+    /// Buffers deliveries into 64 KB writes at increasing offsets.
+    private func write(_ stream: AsyncThrowingStream<Data, Error>, startingOffset: Int64, expectedEnd: Int64, unbounded: Bool) async throws {
         var offset = startingOffset
         var buffer = Data()
         buffer.reserveCapacity(Self.writeBufferBytes)
@@ -158,6 +291,14 @@ private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchec
     private var unbounded = false
     /// Credential for server-auth challenges on this task, if the host has one.
     var credential: URLCredential?
+    /// Reports the local address the finished task used (URLSession picks the interface).
+    var onLocalAddress: (@Sendable (String) -> Void)?
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        if let address = metrics.transactionMetrics.last?.localAddress {
+            onLocalAddress?(address)
+        }
+    }
 
     func attach(
         continuation: AsyncThrowingStream<Data, Error>.Continuation,
@@ -182,52 +323,19 @@ private final class StreamingDelegate: NSObject, URLSessionDataDelegate, @unchec
             completionHandler(.cancel)
             return
         }
-        if unbounded {
-            // No Range was sent — any 2xx is the full body. 200 is expected here.
-            guard (200..<300).contains(http.statusCode) else {
-                continuation?.finish(throwing: Self.statusError(http))
-                completionHandler(.cancel)
-                return
-            }
-            completionHandler(.allow)
-            return
-        }
-        if http.statusCode == 200 {
-            continuation?.finish(throwing: ChunkError.rangeRefused(200))
+        if let error = RangeResponseValidator.validate(
+            status: http.statusCode,
+            contentRange: http.value(forHTTPHeaderField: "Content-Range"),
+            retryAfter: http.value(forHTTPHeaderField: "Retry-After"),
+            expectedStart: expectedStart,
+            expectedEnd: expectedEnd,
+            unbounded: unbounded
+        ) {
+            continuation?.finish(throwing: error)
             completionHandler(.cancel)
             return
-        }
-        if http.statusCode != 206 {
-            continuation?.finish(throwing: Self.statusError(http))
-            completionHandler(.cancel)
-            return
-        }
-        if let cr = http.value(forHTTPHeaderField: "Content-Range") {
-            let expected = "bytes \(expectedStart)-\(expectedEnd)/"
-            if !cr.hasPrefix(expected) {
-                continuation?.finish(throwing: ChunkError.wrongContentRange(expected: expected + "<total>", got: cr))
-                completionHandler(.cancel)
-                return
-            }
         }
         completionHandler(.allow)
-    }
-
-    /// Maps an error status into the right `ChunkError`. 429/503 carry the
-    /// parsed `Retry-After` so the coordinator can honor the server's backoff;
-    /// 401/407 surface as `authRequired` so the engine can prompt for credentials.
-    private static func statusError(_ http: HTTPURLResponse) -> ChunkError {
-        switch http.statusCode {
-        case 429, 503:
-            return .serverBusy(
-                code: http.statusCode,
-                retryAfter: RetryAfter.parse(http.value(forHTTPHeaderField: "Retry-After"))
-            )
-        case 401, 407:
-            return .authRequired(code: http.statusCode)
-        default:
-            return .unexpectedStatus(http.statusCode)
-        }
     }
 
     /// Answer HTTP Basic/Digest/NTLM challenges with the host credential (first

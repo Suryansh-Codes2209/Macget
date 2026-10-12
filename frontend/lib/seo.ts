@@ -93,11 +93,24 @@ export function softwareApplicationSchema(): Schema {
       price: "0",
       priceCurrency: "USD",
     },
-    author: {
-      "@type": "Person",
-      name: "Suryansh",
-      url: "https://github.com/Suryansh-Codes2209",
-    },
+    author: maintainerSchema(),
+  };
+}
+
+/**
+ * The maintainer as a `Person`, with `sameAs` covering every profile that is
+ * demonstrably the same human. Google uses `sameAs` to reconcile an entity
+ * across sites, so listing the real profiles is what lets the person and the
+ * app resolve to one another rather than to two unrelated things.
+ */
+export function maintainerSchema(): Schema {
+  const { name, githubUrl, xUrl, linkedinUrl } = siteConfig.maintainer;
+
+  return {
+    "@type": "Person",
+    name,
+    url: githubUrl,
+    sameAs: [githubUrl, xUrl, linkedinUrl],
   };
 }
 

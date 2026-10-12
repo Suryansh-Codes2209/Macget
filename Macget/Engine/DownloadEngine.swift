@@ -38,7 +38,15 @@ actor DownloadEngine {
     /// Watches network reachability so a dropped connection pauses active
     /// downloads into a holding state and auto-resumes them when the network
     /// returns — instead of burning retries through an outage.
-    private var pathMonitor: NWPathMonitor?
+    private var linkMonitorTask: Task<Void, Never>?
+    /// Most recent link set; Task 11 derives aria2's bonding addresses from it.
+    private var lastLinkSnapshot = LinkSnapshot(links: [], isOnline: true)
+    /// Addresses the running (or next) aria2 daemon binds to.
+    private var torrentBondingAddresses: [String] = []
+    private var torrentRestartTask: Task<Void, Never>?
+    /// Set once termination begins. A torrent restart still in flight must not
+    /// start jobs (and so relaunch aria2) after shutdown has stopped the daemon.
+    private var isShuttingDown = false
     private var networkPausedIDs: Set<UUID> = []
     private var lastPathSatisfied = true
 
@@ -53,6 +61,9 @@ actor DownloadEngine {
     /// window. Released once no coordinators are running.
     private var activityToken: NSObjectProtocol?
 
+    private let linkProvider: LinkProvider
+    private let pinnedTransport: any PinnedTransport
+
     private let eventsContinuation: AsyncStream<EngineEvent>.Continuation
     nonisolated let events: AsyncStream<EngineEvent>
 
@@ -60,7 +71,15 @@ actor DownloadEngine {
     /// app can prompt the user. Set once by `AppEnvironment`.
     private var authHandler: (@Sendable (UUID, String) async -> Void)?
 
-    init(store: DownloadStore, settings: AppSettings, session: URLSession? = nil) {
+    init(
+        store: DownloadStore,
+        settings: AppSettings,
+        session: URLSession? = nil,
+        linkProvider: LinkProvider = NetworkLinkMonitor.shared,
+        pinnedTransport: any PinnedTransport = NWPinnedTransport.shared
+    ) {
+        self.linkProvider = linkProvider
+        self.pinnedTransport = pinnedTransport
         self.store = store
         self.settings = settings
         if let session {
@@ -112,11 +131,14 @@ actor DownloadEngine {
 
     func updateSettings(_ newSettings: AppSettings) async {
         let oldMax = settings.maxConcurrentDownloads
+        let oldBonding = settings.bonding
         let sessionChanged = newSettings.requestTimeoutSeconds != settings.requestTimeoutSeconds
             || newSettings.proxyHost != settings.proxyHost
             || newSettings.proxyPort != settings.proxyPort
         settings = newSettings
-        await rateLimiter.setLimit(newSettings.globalSpeedLimitBytesPerSec)
+        // Everything below reads `settings`, not `newSettings`: each `await` lets
+        // a later settings change land first, and re-applying this call's values
+        // after it would quietly revert that newer change.
         if ownsSession, sessionChanged {
             session = URLSessionFactory.makeSession(
                 requestTimeout: TimeInterval(newSettings.requestTimeoutSeconds),
@@ -125,13 +147,23 @@ actor DownloadEngine {
             )
             log.info("Rebuilt URLSession for new proxy/timeout settings (applies to new downloads).")
         }
-        eventsContinuation.yield(.settingsChanged(newSettings))
+        if newSettings.bonding != oldBonding {
+            // Queued on the restart chain, not awaited: an aria2 restart takes
+            // seconds, and holding this call open that long is what let a stale
+            // settings value land after a newer one.
+            enqueueTorrentBonding()
+            for coordinator in coordinators.values {
+                await coordinator.updateBonding(settings.bonding)
+            }
+        }
+        await rateLimiter.setLimit(settings.globalSpeedLimitBytesPerSec)
+        eventsContinuation.yield(.settingsChanged(settings))
         // Push seeding/bandwidth changes to a live aria2 daemon. Port changes are
         // launch-only and take effect the next time it starts.
-        await Aria2Daemon.shared.applyOptions(newSettings.torrentOptions)
+        await Aria2Daemon.shared.applyOptions(settings.torrentOptions)
         // A schedule change (enabled/window) may open or close the window right now.
         await evaluateSchedule()
-        if newSettings.maxConcurrentDownloads > oldMax {
+        if settings.maxConcurrentDownloads > oldMax {
             await scheduleNextDownloads()
         }
     }
@@ -227,6 +259,22 @@ actor DownloadEngine {
     ) async -> UUID? {
         guard magnet != nil || torrentData != nil else { return nil }
         let link = magnet.flatMap(MagnetLink.parse)
+
+        // Clicking the same magnet twice is ordinary user behaviour — especially
+        // while a torrent is still fetching metadata and the row looks idle.
+        // Without this the second add reached aria2, came back "InfoHash … is
+        // already registered", and left a phantom *failed* row sitting next to
+        // the download that is actually running. Surface the existing row
+        // instead. Only magnets are covered: a `.torrent`'s info hash isn't
+        // known until aria2 parses the metainfo.
+        if let infoHash = link?.infoHash,
+           let existing = downloads.values.first(where: {
+               $0.torrentInfoHash == infoHash && !$0.status.isTerminal
+           }) {
+            Log.engine.info("Ignoring duplicate torrent add for info hash \(infoHash, privacy: .public)")
+            return existing.id
+        }
+
         let name = suggestedName ?? link?.provisionalName ?? "Torrent"
         let download = Download(
             url: magnet ?? URL(string: "torrent:local")!,
@@ -283,7 +331,11 @@ actor DownloadEngine {
             await job.pause()
         } else if let job = torrents[id] {
             await job.pause()
-        } else if var d = downloads[id], d.status == .queued {
+        } else if var d = downloads[id],
+                  d.status == .queued || (d.kind == .torrent && d.status == .downloading) {
+            // A downloading torrent with no job is mid aria2-restart: its job was
+            // stopped and hasn't been started again yet. Recording the pause here
+            // is what stops the restart from bringing it back.
             d.status = .paused
             downloads[id] = d
             await store.upsert(d)
@@ -389,8 +441,9 @@ actor DownloadEngine {
 
     /// Called from AppDelegate on app termination.
     func suspendAllForShutdown() async {
-        pathMonitor?.cancel()
-        pathMonitor = nil
+        isShuttingDown = true
+        linkMonitorTask?.cancel()
+        linkMonitorTask = nil
         scheduleTimer?.cancel()
         scheduleTimer = nil
         for id in coordinators.keys {
@@ -399,12 +452,17 @@ actor DownloadEngine {
         for id in extractors.keys {
             await extractors[id]?.suspend()
         }
+        // A restart in flight sees `isShuttingDown` and starts nothing; wait for
+        // it so it can't relaunch aria2 after the shutdown below.
+        await torrentRestartTask?.value
         // Torrents stop polling, then aria2 is asked to exit cleanly — killing it
-        // instead would lose its session file and in-flight piece state.
+        // instead would lose its session file and in-flight piece state. Gated on
+        // the daemon, not on `torrents`: mid-restart the map is empty while
+        // aria2 may still be running.
         for id in torrents.keys {
             await torrents[id]?.suspendForShutdown()
         }
-        if !torrents.isEmpty {
+        if await Aria2Daemon.shared.isRunning {
             await Aria2Daemon.shared.shutdown()
         }
         if let token = activityToken {
@@ -438,14 +496,99 @@ actor DownloadEngine {
     // MARK: - Network reachability
 
     private func startNetworkMonitoring() {
-        guard pathMonitor == nil else { return }
-        let monitor = NWPathMonitor()
-        pathMonitor = monitor
-        monitor.pathUpdateHandler = { [weak self] path in
-            let satisfied = path.status == .satisfied
-            Task { await self?.handleNetworkPath(satisfied: satisfied) }
+        guard linkMonitorTask == nil else { return }
+        linkMonitorTask = Task { [weak self] in
+            await NetworkLinkMonitor.shared.start()
+            for await snapshot in await NetworkLinkMonitor.shared.updates() {
+                await self?.handleLinkSnapshot(snapshot)
+            }
         }
-        monitor.start(queue: DispatchQueue(label: "com.macget.network-monitor"))
+    }
+
+    private func handleLinkSnapshot(_ snapshot: LinkSnapshot) async {
+        let departed = Set(lastLinkSnapshot.links.map(\.id)).subtracting(snapshot.links.map(\.id))
+        lastLinkSnapshot = snapshot
+        // Idle keep-alive connections on a link that's gone can never be reused.
+        for linkID in departed { await pinnedTransport.purgeIdle(linkID: linkID) }
+        await handleNetworkPath(satisfied: snapshot.isOnline)
+        enqueueTorrentBonding()
+    }
+
+    private func currentTorrentOptions() -> TorrentEngineOptions {
+        var options = settings.torrentOptions
+        options.bondingAddresses = torrentBondingAddresses
+        return options
+    }
+
+    func torrentBondingFallbackActive() async -> Bool {
+        await Aria2Daemon.shared.isBondingFallbackActive
+    }
+
+    /// `--multiple-interface` is launch-only, so a changed link set means
+    /// restarting aria2. Restarts are chained so a later call waits for the
+    /// in-flight one and then re-evaluates against the latest addresses.
+    /// Fire-and-forget: callers never wait out a multi-second restart.
+    private func enqueueTorrentBonding() {
+        guard !isShuttingDown else { return }
+        let previous = torrentRestartTask
+        torrentRestartTask = Task { [weak self] in
+            await previous?.value
+            await self?.performTorrentBonding()
+        }
+    }
+
+    /// MacGet owns the torrent queue: stop the jobs, stop the daemon, start the
+    /// active ones again — aria2's `--continue` and control files resume them
+    /// from their pieces on disk. Paused and seeding jobs are dropped, not
+    /// restarted (resume re-adds a paused one through the scheduler).
+    private func performTorrentBonding() async {
+        guard !isShuttingDown else { return }
+        let addresses = BondingPolicy.torrentAddresses(links: lastLinkSnapshot.links, settings: settings.bonding)
+        guard !TorrentRestartPlan.sameAddressSet(addresses, torrentBondingAddresses) else { return }
+        torrentBondingAddresses = addresses
+
+        let plan = TorrentRestartPlan.plan(torrents.keys.map { ($0, downloads[$0]?.status ?? .cancelled) })
+        let seeding = plan.drop.filter { downloads[$0]?.status == .completed }.count
+        if !plan.restart.isEmpty {
+            Log.engine.info("Network links changed — restarting \(plan.restart.count) torrent(s) on \(addresses.isEmpty ? "the default route" : addresses.joined(separator: ","), privacy: .public)")
+        }
+        if seeding > 0 {
+            Log.engine.info("Network links changed — ending seeding for \(seeding) torrent(s)")
+        }
+        for id in plan.restart + plan.drop {
+            await torrents[id]?.suspendForShutdown()
+            torrents[id] = nil
+        }
+        // A dropped seeder's last snapshot said "Seeding" with a live upload
+        // speed; nothing polls it any more, so settle the row on Completed.
+        for id in plan.drop {
+            guard let d = downloads[id], d.status == .completed else { continue }
+            eventsContinuation.yield(.stateChanged(d))
+            eventsContinuation.yield(.snapshot(DownloadSnapshot(
+                id: id,
+                status: .completed,
+                bytesDownloaded: d.bytesDownloaded,
+                totalBytes: d.totalBytes,
+                speedBytesPerSec: 0,
+                etaSeconds: nil,
+                uploadSpeedBytesPerSec: 0,
+                uploadedBytes: d.uploadedBytes,
+                isSeeding: false
+            )))
+        }
+        // Even with no job to restart, a running daemon holds the old flag.
+        if await Aria2Daemon.shared.isRunning {
+            await Aria2Daemon.shared.shutdown()
+        }
+        updateActivityState()
+        // Re-read each status now: the plan predates the awaits above, and a
+        // pause, cancel or app quit during them must win over the restart.
+        for id in plan.restart {
+            guard TorrentRestartPlan.shouldStartNow(currentStatus: downloads[id]?.status,
+                                                    shuttingDown: isShuttingDown),
+                  let d = downloads[id] else { continue }
+            startTorrent(for: d)
+        }
     }
 
     private func handleNetworkPath(satisfied: Bool) async {
@@ -647,7 +790,7 @@ actor DownloadEngine {
         }
         let job = TorrentJob(
             download: download,
-            options: settings.torrentOptions,
+            options: currentTorrentOptions(),
             onStateChange: { [weak self] updated in
                 await self?.handleStateChange(updated)
             },
@@ -716,6 +859,10 @@ actor DownloadEngine {
             rateLimiter: rateLimiter,
             maxAttemptsPerChunk: settings.maxRetriesPerChunk,
             autoSortByType: settings.autoSortByType,
+            linkProvider: linkProvider,
+            pinnedTransport: pinnedTransport,
+            bonding: settings.bonding,
+            appProxyConfigured: settings.proxyHost != nil,
             onStateChange: { [weak self] updated in
                 await self?.handleStateChange(updated)
             },

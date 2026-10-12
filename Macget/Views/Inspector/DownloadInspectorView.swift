@@ -55,9 +55,44 @@ struct DownloadInspectorView: View {
             statGrid(transferStats(row))
         }
 
+        if row.links.count >= 2 {
+            section("Network links", subtitle: row.links.contains(where: \.isEstimate) ? "estimated" : "\(row.links.count)") {
+                VStack(alignment: .leading, spacing: 8) {
+                    LinkSpeedChartView(series: model.linkSeries, links: row.links)
+                    ForEach(row.links) { link in
+                        HStack(spacing: 6) {
+                            Circle().fill(LinkPalette.color(for: link.kind)).frame(width: 7, height: 7)
+                            Text(link.displayName).lineLimit(1)
+                            Spacer()
+                            if link.status == .active {
+                                Text(ByteFormatter.speedString(link.speedBytesPerSec)).monospacedDigit()
+                            } else {
+                                Text(LinkBreakdownText.statusText(link.status)).foregroundStyle(.secondary)
+                            }
+                        }
+                        .font(.caption)
+                        HStack {
+                            Text(ByteCountFormatter.string(fromByteCount: link.bytesThisSession, countStyle: .file))
+                            Text("·")
+                            Text(row.isTorrent && link.activeConnections == 0 ? "— connections" : "\(link.activeConnections) connections")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 13)
+                    }
+                }
+            }
+        }
+
         if let inspection = model.inspection {
             section("Connections", subtitle: connectionsSubtitle(inspection)) {
                 statGrid(connectionStats(inspection))
+            }
+        }
+
+        if row.isTorrent, let files = row.torrentFiles, !files.isEmpty {
+            section("Files", subtitle: "\(files.count)") {
+                filesList(files, in: row)
             }
         }
 
@@ -66,6 +101,54 @@ struct DownloadInspectorView: View {
                 detailRow("Host", row.url.host ?? row.url.absoluteString)
                 detailRow("Saved to", row.destinationURL.deletingLastPathComponent().path)
             }
+        }
+    }
+
+    /// What's actually inside a torrent.
+    ///
+    /// A torrent lands as a folder, so the row's filename names a directory and
+    /// says nothing about its contents. Season packs and discographies run to
+    /// hundreds of entries, so the list is capped — the inspector is a
+    /// fixed-width panel, not a file browser.
+    private static let fileDisplayLimit = 50
+
+    @ViewBuilder
+    private func filesList(_ files: [TorrentFileEntry], in row: DownloadRowItem) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(files.prefix(Self.fileDisplayLimit)) { file in
+                fileRow(file, in: row)
+            }
+            if files.count > Self.fileDisplayLimit {
+                Text("+\(files.count - Self.fileDisplayLimit) more")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func fileRow(_ file: TorrentFileEntry, in row: DownloadRowItem) -> some View {
+        let url = DownloadRowItem.resolve(file.path, under: row.destinationURL)
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        HStack(spacing: 8) {
+            Text(file.displayName)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                // A deselected file was never meant to be downloaded; dimming it
+                // explains its absence rather than looking like a failure.
+                .foregroundStyle(file.selected ? .primary : .secondary)
+            Spacer(minLength: 8)
+            Text(ByteFormatter.string(file.length))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Image(systemName: "arrow.up.forward.app")
+            }
+            .buttonStyle(.plain)
+            .disabled(!exists)
+            .help(exists ? "Open \(file.displayName)" : "Not downloaded")
         }
     }
 

@@ -70,6 +70,43 @@ struct TorrentSettingsView: View {
             }
             .disabled(!vm.settings.torrentsEnabled)
 
+            Section("Performance") {
+                HStack {
+                    Text("Maximum peers per torrent")
+                    Spacer()
+                    TextField("", value: maxPeersBinding, format: .number.grouping(.never))
+                        .frame(width: 70)
+                        .multilineTextAlignment(.trailing)
+                }
+                Text("More peers means more chances to find a fast one. 200 suits most connections; the maximum is 500.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Add public trackers to magnet links", isOn: $vm.settings.torrentAddPublicTrackers)
+                Text("Helps magnet links whose own trackers have gone offline. Skipped automatically for private torrents, which forbid outside trackers.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Require encrypted connections", isOn: $vm.settings.torrentRequireEncryption)
+                Text("Hides BitTorrent traffic from providers that slow it down. It also refuses peers that can't encrypt, so fewer peers are available — turn this on only if downloads are being throttled.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("Maximum peers and encryption take effect the next time the torrent engine starts.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let limit = vm.settings.globalSpeedLimitBytesPerSec {
+                    Label(
+                        "The global speed limit (\(limit / 1024) KB/s) applies to torrents too. Clear it in General to let torrents run at full speed.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(Theme.Palette.paused)
+                }
+            }
+            .disabled(!vm.settings.torrentsEnabled)
+
             Section("Network") {
                 HStack {
                     Text("Listening port")
@@ -79,6 +116,10 @@ struct TorrentSettingsView: View {
                         .multilineTextAlignment(.trailing)
                 }
                 Toggle("Enable DHT (find peers without a tracker)", isOn: $vm.settings.torrentDHTEnabled)
+                Toggle("Verify downloaded data on resume", isOn: $vm.settings.torrentVerifyOnResume)
+                Text("Every piece is checked as it arrives regardless. This re-checks data already on disk each time a torrent resumes, which guards against damage from outside MacGet but re-reads the whole file — slow on large torrents.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Text("Port changes take effect the next time the torrent engine starts.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -112,6 +153,18 @@ struct TorrentSettingsView: View {
         Binding(
             get: { vm.settings.torrentMaxUploadBytesPerSec.map { $0 / 1024 } },
             set: { vm.settings.torrentMaxUploadBytesPerSec = $0.map { $0 * 1024 } }
+        )
+    }
+
+    /// `AppSettings` only clamps this on decode/init, so typing 9000 here would
+    /// otherwise persist as 9000 while the engine (clamped in
+    /// `TorrentEngineOptions.init`) actually runs at 500 — the field would then
+    /// silently show the clamped value after the next launch. Clamping on write
+    /// keeps what's displayed and what's stored in agreement immediately.
+    private var maxPeersBinding: Binding<Int> {
+        Binding(
+            get: { vm.settings.torrentMaxPeers },
+            set: { vm.settings.torrentMaxPeers = max(1, min(500, $0)) }
         )
     }
 }

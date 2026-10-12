@@ -208,8 +208,8 @@ final class Aria2RPCClientTests: XCTestCase {
 
 final class Aria2DaemonTests: XCTestCase {
 
-    private func args(_ options: TorrentEngineOptions = .init()) -> [String] {
-        Aria2Daemon.arguments(port: 12345, secret: "abc", options: options)
+    private func args(_ options: TorrentEngineOptions = .init(), ipv6: String? = nil) -> [String] {
+        Aria2Daemon.arguments(port: 12345, secret: "abc", options: options, ipv6DHTAddress: ipv6)
     }
 
     /// MacGet owns the queue in queue.json and re-adds torrents itself on launch.
@@ -251,6 +251,41 @@ final class Aria2DaemonTests: XCTestCase {
         let off = args(TorrentEngineOptions(listenPort: 7000, dhtEnabled: false))
         XCTAssertFalse(off.contains { $0.hasPrefix("--dht-listen-port") })
         XCTAssertTrue(off.contains("--enable-dht=false"))
+    }
+
+    /// IPv6 DHT needs the setting *and* a bind address. With the switch but no
+    /// address aria2 still starts, so the flag would silently imply a working
+    /// feature — claim neither instead.
+    func test_ipv6DHTNeedsBothTheSettingAndAnAddress() {
+        let both = args(TorrentEngineOptions(dhtEnabled: true), ipv6: "2001:db8::1")
+        XCTAssertTrue(both.contains("--enable-dht6=true"))
+        XCTAssertTrue(both.contains("--dht-listen-addr6=2001:db8::1"))
+
+        let noAddress = args(TorrentEngineOptions(dhtEnabled: true), ipv6: nil)
+        XCTAssertFalse(noAddress.contains { $0.hasPrefix("--enable-dht6") })
+        XCTAssertFalse(noAddress.contains { $0.hasPrefix("--dht-listen-addr6") })
+
+        let dhtOff = args(TorrentEngineOptions(dhtEnabled: false), ipv6: "2001:db8::1")
+        XCTAssertFalse(dhtOff.contains { $0.hasPrefix("--enable-dht6") })
+        XCTAssertFalse(dhtOff.contains { $0.hasPrefix("--dht-listen-addr6") })
+    }
+
+    /// `--dht-listen-port6` does not exist in aria2. Passing it makes aria2
+    /// reject the argument, the daemon never starts, and every torrent fails.
+    /// This test exists purely to stop it being reintroduced.
+    func test_neverEmitsTheNonexistentIPv6DHTPortFlag() {
+        let a = args(TorrentEngineOptions(dhtEnabled: true), ipv6: "2001:db8::1")
+        XCTAssertFalse(a.contains { $0.hasPrefix("--dht-listen-port6") })
+    }
+
+    /// Whatever this machine reports must be a real global unicast address
+    /// (2000::/3) or nil — never a link-local, which aria2 rejects as a bind
+    /// address. Machines without IPv6 legitimately return nil.
+    func test_discoveredIPv6AddressIsGlobalUnicastOrNil() {
+        guard let address = Aria2Daemon.globalUnicastIPv6Address() else { return }
+        XCTAssertFalse(address.lowercased().hasPrefix("fe80"), "link-local is not bindable for DHT")
+        XCTAssertFalse(address.hasPrefix("::1"))
+        XCTAssertTrue(address.contains(":"))
     }
 
     /// A single listen port makes aria2 fail outright ("Errors occurred while
@@ -295,6 +330,37 @@ final class Aria2DaemonTests: XCTestCase {
         XCTAssertFalse(keys.contains { $0.contains("seed") })
     }
 
+    func test_diskCacheAndMmapAreTunedForModernDisks() {
+        let a = args()
+        XCTAssertTrue(a.contains("--disk-cache=128M"))
+        // Safe specifically because --file-allocation=falloc preallocates; aria2's
+        // documented mmap failure mode is unallocated space.
+        XCTAssertTrue(a.contains("--enable-mmap=true"))
+        XCTAssertTrue(a.contains("--file-allocation=falloc"))
+    }
+
+    /// macOS's default soft RLIMIT_NOFILE is 256 and Foundation.Process offers no
+    /// clean way to raise it for the child, so a bigger value would simply fail
+    /// at open() time on a many-file torrent — worse than the default it replaced.
+    func test_leavesMaxOpenFilesAtAria2Default() {
+        XCTAssertFalse(args().contains { $0.hasPrefix("--bt-max-open-files") })
+    }
+
+    /// A torrent that has finished downloading and is only seeding must stop
+    /// occupying a slot, or a completed torrent blocks a queued one.
+    func test_seedingTorrentsDoNotOccupyDownloadSlots() {
+        XCTAssertTrue(args().contains("--bt-detach-seed-only=true"))
+    }
+
+    /// aria2's own default is 5. With more than five active torrents it silently
+    /// queued the rest while MacGet's rows claimed they were running at 0 B/s.
+    func test_concurrencyLimitTracksTheAppSetting() {
+        let options = AppSettings(maxConcurrentDownloads: 9).torrentOptions
+        XCTAssertEqual(options.mutableGlobalOptions["max-concurrent-downloads"], "9")
+        XCTAssertTrue(Aria2Daemon.arguments(port: 1, secret: "s", options: options)
+            .contains("--max-concurrent-downloads=9"))
+    }
+
     func test_secretIsUnpredictableAndLongEnough() {
         let a = Aria2Daemon.makeSecret()
         let b = Aria2Daemon.makeSecret()
@@ -313,6 +379,43 @@ final class Aria2DaemonTests: XCTestCase {
     func test_freePortVariesAcrossCalls() throws {
         let ports = try (0..<5).map { _ in try Aria2Daemon.freePort() }
         XCTAssertGreaterThan(Set(ports).count, 1)
+    }
+
+    /// aria2 stops seeking new peers once a torrent exceeds this rate. The old
+    /// value was 10M — about 80 Mbps — so on a gigabit link peer discovery
+    /// stopped at 8% of capacity. That is aria2's own 50K dial-up-era default
+    /// reproduced one order of magnitude up. 100M is above any consumer link.
+    func test_peerDiscoveryCeilingIsAboveAnyConsumerLink() {
+        XCTAssertTrue(args().contains("--bt-request-peer-speed-limit=100M"))
+    }
+
+    /// `bt-max-peers` was hardwired at 100: `TorrentEngineOptions.init(settings:)`
+    /// never passed `maxPeers`, so the field was unreachable from settings.
+    func test_maxPeersComesFromSettingsRatherThanBeingHardwired() {
+        XCTAssertTrue(args(TorrentEngineOptions(maxPeers: 321)).contains("--bt-max-peers=321"))
+        XCTAssertEqual(AppSettings(torrentMaxPeers: 321).torrentOptions.maxPeers, 321)
+    }
+
+    /// `arc4` costs nothing: plaintext peers are still accepted, so no peer is
+    /// lost, while the handshake stops being trivially identifiable by DPI.
+    func test_prefersObfuscatedHandshakeByDefaultWithoutLosingPlaintextPeers() {
+        let a = args()
+        XCTAssertTrue(a.contains("--bt-min-crypto-level=arc4"))
+        XCTAssertFalse(a.contains { $0.hasPrefix("--bt-require-crypto") })
+        XCTAssertFalse(a.contains { $0.hasPrefix("--bt-force-encryption") })
+    }
+
+    /// Opt-in, because refusing plaintext peers shrinks the pool.
+    func test_requiringEncryptionRefusesPlaintextPeers() {
+        let a = args(TorrentEngineOptions(requireEncryption: true))
+        XCTAssertTrue(a.contains("--bt-require-crypto=true"))
+        XCTAssertTrue(a.contains("--bt-force-encryption=true"))
+        XCTAssertTrue(a.contains("--bt-min-crypto-level=arc4"))
+    }
+
+    func test_encryptionRequirementComesFromSettings() {
+        XCTAssertTrue(AppSettings(torrentRequireEncryption: true).torrentOptions.requireEncryption)
+        XCTAssertFalse(AppSettings().torrentOptions.requireEncryption)
     }
 }
 

@@ -18,6 +18,9 @@ struct DownloadSnapshot: Sendable, Equatable {
     var peers: Int? = nil
     /// True once a torrent has finished downloading and is only seeding.
     var isSeeding: Bool = false
+    /// Per-link breakdown when more than one network link is carrying this
+    /// download; empty otherwise. Live only, never persisted.
+    var links: [LinkStat] = []
 
     /// Share ratio, or nil when nothing has been downloaded yet.
     var ratio: Double? {
@@ -31,6 +34,10 @@ enum CoordinatorError: Error, LocalizedError {
     case insufficientDiskSpace(required: Int64, available: Int64)
     case finalizeFailed(String)
     case stalled
+    /// A single-stream (no-Range) download ended before `Content-Length` bytes
+    /// arrived. Can't be resumed — the server refuses Range — so the partial is
+    /// kept but the download is failed rather than finalized truncated.
+    case truncatedStream(expected: Int64, received: Int64)
 
     var errorDescription: String? {
         switch self {
@@ -42,6 +49,8 @@ enum CoordinatorError: Error, LocalizedError {
             return "Could not move file to destination: \(s)"
         case .stalled:
             return "Download stalled — no data received."
+        case .truncatedStream(let e, let r):
+            return "Connection closed after \(r) of \(e) bytes. This server does not support resuming, so the download must restart."
         }
     }
 }
@@ -101,6 +110,37 @@ actor DownloadCoordinator {
     /// `ChunkSplitter`'s largest-bytes heuristic picked healthy workers.
     private var splitCount = 0
 
+    // MARK: Bonding state
+
+    /// How a worker reaches the server.
+    private enum WorkerRoute: Equatable {
+        case urlSession
+        case pinned(String)
+    }
+
+    private let linkProvider: LinkProvider?
+    private let pinnedTransport: (any PinnedTransport)?
+    private var bonding: BondingSettings
+    private let appProxyConfigured: Bool
+    /// Injectable so tests don't depend on the machine's real proxy settings.
+    private let systemProxyCheck: @Sendable (URL) -> Bool
+    /// Decided after the probe: range support + no proxy + http(s). Re-decided
+    /// if bonding is switched on mid-run; never reverts to false within a run.
+    private var bondingEligible = false
+    private var currentLinks: [NetworkLink] = []
+    /// Route each in-flight piece is using, keyed like `inFlight`.
+    private var inFlightRoute: [UUID: WorkerRoute] = [:]
+    /// Links the server refused or that failed repeatedly — out for the rest of this run.
+    private var excludedLinks: Set<String> = []
+    private var linkStatuses: [String: LinkStat.Status] = [:]
+    private var linkStrikes = LinkStrikes()
+    private var linkBytes: [String: Int64] = [:]
+    private var linkMeters: [String: SpeedMeter] = [:]
+    private var knownLinkNames: [String: (String, NetworkLink.Kind)] = [:]
+    /// The interface URLSession is actually using; starts as the default route
+    /// and is corrected from task metrics.
+    private var urlSessionLinkID: String?
+
     /// Delay between consecutive worker spawns. Anti-abuse middleboxes pattern-
     /// match a burst of N TCP SYNs from one IP; staggering defeats that. With
     /// the default 8 workers this is 700 ms to fully spawn.
@@ -133,6 +173,11 @@ actor DownloadCoordinator {
         rateLimiter: RateLimiter? = nil,
         maxAttemptsPerChunk: Int = 5,
         autoSortByType: Bool = false,
+        linkProvider: LinkProvider? = nil,
+        pinnedTransport: (any PinnedTransport)? = nil,
+        bonding: BondingSettings = BondingSettings(),
+        appProxyConfigured: Bool = false,
+        systemProxyCheck: @escaping @Sendable (URL) -> Bool = { BondingEligibility.systemProxyActive(for: $0) },
         onStateChange: @escaping @Sendable (Download) async -> Void,
         onSnapshot: @escaping @Sendable (DownloadSnapshot) async -> Void,
         onAuthRequired: (@Sendable () async -> Void)? = nil
@@ -144,6 +189,11 @@ actor DownloadCoordinator {
         self.maxAttemptsPerChunk = max(1, min(10, maxAttemptsPerChunk))
         self.maxChunkAttempts = max(1, min(10, maxAttemptsPerChunk)) * 5
         self.autoSortByType = autoSortByType
+        self.linkProvider = linkProvider
+        self.pinnedTransport = pinnedTransport
+        self.bonding = bonding
+        self.appProxyConfigured = appProxyConfigured
+        self.systemProxyCheck = systemProxyCheck
         self.onStateChange = onStateChange
         self.onSnapshot = onSnapshot
         self.onAuthRequired = onAuthRequired
@@ -248,6 +298,7 @@ actor DownloadCoordinator {
         }
         workerTask = nil
         inFlight.removeAll()
+        inFlightRoute.removeAll()
         await writer?.close()
         writer = nil
     }
@@ -281,7 +332,7 @@ actor DownloadCoordinator {
         guard let total = download.totalBytes else {
             // Server never reported a size (no Content-Length / chunked transfer /
             // HEAD-blocked). Don't refuse — pull the whole body in one connection.
-            try await runUnknownSizeStream()
+            try await runSingleStream(knownTotal: nil)
             return
         }
 
@@ -290,6 +341,17 @@ actor DownloadCoordinator {
             if total > Int64(Double(available) * 0.95) {
                 throw CoordinatorError.insufficientDiskSpace(required: total, available: available)
             }
+        }
+
+        // 2b. Size known, but the server refuses Range. Chunking is impossible:
+        //     *every* worker — including a lone whole-file one — gets a 200 with
+        //     the entire body, which `StreamingDelegate` rightly reports as
+        //     `rangeRefused`, a non-retryable error. Planning one chunk isn't
+        //     enough; the request must also go out without a `Range` header.
+        //     Stream it in a single connection, the way a browser does.
+        if !download.supportsRange {
+            try await runSingleStream(knownTotal: total)
+            return
         }
 
         // 3. Load any cap previously learned for this host.
@@ -317,6 +379,9 @@ actor DownloadCoordinator {
         )
         writer = try FileWriter(url: download.partialFileURL, totalBytes: total)
 
+        // 5b. Decide whether this run may use extra network links.
+        await decideBondingEligibility()
+
         // 6. Mark downloading and start the publish loop.
         download.status = .downloading
         download.error = nil
@@ -334,6 +399,10 @@ actor DownloadCoordinator {
                 throw err
             }
             await fillWorkersUpToTarget()
+            // Workers keep finishing (and stealing or splitting work) during
+            // the spawn stagger's sleeps, so the whole file can complete before
+            // `fillWorkersUpToTarget` returns. That is success, not a stall.
+            if inFlight.isEmpty, download.chunks.allSatisfy(\.isComplete) { break }
             if inFlight.isEmpty {
                 // Defensive: we have incomplete chunks but couldn't spawn any.
                 // Shouldn't reach here — fillWorkersUpToTarget would have spawned
@@ -344,23 +413,28 @@ actor DownloadCoordinator {
         }
     }
 
-    /// Download a resource whose size the server never reported. Streams a single
-    /// connection with no `Range` header straight to EOF, appending sequentially.
-    /// Not resumable — these servers don't support Range, so a re-run restarts
-    /// from byte 0. `start()` calls `complete()` after this returns to finalize.
-    private func runUnknownSizeStream() async throws {
+    /// Download in one connection with no `Range` header, appending straight to
+    /// EOF. Used for the two cases where ranged chunking is impossible: the
+    /// server never reported a size (`knownTotal == nil`), or it reported one but
+    /// ignores `Range` and answers 200 with the whole body.
+    ///
+    /// Not resumable either way — a re-run restarts from byte 0 — so the partial
+    /// is discarded up front. `start()` calls `complete()` after this returns.
+    private func runSingleStream(knownTotal: Int64?) async throws {
         // Start clean: a leftover partial can't be range-resumed here.
         try? FileManager.default.removeItem(at: download.partialFileURL)
 
         // One synthetic chunk carries `bytesWritten` so progress/snapshots work.
-        let chunk = Chunk(startByte: 0, endByte: -1)
+        // With a known size it spans the whole file so the UI shows a real
+        // percentage and ETA; without one, `endByte = -1` leaves it at 0.
+        let chunk = Chunk(startByte: 0, endByte: knownTotal.map { $0 - 1 } ?? -1)
         download.chunks = [chunk]
         download.supportsRange = false
 
         try FileManager.default.createDirectory(
             at: download.destinationFolder, withIntermediateDirectories: true
         )
-        let writer = try FileWriter(url: download.partialFileURL, totalBytes: 0)
+        let writer = try FileWriter(url: download.partialFileURL, totalBytes: knownTotal ?? 0)
         self.writer = writer
 
         download.status = .downloading
@@ -385,9 +459,21 @@ actor DownloadCoordinator {
         )
         try await worker.run()
 
-        // Clean EOF — what we wrote is the whole file. Record the now-known size
-        // so finalize/snapshot show it and `fractionComplete` reads 100%.
-        download.totalBytes = download.bytesDownloaded
+        guard let knownTotal else {
+            // Clean EOF — what we wrote is the whole file. Record the now-known
+            // size so finalize/snapshot show it and `fractionComplete` reads 100%.
+            download.totalBytes = download.bytesDownloaded
+            return
+        }
+
+        // Size was known up front, so a short read is detectable: the connection
+        // dropped mid-body. Fail instead of finalizing a truncated file — with no
+        // Range support there's nothing to resume, only a full restart.
+        guard download.bytesDownloaded >= knownTotal else {
+            throw CoordinatorError.truncatedStream(
+                expected: knownTotal, received: download.bytesDownloaded
+            )
+        }
     }
 
     /// User's `threadCount`, clamped by anything tighter we've learned (this
@@ -442,14 +528,19 @@ actor DownloadCoordinator {
                 // slot synchronously — spawning here on the strength of a
                 // pre-sleep reading would put us one over the cap.
                 if inFlight.count >= target { return }
-                if chunk.isComplete || inFlight[chunk.id] != nil { continue }
+                // `chunk` is from the array as it was before the sleep. An
+                // endgame split during it may have replaced this piece with two
+                // fresh-ID halves; spawning on the stale ID would fail the whole
+                // download with `chunkNotFound`. Re-read the live piece.
+                guard let live = download.chunks.first(where: { $0.id == chunk.id }),
+                      !live.isComplete, inFlight[live.id] == nil else { continue }
             }
             spawnWorker(chunkID: chunk.id)
             spawnedThisCall += 1
         }
     }
 
-    private func processChunkWithRetries(chunkID: UUID) async throws {
+    private func processChunkWithRetries(chunkID: UUID, route: WorkerRoute) async throws {
         let maxAttempts = maxAttemptsPerChunk
         var attempt = 0
         while true {
@@ -459,7 +550,7 @@ actor DownloadCoordinator {
             var retryAfter: TimeInterval?
             let bytesBefore = chunkBytesWritten(chunkID)
             do {
-                try await runChunkOnce(chunkID: chunkID)
+                try await runChunkOnce(chunkID: chunkID, route: route)
                 return
             } catch is CancellationError {
                 throw CancellationError()
@@ -467,6 +558,10 @@ actor DownloadCoordinator {
                 // Some errors are non-retryable: server lied about Range support,
                 // returned a wrong byte range, etc.
                 switch err {
+                case .linkRejected, .linkTransport:
+                    // Pinned-link problems are the coordinator's to handle at the
+                    // link level; don't count attempts against the piece.
+                    throw err
                 case .rangeRefused, .wrongContentRange, .chunkNotFound, .writerUnavailable, .authRequired:
                     recordChunkError(chunkID: chunkID, error: err)
                     throw err
@@ -490,12 +585,17 @@ actor DownloadCoordinator {
 
             // No real progress this attempt? Likely server-side anti-leech —
             // feed the demotion detector.
+            // Pinned workers never feed it: a flaky phone link says nothing about
+            // the host.
             let bytesAfter = chunkBytesWritten(chunkID)
-            if bytesAfter - bytesBefore < DemotionPolicy.progressCutoff {
+            if route == .urlSession, bytesAfter - bytesBefore < DemotionPolicy.progressCutoff {
                 await noteRapidFailure()
             }
 
             if attempt >= maxAttempts {
+                if case .pinned(let id) = route {
+                    throw ChunkError.linkRejected(linkID: id, serverRefused: false)
+                }
                 throw ChunkError.unexpectedStatus(0)
             }
             let delay = Self.retryDelaySeconds(
@@ -542,7 +642,20 @@ actor DownloadCoordinator {
         rapidFailures.removeAll { now.timeIntervalSince($0) > DemotionPolicy.windowSeconds }
         rapidFailures.append(now)
 
-        let throughput = await speedMeter.currentSpeed()
+        // With extra links in play, aggregate speed would hide a dead default
+        // link behind a healthy phone and teach the host a cap it didn't earn.
+        // Only the default link's own meter counts — and a link that has never
+        // delivered a byte has no meter yet, which reads as zero, not aggregate.
+        let throughput: Double
+        if bondingEligible, !currentQuotas().isEmpty || hasPinnedInFlight {
+            if let id = urlSessionLinkID, let meter = linkMeters[id] {
+                throughput = await meter.currentSpeed()
+            } else {
+                throughput = 0
+            }
+        } else {
+            throughput = await speedMeter.currentSpeed()
+        }
         guard DemotionPolicy.shouldDemote(
             failureCount: rapidFailures.count,
             throughputBytesPerSecond: throughput
@@ -577,13 +690,13 @@ actor DownloadCoordinator {
         }
     }
 
-    private func runChunkOnce(chunkID: UUID) async throws {
+    private func runChunkOnce(chunkID: UUID, route: WorkerRoute) async throws {
         guard let writer = self.writer else { throw ChunkError.writerUnavailable }
         guard let chunk = download.chunks.first(where: { $0.id == chunkID }) else {
             throw ChunkError.chunkNotFound
         }
 
-        let worker = ChunkWorker(
+        var worker = ChunkWorker(
             chunk: chunk,
             url: download.url,
             etag: download.etag,
@@ -597,6 +710,16 @@ actor DownloadCoordinator {
                 await self?.reportBytes(chunkID: id, bytes: bytes)
             }
         )
+        switch route {
+        case .pinned(let linkID):
+            if let pinnedTransport { worker.pinned = PinnedRoute(linkID: linkID, transport: pinnedTransport) }
+        case .urlSession:
+            if bondingEligible {
+                worker.onLocalAddress = { [weak self] address in
+                    Task { await self?.noteURLSessionLocalAddress(address) }
+                }
+            }
+        }
         try await worker.run()
     }
 
@@ -610,7 +733,28 @@ actor DownloadCoordinator {
     private func reportBytes(chunkID: UUID, bytes: Int) async {
         guard let i = download.chunks.firstIndex(where: { $0.id == chunkID }) else { return }
         download.chunks[i].bytesWritten += Int64(bytes)
+        // Read the route before suspending: the worker may finish (and drop its
+        // route) while the speed meter is awaited.
+        let route = inFlightRoute[chunkID]
         await speedMeter.record(totalBytes: download.bytesDownloaded)
+        if bondingEligible, let route, let linkID = routeLinkID(route) {
+            linkBytes[linkID, default: 0] += Int64(bytes)
+            let meter: SpeedMeter
+            if let existing = linkMeters[linkID] {
+                meter = existing
+            } else {
+                meter = SpeedMeter()
+                linkMeters[linkID] = meter
+            }
+            await meter.record(totalBytes: linkBytes[linkID] ?? 0)
+        }
+    }
+
+    private func noteURLSessionLocalAddress(_ address: String) {
+        let clean = LinkAddresses.normalize(address) ?? address
+        if let link = currentLinks.first(where: { $0.addresses.contains(clean) }) {
+            urlSessionLinkID = link.id
+        }
     }
 
     private func startPublishLoop() {
@@ -623,6 +767,7 @@ actor DownloadCoordinator {
                 await self?.publishSnapshot()
                 await self?.checkDiskSpaceIfDue()
                 await self?.checkStall()
+                await self?.refreshLinks()
             }
         }
     }
@@ -664,6 +809,7 @@ actor DownloadCoordinator {
         if let oldTask = inFlight.removeValue(forKey: decision.originalID) {
             oldTask.cancel()
         }
+        inFlightRoute.removeValue(forKey: decision.originalID)
         download.chunks[decision.originalIndex] = decision.shrunken
         download.chunks.append(decision.newChunk)
         splitCount += 1
@@ -736,13 +882,32 @@ actor DownloadCoordinator {
         } else {
             eta = nil
         }
+        var links: [LinkStat] = []
+        // Only while extra links are (or just were) in play: with bonding switched
+        // off, or too few threads to split, a breakdown would show the phone
+        // idling at 0 B/s for no reason. A link's failure status still shows
+        // while bonding is on — it explains why only one link is carrying bytes.
+        if bondingEligible,
+           !currentQuotas().isEmpty || hasPinnedInFlight || (bonding.enabled && !linkStatuses.isEmpty) {
+            var speeds: [String: Double] = [:]
+            for (id, meter) in linkMeters { speeds[id] = await meter.currentSpeed() }
+            var connections: [String: Int] = [:]
+            for route in inFlightRoute.values {
+                if let id = routeLinkID(route) { connections[id, default: 0] += 1 }
+            }
+            let shown = currentLinks.filter { bonding.isLinkEnabled($0.id) }
+            links = LinkStatBuilder.build(links: shown, speeds: speeds, bytes: linkBytes,
+                                          connections: connections, statuses: linkStatuses,
+                                          knownNames: knownLinkNames)
+        }
         let snap = DownloadSnapshot(
             id: download.id,
             status: download.status,
             bytesDownloaded: download.bytesDownloaded,
             totalBytes: download.totalBytes,
             speedBytesPerSec: speed,
-            etaSeconds: eta
+            etaSeconds: eta,
+            links: links
         )
         await onSnapshot(snap)
     }
@@ -878,6 +1043,7 @@ actor DownloadCoordinator {
         publishTask?.cancel(); publishTask = nil
         for t in inFlight.values { t.cancel() }
         inFlight.removeAll()
+        inFlightRoute.removeAll()
         await writer?.close(); writer = nil
         pendingFatalError = nil
 
@@ -956,7 +1122,7 @@ actor DownloadCoordinator {
                 return true
             case .unexpectedStatus(let code):
                 return isTerminalHTTPStatus(code)
-            case .noHttpResponse, .serverBusy:
+            case .noHttpResponse, .serverBusy, .linkRejected, .linkTransport:
                 return false
             }
         }
@@ -974,11 +1140,64 @@ actor DownloadCoordinator {
 
     // MARK: - Dynamic worker management
 
+    private func currentQuotas() -> [LinkQuota] {
+        guard bondingEligible else { return [] }
+        let active = BondingPolicy.activeLinks(currentLinks, settings: bonding, excluded: excludedLinks)
+        return BondingPolicy.quotas(links: active, threadCount: effectiveThreadCount())
+    }
+
+    /// Whether this run may use extra links, and if so the links to start from.
+    private func decideBondingEligibility() async {
+        bondingEligible = bonding.enabled
+            && linkProvider != nil
+            && pinnedTransport != nil
+            && BondingEligibility.isEligible(
+                url: download.url,
+                supportsRange: download.supportsRange,
+                appProxyConfigured: appProxyConfigured,
+                systemProxyActive: systemProxyCheck(download.url)
+            )
+        if bondingEligible, let linkProvider {
+            currentLinks = await linkProvider.usableLinks()
+            urlSessionLinkID = currentLinks.first(where: \.isDefaultRoute)?.id
+            for link in currentLinks { knownLinkNames[link.id] = (link.displayName, link.kind) }
+        }
+    }
+
+    private var hasPinnedInFlight: Bool {
+        inFlightRoute.values.contains { if case .pinned = $0 { return true } else { return false } }
+    }
+
+    /// Picks the link with the most free slots. URLSession counts against the
+    /// default-route link's quota.
+    private func pickRoute() -> WorkerRoute {
+        let quotas = currentQuotas()
+        guard !quotas.isEmpty else { return .urlSession }
+        var occupied: [String: Int] = [:]
+        let defaultID = quotas.first(where: \.isDefault)?.linkID
+        for route in inFlightRoute.values {
+            switch route {
+            case .urlSession: if let defaultID { occupied[defaultID, default: 0] += 1 }
+            case .pinned(let id): occupied[id, default: 0] += 1
+            }
+        }
+        guard let quota = BondingPolicy.nextLink(quotas: quotas, occupied: occupied) else { return .urlSession }
+        return quota.isDefault ? .urlSession : .pinned(quota.linkID)
+    }
+
+    private func routeLinkID(_ route: WorkerRoute) -> String? {
+        switch route {
+        case .urlSession: return urlSessionLinkID
+        case .pinned(let id): return id
+        }
+    }
+
     private func spawnWorker(chunkID: UUID) {
+        let route = pickRoute()
         let task = Task { [weak self] in
             guard let self else { return }
             do {
-                try await self.processChunkWithRetries(chunkID: chunkID)
+                try await self.processChunkWithRetries(chunkID: chunkID, route: route)
                 await self.chunkFinished(chunkID: chunkID, error: nil)
             } catch {
                 await self.chunkFinished(chunkID: chunkID, error: error)
@@ -986,10 +1205,28 @@ actor DownloadCoordinator {
             }
         }
         inFlight[chunkID] = task
+        inFlightRoute[chunkID] = route
     }
 
     private func chunkFinished(chunkID: UUID, error: Error?) {
         inFlight.removeValue(forKey: chunkID)
+        inFlightRoute.removeValue(forKey: chunkID)
+        if let ce = error as? ChunkError {
+            switch ce {
+            case .linkRejected(let linkID, let refused):
+                excludeLink(linkID, status: refused ? .rejectedByServer : .down)
+                if pendingFatalError == nil { fillIdleSlots() }
+                checkJoinCondition()
+                return
+            case .linkTransport(let linkID, _):
+                if linkStrikes.record(linkID) { excludeLink(linkID, status: .down) }
+                if pendingFatalError == nil { fillIdleSlots() }
+                checkJoinCondition()
+                return
+            default:
+                break
+            }
+        }
         if let error, !(error is CancellationError) {
             let attempts = download.chunks.first(where: { $0.id == chunkID })?.attempts ?? 0
             // Permanent → fail the whole download. Hard attempt cap → also fail
@@ -1011,6 +1248,51 @@ actor DownloadCoordinator {
             fillIdleSlots()
         }
         checkJoinCondition()
+    }
+
+    private func excludeLink(_ linkID: String, status: LinkStat.Status) {
+        guard !excludedLinks.contains(linkID) else { return }
+        excludedLinks.insert(linkID)
+        linkStatuses[linkID] = status
+        Log.engine.warning("Dropping link \(linkID, privacy: .public) for \(self.download.filename, privacy: .public): \(status.rawValue, privacy: .public)")
+        // Workers already on that link would only fail too.
+        for (id, route) in inFlightRoute where route == .pinned(linkID) {
+            inFlight[id]?.cancel()
+        }
+    }
+
+    /// Picks up links appearing or disappearing mid-download. A vanished link's
+    /// workers are cancelled now rather than left for the 30 s stall watchdog;
+    /// their pieces keep their recorded progress and are re-spawned elsewhere.
+    private func refreshLinks() async {
+        guard bondingEligible, download.status == .downloading, let linkProvider else { return }
+        let links = await linkProvider.usableLinks()
+        guard links != currentLinks else { return }
+        let usable = Set(links.map(\.id))
+        let previous = Set(currentLinks.map(\.id))
+        for link in links {
+            knownLinkNames[link.id] = (link.displayName, link.kind)
+            // A link that comes back gets another chance. Spawning onto it in the
+            // moment before a refresh noticed it was gone excludes it as `.down`,
+            // which would otherwise keep a replugged phone out for the whole run.
+            // A server rejection is about the link's IP, so that one stays.
+            if !previous.contains(link.id), excludedLinks.contains(link.id), linkStatuses[link.id] == .down {
+                excludedLinks.remove(link.id)
+            }
+            if linkStatuses[link.id] == .down, !excludedLinks.contains(link.id) { linkStatuses[link.id] = nil }
+        }
+        for (id, route) in inFlightRoute {
+            if case .pinned(let linkID) = route, !usable.contains(linkID) {
+                linkStatuses[linkID] = .down
+                inFlight[id]?.cancel()
+            }
+        }
+        currentLinks = links
+        // Keep the metrics-corrected interface unless it's gone.
+        if urlSessionLinkID == nil || !usable.contains(urlSessionLinkID!) {
+            urlSessionLinkID = links.first(where: \.isDefaultRoute)?.id
+        }
+        fillIdleSlots()
     }
 
     /// Resumes the orchestration loop's `waitForAllChunks` whenever inFlight
@@ -1042,6 +1324,28 @@ actor DownloadCoordinator {
     }
 
     // MARK: - Dynamic threading (live adjust)
+
+    /// Settings changed mid-download. Workers on a link the user just switched
+    /// off (or on any extra link, when bonding itself was switched off) stop now;
+    /// their pieces keep their progress and respawn under the new quotas, which
+    /// fall back to URLSession-only once fewer than two links remain active.
+    func updateBonding(_ settings: BondingSettings) async {
+        bonding = settings
+        // Switched on mid-run: eligibility was decided (false) at step 5b, so
+        // decide again. No restart — new spawns fill the extra links' quota as
+        // the current pieces finish.
+        if !bondingEligible, settings.enabled, download.status == .downloading,
+           writer != nil, download.supportsRange {
+            await decideBondingEligibility()
+        }
+        for (id, route) in inFlightRoute {
+            if case .pinned(let linkID) = route, !settings.enabled || !settings.isLinkEnabled(linkID) {
+                inFlight[id]?.cancel()
+            }
+        }
+        await refreshLinks()
+        fillIdleSlots()
+    }
 
     /// Re-target the number of parallel chunks. When increasing, repeatedly halves
     /// the largest in-flight chunk (IDM's "in-half division rule"). When decreasing,

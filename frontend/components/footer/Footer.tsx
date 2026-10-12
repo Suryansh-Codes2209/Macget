@@ -3,8 +3,33 @@ import Link from "next/link";
 import { Github, Linkedin } from "lucide-react";
 import { siteConfig } from "@/lib/site-config";
 
+/**
+ * Lucide dropped brand marks, so there is no X glyph to import — and the
+ * `Twitter` icon it still ships is the old bird. Inlined at 24×24 to match the
+ * lucide viewBox the sibling icons use.
+ */
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.657l-5.214-6.817-5.966 6.817H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117l11.966 15.644Z" />
+    </svg>
+  );
+}
+
 export function Footer() {
   const year = new Date().getFullYear();
+  const { maintainer } = siteConfig;
+
+  const maintainerLinks = [
+    { label: "X", href: maintainer.xUrl, Icon: XIcon },
+    { label: "LinkedIn", href: maintainer.linkedinUrl, Icon: Linkedin },
+    { label: "GitHub", href: maintainer.githubUrl, Icon: Github },
+  ];
 
   return (
     <footer className="relative border-t border-line bg-abyss">
@@ -84,6 +109,27 @@ export function Footer() {
         </div>
 
         <div className="flex flex-col gap-3 border-t border-line/60 pt-6">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-mute">
+            <span>
+              Built and maintained by{" "}
+              <span className="text-cream-dim">{maintainer.name}</span>
+            </span>
+            <span className="flex items-center gap-2">
+              {maintainerLinks.map(({ label, href, Icon }) => (
+                <a
+                  key={label}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  aria-label={`${maintainer.name} on ${label}`}
+                  title={label}
+                  className="inline-flex size-7 items-center justify-center rounded-full border border-line bg-white/[0.04] text-cream-dim transition-colors hover:border-white/20 hover:text-cream"
+                >
+                  <Icon className="size-3.5" />
+                </a>
+              ))}
+            </span>
+          </div>
           <p className="text-xs leading-relaxed text-mute">
             {siteConfig.disclaimer}
           </p>

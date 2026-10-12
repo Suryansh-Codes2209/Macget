@@ -1,6 +1,7 @@
 import { Nav } from "@/components/nav/Nav";
 import { Hero } from "@/components/hero/Hero";
 import { Features } from "@/components/features/Features";
+import { Bonding } from "@/components/bonding/Bonding";
 import { BrowserCapture } from "@/components/extension/BrowserCapture";
 import { Showcase } from "@/components/showcase/Showcase";
 import { FirstLaunchStrip } from "@/components/install/FirstLaunchStrip";
@@ -20,6 +21,7 @@ export default function HomePage() {
         <Hero />
         <Showcase />
         <Features />
+        <Bonding />
         <BrowserCapture />
         <FirstLaunchStrip />
         <HowItWorks />

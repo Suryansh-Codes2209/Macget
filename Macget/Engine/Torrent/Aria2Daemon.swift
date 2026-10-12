@@ -17,6 +17,7 @@ actor Aria2Daemon {
     private var process: Process?
     private var client: Aria2RPCClient?
     private var startTask: Task<Aria2RPCClient, Error>?
+    private var shutdownTask: Task<Void, Never>?
     private let log = Logger(subsystem: "com.macget", category: "Aria2Daemon")
 
     /// Options applied at launch and refreshed via `changeGlobalOption`.
@@ -45,10 +46,35 @@ actor Aria2Daemon {
     /// callers share one startup.
     func client(options: TorrentEngineOptions) async throws -> Aria2RPCClient {
         currentOptions = options
+        // A shutdown in flight would otherwise hand out the dying client.
+        while let shutdownTask { await shutdownTask.value }
         if let client, isRunning { return client }
         if let startTask { return try await startTask.value }
 
-        let task = Task { try await start(options: options) }
+        let task = Task { () throws -> Aria2RPCClient in
+            do {
+                let started = try await start(options: options)
+                isBondingFallbackActive = false
+                return started
+            } catch {
+                // A stale address (link dropped mid-restart) must not take
+                // torrents down with it — retry on the default route. But not
+                // when the failure *is* a shutdown cancelling this start:
+                // relaunching then would orphan an aria2 nobody will stop.
+                guard !options.bondingAddresses.isEmpty,
+                      !(error is CancellationError), !Task.isCancelled,
+                      shutdownTask == nil
+                else { throw error }
+                log.error("aria2c failed with --multiple-interface; retrying without it")
+                process?.terminate()
+                process = nil
+                var plain = options
+                plain.bondingAddresses = []
+                let started = try await start(options: plain)
+                isBondingFallbackActive = true
+                return started
+            }
+        }
         startTask = task
         defer { startTask = nil }
         let started = try await task.value
@@ -60,6 +86,16 @@ actor Aria2Daemon {
         process?.isRunning ?? false
     }
 
+    /// True when the last launch with `--multiple-interface` failed and the
+    /// daemon fell back to the default route. Shown in Settings.
+    private(set) var isBondingFallbackActive = false
+
+    /// aria2's pid while it runs — `TorrentLinkAttributor` samples it with `nettop`.
+    var processIdentifier: Int32? {
+        guard let process, process.isRunning else { return nil }
+        return process.processIdentifier
+    }
+
     private func start(options: TorrentEngineOptions) async throws -> Aria2RPCClient {
         guard let executable = TorrentToolLocator.locate() else { throw DaemonError.toolMissing }
 
@@ -68,7 +104,12 @@ actor Aria2Daemon {
 
         let process = Process()
         process.executableURL = executable
-        process.arguments = Self.arguments(port: port, secret: secret, options: options)
+        process.arguments = Self.arguments(
+            port: port,
+            secret: secret,
+            options: options,
+            ipv6DHTAddress: Self.globalUnicastIPv6Address()
+        )
         process.standardOutput = FileHandle.nullDevice
         // aria2 is chatty on stderr; discard rather than filling the pipe buffer
         // (a full pipe with no reader would block the process).
@@ -109,6 +150,15 @@ actor Aria2Daemon {
     /// Ask aria2 to exit and wait for it. Called from the app-termination path —
     /// killing it instead would lose the session file and in-flight piece state.
     func shutdown() async {
+        if let shutdownTask { return await shutdownTask.value }
+        let task = Task { await performShutdown() }
+        shutdownTask = task
+        await task.value
+        shutdownTask = nil
+    }
+
+    private func performShutdown() async {
+        isBondingFallbackActive = false
         startTask?.cancel()
         if let client, isRunning {
             try? await client.shutdown()
@@ -131,6 +181,44 @@ actor Aria2Daemon {
 
     // MARK: - Launch configuration
 
+    /// This host's first global unicast IPv6 address, or nil if it has none.
+    ///
+    /// `--enable-dht6` is inert without `--dht-listen-addr6`, which aria2
+    /// documents as requiring "a global unicast IPv6 address of the host" — not
+    /// a range, and not something MacGet can hardcode.
+    ///
+    /// Temporary/privacy addresses are deliberately *not* filtered out:
+    /// distinguishing them needs a `SIOCGIFAFLAG_IN6` ioctl, and a temporary
+    /// address binds DHT just as well as a stable one.
+    static func globalUnicastIPv6Address() -> String? {
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return nil }
+        defer { freeifaddrs(head) }
+
+        for pointer in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let interface = pointer.pointee
+            guard let raw = interface.ifa_addr,
+                  raw.pointee.sa_family == UInt8(AF_INET6) else { continue }
+
+            let flags = Int32(interface.ifa_flags)
+            guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0 else { continue }
+
+            var address = UnsafeRawPointer(raw)
+                .assumingMemoryBound(to: sockaddr_in6.self).pointee
+
+            // Global unicast is 2000::/3. This single mask also excludes
+            // link-local (fe80::/10), unique-local (fc00::/7) and multicast
+            // (ff00::/8) — none of which aria2 can bind DHT to.
+            guard address.sin6_addr.__u6_addr.__u6_addr8.0 & 0xe0 == 0x20 else { continue }
+
+            var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+            guard inet_ntop(AF_INET6, &address.sin6_addr, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil
+            else { continue }
+            return String(cString: buffer)
+        }
+        return nil
+    }
+
     /// Launch arguments.
     ///
     /// Note what's deliberately **absent**: `--save-session` / `--input-file`.
@@ -146,7 +234,9 @@ actor Aria2Daemon {
     static func arguments(
         port: Int,
         secret: String,
-        options: TorrentEngineOptions
+        options: TorrentEngineOptions,
+        ipv6DHTAddress: String? = nil,
+        parentPID: Int32 = ProcessInfo.processInfo.processIdentifier
     ) -> [String] {
         var args = [
             "--enable-rpc=true",
@@ -156,8 +246,40 @@ actor Aria2Daemon {
             "--rpc-listen-all=false",
             "--rpc-allow-origin-all=false",
             "--daemon=false",
+            // Backstop for every path that skips a clean shutdown (a crash, a
+            // force quit, a restart racing termination): aria2 exits by itself
+            // once MacGet's pid is gone instead of seeding on as an orphan.
+            "--stop-with-process=\(parentPID)",
             "--continue=true",
-            "--check-integrity=true",
+            // aria2's defaults are tuned for a much slower era.
+            //
+            // `--bt-request-peer-speed-limit` is the consequential one: aria2
+            // stops looking for more peers once a torrent exceeds it. The
+            // default is 50K, which caps discovery at dial-up speed — but 10M
+            // is only ~80 Mbps, so it reproduced the same defect on any
+            // gigabit link. 100M is above any consumer connection, so aria2
+            // keeps hunting until the pipe is genuinely full. It is a
+            // discovery ceiling, not a bandwidth cap: a slow link never
+            // reaches it either way, so raising it costs nothing there.
+            "--bt-max-peers=\(options.maxPeers)",
+            "--bt-request-peer-speed-limit=100M",
+            // Prefer an obfuscated handshake always. Plaintext peers are still
+            // accepted at this level, so it costs no peers — it just stops the
+            // BitTorrent handshake being a free signature for DPI.
+            "--bt-min-crypto-level=arc4",
+            "--disk-cache=128M",
+            // Safe here because --file-allocation=falloc below preallocates the
+            // file; aria2's documented mmap failure mode is unallocated space.
+            "--enable-mmap=true",
+            // A finished-but-seeding torrent stops counting against
+            // --max-concurrent-downloads, so it can't block a queued one.
+            "--bt-detach-seed-only=true",
+            // APFS supports fallocate, so the file is reserved without writing
+            // zeroes across it first.
+            "--file-allocation=falloc",
+            // A tracker that hasn't answered in 30s isn't going to.
+            "--bt-tracker-connect-timeout=30",
+            "--bt-tracker-timeout=30",
             // Keeps metadata beside the data so a resumed magnet doesn't have to
             // re-fetch it over BEP-9.
             "--bt-save-metadata=true",
@@ -175,7 +297,32 @@ actor Aria2Daemon {
             "--enable-peer-exchange=true",
         ]
         if options.dhtEnabled {
+            // One port covers IPv4 DHT, IPv6 DHT and UDP trackers. There is no
+            // `--dht-listen-port6`; aria2 rejects it and never starts.
             args.append("--dht-listen-port=\(Self.portRange(from: options.listenPort))")
+            if let ipv6DHTAddress {
+                args.append("--enable-dht6=true")
+                args.append("--dht-listen-addr6=\(ipv6DHTAddress)")
+            }
+        }
+        // Opt-in, not always-on. aria2 hashes every piece as it arrives, so
+        // transfer corruption is caught regardless; this re-verifies data
+        // already on disk, which only guards against damage done *outside*
+        // aria2 — and costs a full re-read of the partial file at every resume.
+        // On a 25 GB torrent that is gigabytes of disk I/O on every launch.
+        if options.verifyOnResume {
+            args.append("--check-integrity=true")
+        }
+        // Opt-in: this drops every peer that won't encrypt, so it trades peers
+        // for invisibility. Worth it only where an ISP is actively shaping.
+        if options.requireEncryption {
+            args.append("--bt-require-crypto=true")
+            args.append("--bt-force-encryption=true")
+        }
+        if !options.bondingAddresses.isEmpty {
+            // Binds outgoing sockets round-robin across these addresses; macOS's
+            // scoped routing then sends each out of the interface that owns it.
+            args.append("--multiple-interface=\(options.bondingAddresses.joined(separator: ","))")
         }
         for (key, value) in options.mutableGlobalOptions.sorted(by: { $0.key < $1.key }) {
             args.append("--\(key)=\(value)")
@@ -240,6 +387,29 @@ struct TorrentEngineOptions: Sendable, Equatable {
     var dhtEnabled: Bool = true
     var maxUploadBytesPerSec: Int?
     var maxDownloadBytesPerSec: Int?
+    /// Maximum peer connections per torrent, from `AppSettings.torrentMaxPeers`.
+    /// aria2's own default is 55, which leaves a healthy swarm underused.
+    var maxPeers: Int = 200
+    /// Refuse peers that won't encrypt. Defeats ISP BitTorrent shaping, at the
+    /// cost of dropping every peer that only speaks plaintext.
+    var requireEncryption: Bool = false
+    /// aria2's own default is 5 — the value that applies if MacGet never sets
+    /// this option — not MacGet's own setting default, which is
+    /// `AppSettings.maxConcurrentDownloads` at 3. `init(settings:)` always
+    /// overrides this with the user's setting, so 5 only shows up when a bare
+    /// `TorrentEngineOptions()` is constructed (e.g. in tests). MacGet's engine
+    /// allows up to 16 concurrent downloads, so leaving aria2 at 5 silently
+    /// queued the rest.
+    var maxConcurrentDownloads: Int = 5
+    /// Inject `TorrentTrackers.bundled` into non-private torrents.
+    var addPublicTrackers: Bool = true
+    /// Re-hash data already on disk when a torrent resumes. Off by default —
+    /// see `Aria2Daemon.arguments` for why.
+    var verifyOnResume: Bool = false
+    /// Local IPv4 addresses to spread peer connections across (aria2
+    /// `--multiple-interface`). Empty = default route only. Launch-only: changing
+    /// it means restarting the daemon, which `DownloadEngine` does.
+    var bondingAddresses: [String] = []
 
     /// Options that can be changed on a running daemon via `changeGlobalOption`.
     /// Ports and session paths are launch-only and deliberately absent.
@@ -247,6 +417,7 @@ struct TorrentEngineOptions: Sendable, Equatable {
         [
             "max-overall-upload-limit": String(maxUploadBytesPerSec ?? 0),
             "max-overall-download-limit": String(maxDownloadBytesPerSec ?? 0),
+            "max-concurrent-downloads": String(maxConcurrentDownloads),
         ]
     }
 
@@ -256,7 +427,12 @@ struct TorrentEngineOptions: Sendable, Equatable {
         listenPort: Int = 6881,
         dhtEnabled: Bool = true,
         maxUploadBytesPerSec: Int? = nil,
-        maxDownloadBytesPerSec: Int? = nil
+        maxDownloadBytesPerSec: Int? = nil,
+        maxPeers: Int = 200,
+        requireEncryption: Bool = false,
+        maxConcurrentDownloads: Int = 5,
+        addPublicTrackers: Bool = true,
+        verifyOnResume: Bool = false
     ) {
         self.seedRatio = seedRatio
         self.seedMinutes = seedMinutes
@@ -264,6 +440,11 @@ struct TorrentEngineOptions: Sendable, Equatable {
         self.dhtEnabled = dhtEnabled
         self.maxUploadBytesPerSec = maxUploadBytesPerSec
         self.maxDownloadBytesPerSec = maxDownloadBytesPerSec
+        self.maxPeers = max(1, min(500, maxPeers))
+        self.requireEncryption = requireEncryption
+        self.maxConcurrentDownloads = max(1, maxConcurrentDownloads)
+        self.addPublicTrackers = addPublicTrackers
+        self.verifyOnResume = verifyOnResume
     }
 
     init(settings: AppSettings) {
@@ -273,7 +454,12 @@ struct TorrentEngineOptions: Sendable, Equatable {
             listenPort: settings.torrentListenPort,
             dhtEnabled: settings.torrentDHTEnabled,
             maxUploadBytesPerSec: settings.torrentMaxUploadBytesPerSec,
-            maxDownloadBytesPerSec: settings.globalSpeedLimitBytesPerSec
+            maxDownloadBytesPerSec: settings.globalSpeedLimitBytesPerSec,
+            maxPeers: settings.torrentMaxPeers,
+            requireEncryption: settings.torrentRequireEncryption,
+            maxConcurrentDownloads: settings.maxConcurrentDownloads,
+            addPublicTrackers: settings.torrentAddPublicTrackers,
+            verifyOnResume: settings.torrentVerifyOnResume
         )
     }
 }

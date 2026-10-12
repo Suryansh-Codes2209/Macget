@@ -55,6 +55,24 @@ struct AppSettings: Codable, Equatable, Sendable {
     /// TCP/UDP port aria2 listens on for peers. Clamped 1024...65535.
     var torrentListenPort: Int
     var torrentDHTEnabled: Bool
+    /// Re-hash a torrent's existing data every time it resumes. Off by default:
+    /// aria2 verifies each piece as it arrives regardless, so this only guards
+    /// against damage done outside aria2 — at the cost of re-reading the whole
+    /// partial file on every launch.
+    var torrentVerifyOnResume: Bool
+    /// Maximum peer connections per torrent. aria2's own default is 55; MacGet
+    /// previously hardwired 100 and never let the user reach it. Clamped 1...500.
+    var torrentMaxPeers: Int
+    /// Inject a bundled list of public trackers into non-private torrents. The
+    /// main fix for magnets whose own trackers are dead.
+    var torrentAddPublicTrackers: Bool
+    /// Refuse peers that won't encrypt. Defeats ISP BitTorrent shaping at the
+    /// cost of a smaller peer pool, so it's opt-in.
+    var torrentRequireEncryption: Bool
+    /// Ask the router to forward `torrentListenPort` via PCP/NAT-PMP.
+    var torrentAutoPortMapping: Bool
+    /// Combine several internet links (Wi-Fi + tethered phone, …) for one download.
+    var bonding: BondingSettings
 
     init(
         defaultDestination: URL = AppSettings.systemDownloadsFolder(),
@@ -84,7 +102,13 @@ struct AppSettings: Codable, Equatable, Sendable {
         torrentSeedMinutes: Int = 60,
         torrentMaxUploadBytesPerSec: Int? = nil,
         torrentListenPort: Int = 6881,
-        torrentDHTEnabled: Bool = true
+        torrentDHTEnabled: Bool = true,
+        torrentVerifyOnResume: Bool = false,
+        torrentMaxPeers: Int = 200,
+        torrentAddPublicTrackers: Bool = true,
+        torrentRequireEncryption: Bool = false,
+        torrentAutoPortMapping: Bool = true,
+        bonding: BondingSettings = BondingSettings()
     ) {
         self.defaultDestination = defaultDestination
         self.defaultThreadCount = max(1, min(Download.maxThreadCount, defaultThreadCount))
@@ -118,6 +142,12 @@ struct AppSettings: Codable, Equatable, Sendable {
         // Below 1024 needs root to bind.
         self.torrentListenPort = (1024...65535).contains(torrentListenPort) ? torrentListenPort : 6881
         self.torrentDHTEnabled = torrentDHTEnabled
+        self.torrentVerifyOnResume = torrentVerifyOnResume
+        self.torrentMaxPeers = max(1, min(500, torrentMaxPeers))
+        self.torrentAddPublicTrackers = torrentAddPublicTrackers
+        self.torrentRequireEncryption = torrentRequireEncryption
+        self.torrentAutoPortMapping = torrentAutoPortMapping
+        self.bonding = bonding
     }
 
     /// The torrent settings as a value object handed to the aria2 daemon.
@@ -170,6 +200,12 @@ struct AppSettings: Codable, Equatable, Sendable {
         let port = try c.decodeIfPresent(Int.self, forKey: .torrentListenPort) ?? defaults.torrentListenPort
         torrentListenPort = (1024...65535).contains(port) ? port : defaults.torrentListenPort
         torrentDHTEnabled = try c.decodeIfPresent(Bool.self, forKey: .torrentDHTEnabled) ?? defaults.torrentDHTEnabled
+        torrentVerifyOnResume = try c.decodeIfPresent(Bool.self, forKey: .torrentVerifyOnResume) ?? defaults.torrentVerifyOnResume
+        torrentMaxPeers = max(1, min(500, try c.decodeIfPresent(Int.self, forKey: .torrentMaxPeers) ?? defaults.torrentMaxPeers))
+        torrentAddPublicTrackers = try c.decodeIfPresent(Bool.self, forKey: .torrentAddPublicTrackers) ?? defaults.torrentAddPublicTrackers
+        torrentRequireEncryption = try c.decodeIfPresent(Bool.self, forKey: .torrentRequireEncryption) ?? defaults.torrentRequireEncryption
+        torrentAutoPortMapping = try c.decodeIfPresent(Bool.self, forKey: .torrentAutoPortMapping) ?? defaults.torrentAutoPortMapping
+        bonding = try c.decodeIfPresent(BondingSettings.self, forKey: .bonding) ?? defaults.bonding
     }
 
     static func systemDownloadsFolder() -> URL {

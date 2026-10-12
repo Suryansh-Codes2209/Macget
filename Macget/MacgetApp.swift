@@ -8,6 +8,7 @@ struct MacgetApp: App {
     @State private var listVM: DownloadListViewModel
     @State private var settingsVM: SettingsViewModel
     @State private var inspector: InspectorModel
+    @State private var connections = ConnectionsModel()
 
     init() {
         let env = AppEnvironment()
@@ -20,26 +21,33 @@ struct MacgetApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView(listVM: listVM, appEnvironment: environment, mediaPick: environment.mediaPick, authPrompt: environment.authPrompt, inspector: inspector)
+            ContentView(listVM: listVM, appEnvironment: environment, mediaPick: environment.mediaPick, authPrompt: environment.authPrompt, inspector: inspector,
+                        settingsVM: settingsVM, connections: connections)
                 .frame(minWidth: 720, minHeight: 420)
                 .task {
                     appDelegate.environment = environment
                     listVM.bootstrap()
+                    appDelegate.installStatusBar(listVM: listVM)
                     environment.clipboardWatcher.onURLDetected = { url in
                         Task { @MainActor in
                             environment.add(url: url)
                         }
                     }
                 }
-                .onOpenURL { url in
-                    if url.scheme?.lowercased() == MacgetURLScheme.scheme {
-                        if let target = MacgetURLScheme.extractDownloadURL(from: url) {
-                            environment.enqueue(url: target)
-                        }
-                    } else if let valid = URLValidation.parsePlausibleHTTPURL(url.absoluteString) {
-                        environment.enqueue(url: valid)
-                    }
-                }
+                // Claim every external event for the window that already exists,
+                // so a magnet click reuses it instead of opening a second one.
+                //
+                // The matching scene-level `.handlesExternalEvents(matching:)` is
+                // deliberately absent: an empty set there suppresses window
+                // creation at *cold* launch too, and since the environment is
+                // wired up in `ContentView`'s `.task`, a windowless launch never
+                // wires anything up and the magnet that started the app is lost.
+                //
+                // Incoming URLs are handled entirely by
+                // `AppDelegate.application(_:open:)`. There is deliberately no
+                // `.onOpenURL` here — with both in place each magnet was enqueued
+                // twice, and the loser came back as "already in the queue".
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -62,7 +70,7 @@ struct MacgetApp: App {
         }
 
         Settings {
-            SettingsView(vm: settingsVM)
+            SettingsView(vm: settingsVM, connections: connections)
         }
     }
 }

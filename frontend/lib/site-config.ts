@@ -10,6 +10,18 @@ const CHROME_WEB_STORE =
 
 const LINKEDIN = "https://www.linkedin.com/company/macget-app";
 
+/**
+ * The person, not the product. `LINKEDIN` above is the MacGet company page —
+ * these are the maintainer's own profiles, and the two are deliberately kept
+ * apart so the footer and the JSON-LD `author` don't cross-link the wrong one.
+ */
+const MAINTAINER = {
+  name: "Suryansh Chaudhary",
+  githubUrl: "https://github.com/Suryansh-Codes2209",
+  xUrl: "https://x.com/Suryansh_2001",
+  linkedinUrl: "https://www.linkedin.com/in/suryansh-chaudhary-2209/",
+} as const;
+
 export const siteConfig = {
   name: "MacGet",
   binary: "Macget",
@@ -18,7 +30,7 @@ export const siteConfig = {
   heroSub:
     "MacGet splits every file across up to 16 chunks, learns what each host will tolerate, and resumes across restarts — a native SwiftUI app for macOS Tahoe.",
   minOS: "macOS Tahoe 26.4",
-  version: "1.3.0",
+  version: "1.4.0",
 
   /** Canonical origin. Used for metadataBase, canonical tags, and the sitemap. */
   url: "https://macget.suryansh.work",
@@ -41,6 +53,7 @@ export const siteConfig = {
   chromeWebStoreUrl: CHROME_WEB_STORE,
   linkedinUrl: LINKEDIN,
   contactEmail: "suryansh.codes2001@gmail.com",
+  maintainer: MAINTAINER,
 
   disclaimer:
     "MacGet is not affiliated with or endorsed by Tonec Inc. or Internet Download Manager.",
@@ -48,6 +61,7 @@ export const siteConfig = {
   nav: [
     { label: "Features", href: "/#features" },
     { label: "Inspector", href: "/#inspector" },
+    { label: "Bonding", href: "/#bonding" },
     { label: "How it works", href: "/#how" },
     { label: "Docs", href: "/docs" },
     { label: "Install", href: "/install" },
@@ -60,6 +74,7 @@ export const siteConfig = {
       links: [
         { label: "Features", href: "/#features" },
         { label: "Inspector", href: "/#inspector" },
+        { label: "Connection bonding", href: "/#bonding" },
         { label: "Browser capture", href: "/#extension" },
         { label: "How it works", href: "/#how" },
         { label: "Changelog", href: "/changelog" },
@@ -107,6 +122,12 @@ export const siteConfig = {
       blurb:
         "An inspector panel charts throughput over a rolling 30-second window and draws the file as its actual pieces — cells filling in file order, the ones a worker holds pulsing. One bar creeping right looks the same whether you have 1 connection or 16; this doesn't.",
       icon: "Gauge",
+    },
+    {
+      title: "Combine your connections",
+      blurb:
+        "Download over Wi-Fi, Ethernet, and a USB-tethered iPhone or Android phone at the same time. Each link gets its own workers, and the faster one simply takes more pieces.",
+      icon: "Network",
     },
     {
       title: "Adapts to throttled hosts",
@@ -204,6 +225,40 @@ export const siteConfig = {
       },
     ],
     browsers: ["Chrome", "Edge", "Brave", "Firefox"],
+  },
+
+  /**
+   * The connection-bonding section. Mirrors `Macget/Engine/Bonding/` — keep the
+   * claims here in step with the "Connection bonding" notes in CLAUDE.md.
+   */
+  bonding: {
+    links: [
+      { name: "Wi-Fi", kind: "en0", share: 0.58 },
+      { name: "iPhone (USB)", kind: "en7", share: 0.42 },
+    ],
+    devices: ["Wi-Fi", "Ethernet", "iPhone over USB", "Android over USB", "Thunderbolt / USB adapters"],
+    facts: [
+      {
+        title: "Every link is proven, not assumed",
+        detail:
+          "Each interface has to reach the internet on its own before it joins — and a link drops out only after two failed probes in a row, so a busy tether that misses one check isn't kicked.",
+      },
+      {
+        title: "Same thread budget, more paths",
+        detail:
+          "Bonding splits the existing 1–16 connections across links instead of adding more. No speed weighting to tune: work stealing hands the faster link more pieces.",
+      },
+      {
+        title: "A bad link costs only itself",
+        detail:
+          "If a server rejects your phone's connection, that link sits out the rest of the download while the others carry on. The server isn't blamed and the download doesn't restart.",
+      },
+      {
+        title: "Off by default, one switch to try",
+        detail:
+          "Flip it on from the toolbar's Connections popover or Settings ▸ Network. Applies to resumable HTTP(S) downloads; any proxy turns it off so it can never bypass one.",
+      },
+    ],
   },
 
   pipeline: [

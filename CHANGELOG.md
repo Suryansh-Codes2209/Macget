@@ -28,6 +28,7 @@ Connection bonding, a tuned BitTorrent engine, and a menu bar presence.
 - **Downloads without a `Content-Length` work.** Servers using chunked transfer no longer fail with "Server did not report file size."
 - **Clicking a magnet link adds it.** MacGet launched as the `magnet:` handler but then dropped the URL.
 - **The list keeps updating after the window is closed and reopened** from the Dock, instead of going silent.
+- **Fast downloads no longer fail with "Chunk not found" or "Unexpected HTTP status 0".** When workers finished during the 100 ms spawn stagger, the engine could start a worker on a piece that had just been split, or treat a download that completed mid-stagger as stalled.
 
 ## [1.3.0] — 2026-07-29
 

@@ -3,8 +3,22 @@ import XCTest
 
 /// Deterministic file content: byte i is `i % 251`, so any misplaced range shows.
 enum BondingTestData {
+    private static let pattern = Data((0..<251).map { UInt8($0) })
+
+    /// Built by copying the 251-byte pattern rather than mapping each byte:
+    /// a per-byte `map` over the 32 MB bonding fixtures is slow enough in Debug
+    /// to push those tests past their timeouts on a CI runner.
     static func bytes(_ range: ClosedRange<Int64>) -> Data {
-        Data(range.map { UInt8(truncatingIfNeeded: $0 % 251) })
+        var out = Data(capacity: range.count)
+        var offset = Int(range.lowerBound % 251)
+        var remaining = range.count
+        while remaining > 0 {
+            let n = min(251 - offset, remaining)
+            out.append(pattern[offset..<(offset + n)])
+            remaining -= n
+            offset = 0
+        }
+        return out
     }
 
     static func parseRange(_ header: String, total: Int64) -> (Int64, Int64)? {

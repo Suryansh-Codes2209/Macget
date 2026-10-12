@@ -234,7 +234,9 @@ final class BondingCoordinatorTests: XCTestCase {
         let log = SnapshotLog()
         let done = expectation(description: "terminal")
         let coordinator = DownloadCoordinator(
-            download: download, session: session(), hostCapStore: HostCapStore(fileURL: capStoreURL),
+            // Slow default link: the download must still be running when bonding
+            // is switched off, or there is nothing left to observe.
+            download: download, session: session(SlowDefaultLinkURLProtocol.self), hostCapStore: HostCapStore(fileURL: capStoreURL),
             linkProvider: StubLinkProvider([Self.wifi, Self.tether]), pinnedTransport: transport,
             bonding: BondingSettings(enabled: true),
             systemProxyCheck: { _ in false },

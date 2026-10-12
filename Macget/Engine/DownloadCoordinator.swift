@@ -399,6 +399,10 @@ actor DownloadCoordinator {
                 throw err
             }
             await fillWorkersUpToTarget()
+            // Workers keep finishing (and stealing or splitting work) during
+            // the spawn stagger's sleeps, so the whole file can complete before
+            // `fillWorkersUpToTarget` returns. That is success, not a stall.
+            if inFlight.isEmpty, download.chunks.allSatisfy(\.isComplete) { break }
             if inFlight.isEmpty {
                 // Defensive: we have incomplete chunks but couldn't spawn any.
                 // Shouldn't reach here — fillWorkersUpToTarget would have spawned
@@ -524,7 +528,12 @@ actor DownloadCoordinator {
                 // slot synchronously — spawning here on the strength of a
                 // pre-sleep reading would put us one over the cap.
                 if inFlight.count >= target { return }
-                if chunk.isComplete || inFlight[chunk.id] != nil { continue }
+                // `chunk` is from the array as it was before the sleep. An
+                // endgame split during it may have replaced this piece with two
+                // fresh-ID halves; spawning on the stale ID would fail the whole
+                // download with `chunkNotFound`. Re-read the live piece.
+                guard let live = download.chunks.first(where: { $0.id == chunk.id }),
+                      !live.isComplete, inFlight[live.id] == nil else { continue }
             }
             spawnWorker(chunkID: chunk.id)
             spawnedThisCall += 1

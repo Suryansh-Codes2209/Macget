@@ -2,7 +2,8 @@ import { cn } from "@/lib/cn";
 import type { ReactNode } from "react";
 
 interface SectionHeadingProps {
-  eyebrow?: string;
+  /** Rendered as the h2's id, so sections can point `aria-labelledby` at it. */
+  id: string;
   title: ReactNode;
   lede?: ReactNode;
   align?: "left" | "center";
@@ -10,7 +11,7 @@ interface SectionHeadingProps {
 }
 
 export function SectionHeading({
-  eyebrow,
+  id,
   title,
   lede,
   align = "left",
@@ -24,17 +25,19 @@ export function SectionHeading({
         className,
       )}
     >
-      {eyebrow && (
-        <div className="mb-4 inline-flex items-center gap-2 rounded-pill border border-line bg-white/[0.04] px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-cream-dim">
-          <span className="size-1.5 rounded-full bg-brand-honey" />
-          {eyebrow}
-        </div>
-      )}
-      <h2 className="text-balance text-4xl font-semibold leading-[1.05] tracking-tight text-cream sm:text-5xl">
+      <h2
+        id={id}
+        className="text-balance text-3xl font-semibold leading-[1.08] tracking-tight text-cream sm:text-[2.75rem]"
+      >
         {title}
       </h2>
       {lede && (
-        <p className="mt-5 max-w-2xl text-base leading-relaxed text-cream-dim sm:text-lg">
+        <p
+          className={cn(
+            "mt-4 max-w-2xl text-pretty text-base leading-relaxed text-cream-dim sm:text-lg",
+            align === "center" && "mx-auto",
+          )}
+        >
           {lede}
         </p>
       )}

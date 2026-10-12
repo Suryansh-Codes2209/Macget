@@ -1,11 +1,11 @@
 import { Nav } from "@/components/nav/Nav";
 import { Hero } from "@/components/hero/Hero";
 import { Features } from "@/components/features/Features";
+import { More } from "@/components/features/More";
 import { Bonding } from "@/components/bonding/Bonding";
-import { BrowserCapture } from "@/components/extension/BrowserCapture";
 import { Showcase } from "@/components/showcase/Showcase";
-import { FirstLaunchStrip } from "@/components/install/FirstLaunchStrip";
 import { HowItWorks } from "@/components/how/HowItWorks";
+import { InstallSection } from "@/components/install/InstallSection";
 import { FAQ } from "@/components/faq/FAQ";
 import { Footer } from "@/components/footer/Footer";
 import { JsonLd } from "@/components/seo/JsonLd";
@@ -19,12 +19,12 @@ export default function HomePage() {
       <Nav />
       <main id="top" className="relative">
         <Hero />
-        <Showcase />
         <Features />
+        <Showcase />
         <Bonding />
-        <BrowserCapture />
-        <FirstLaunchStrip />
+        <More />
         <HowItWorks />
+        <InstallSection />
         <FAQ />
       </main>
       <Footer />

@@ -14,14 +14,14 @@ export function FAQ() {
     <section
       id="faq"
       aria-labelledby="faq-heading"
-      className="relative py-28 sm:py-36"
+      className="relative scroll-mt-16 py-20 sm:py-28"
     >
       <div className="mx-auto max-w-3xl px-6 lg:px-10">
         <SectionHeading
           align="center"
-          eyebrow="FAQ"
-          title={<span id="faq-heading">Quick answers.</span>}
-          lede="If something here is unclear, the docs go deeper — and the source code is always the final word."
+          id="faq-heading"
+          title="Questions"
+          lede="The docs go deeper, and the source code is always the final word."
         />
 
         <ul className="mt-14 space-y-2">

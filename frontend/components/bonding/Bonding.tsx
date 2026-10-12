@@ -1,6 +1,5 @@
 import { Laptop, Smartphone, Wifi, Cable } from "lucide-react";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { MotionInView, MotionItem } from "@/components/ui/MotionInView";
 import { siteConfig } from "@/lib/site-config";
 import { cn } from "@/lib/cn";
 
@@ -33,33 +32,23 @@ export function Bonding() {
     <section
       id="bonding"
       aria-labelledby="bonding-heading"
-      className="relative py-28 sm:py-36"
+      className="relative scroll-mt-16 py-20 sm:py-28"
     >
-      <div className="mx-auto max-w-7xl px-6 lg:px-10">
+      <div className="mx-auto max-w-6xl px-6 lg:px-10">
         <SectionHeading
-          eyebrow="Connection bonding"
-          title={
-            <span id="bonding-heading">
-              Two connections.
-              <br className="hidden sm:inline" /> One faster download.
-            </span>
-          }
-          lede="Plug in your phone and MacGet can pull a single file over Wi-Fi and the tether at the same time — different pieces down different links, stitched back into one file."
+          id="bonding-heading"
+          title="Use Wi-Fi and your phone at the same time"
+          lede="Plug in a phone or a second network and MacGet can download one file over both — different pieces down each link, joined back into one file."
         />
 
-        {/* Stacked on mobile this grid is taller than the viewport, so the
-            default 30%-visible trigger can never fire. */}
-        <MotionInView
-          amount={0.05}
-          className="mt-16 grid items-start gap-6 lg:grid-cols-12"
-        >
-          <MotionItem className="lg:col-span-7">
+        <div className="mt-14 grid items-start gap-6 lg:grid-cols-12">
+          <div className="lg:col-span-7">
             <div className="rounded-tile border border-line bg-surface/60 p-7 sm:p-9">
               <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
                 <h3 className="text-lg font-semibold tracking-tight text-cream">
                   One file, two paths
                 </h3>
-                <span className="font-mono text-xs text-mute">illustrative</span>
+                <span className="text-xs text-mute">Example</span>
               </div>
 
               <ul className="mt-7 space-y-4" aria-label="Bonded links">
@@ -95,13 +84,9 @@ export function Bonding() {
                   <Laptop className="size-4 text-brand-honey" />
                   <span>ubuntu-24.04-desktop-amd64.iso</span>
                 </div>
-                <MotionInView
-                  stagger={0.015}
-                  amount={0.2}
-                  className="mt-4 grid grid-cols-12 gap-1.5 sm:grid-cols-16"
-                >
+                <div className="mt-4 grid grid-cols-12 gap-1.5 sm:grid-cols-16">
                   {owners.map((owner, i) => (
-                    <MotionItem
+                    <span
                       key={i}
                       className={cn(
                         "aspect-square rounded-[4px]",
@@ -111,9 +96,9 @@ export function Bonding() {
                       <span className="sr-only">
                         Piece {i + 1} via {links[owner].name}
                       </span>
-                    </MotionItem>
+                    </span>
                   ))}
-                </MotionInView>
+                </div>
                 <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs text-mute">
                   {links.map((link, i) => (
                     <span key={link.name} className="inline-flex items-center gap-2">
@@ -141,24 +126,21 @@ export function Bonding() {
                 </ul>
               </div>
             </div>
-          </MotionItem>
+          </div>
 
-          <MotionItem className="flex flex-col gap-6 lg:col-span-5">
+          <ul className="flex flex-col divide-y divide-line lg:col-span-5">
             {facts.map((fact) => (
-              <div
-                key={fact.title}
-                className="rounded-tile border border-line bg-surface/40 p-7"
-              >
+              <li key={fact.title} className="py-6 first:pt-2 last:pb-0">
                 <h3 className="text-lg font-semibold tracking-tight text-cream">
                   {fact.title}
                 </h3>
                 <p className="mt-2 text-sm leading-relaxed text-cream-dim">
                   {fact.detail}
                 </p>
-              </div>
+              </li>
             ))}
-          </MotionItem>
-        </MotionInView>
+          </ul>
+        </div>
       </div>
     </section>
   );

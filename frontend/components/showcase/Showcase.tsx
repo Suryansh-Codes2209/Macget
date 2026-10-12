@@ -1,6 +1,5 @@
 import Image from "next/image";
 import { SectionHeading } from "@/components/ui/SectionHeading";
-import { MotionInView, MotionItem } from "@/components/ui/MotionInView";
 
 /**
  * Screenshots of the running app.
@@ -19,21 +18,21 @@ interface Annotation {
 const ANNOTATIONS: Annotation[] = [
   {
     label: "Speed",
-    value: "30-second window",
+    value: "Last 30 seconds",
     blurb:
-      "Throughput sampled at the engine's 250 ms cadence and drawn as a continuously scrolling curve, with the window's peak and average alongside. It slides between samples, so it reads as live rather than polled.",
+      "A live throughput curve with the peak and average beside it, updated four times a second.",
   },
   {
     label: "Pieces",
     value: "256 × 21.2 MB",
     blurb:
-      "The file drawn as its real work units, in file order. Filled cells are done, outlined ones are in a worker's hands right now. Work-stealing is visible here and nowhere else — a single bar hides it completely.",
+      "The file as its real pieces, in order. Filled cells are done; outlined ones are downloading right now.",
   },
   {
     label: "Connections",
     value: "8 requested → 6 effective",
     blurb:
-      "Every distinct reason the worker count can sit below what you asked for, each on its own line: a cap learned from this host, a demotion after it started refusing connections, or simply your own setting. A download opens at its full count immediately — the number only comes down on evidence.",
+      "If MacGet is using fewer connections than you asked for, it says why: your setting, a limit learned from this host, or a host that started refusing.",
   },
 ];
 
@@ -42,7 +41,7 @@ export function Showcase() {
     <section
       id="inspector"
       aria-labelledby="inspector-heading"
-      className="relative py-28 sm:py-36"
+      className="relative scroll-mt-16 py-20 sm:py-28"
     >
       {/* Warm bloom behind the figure, matching the hero treatment. */}
       <div
@@ -50,20 +49,15 @@ export function Showcase() {
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[520px] bg-radial-glow"
       />
 
-      <div className="mx-auto max-w-7xl px-6 lg:px-10">
+      <div className="mx-auto max-w-6xl px-6 lg:px-10">
         <SectionHeading
-          eyebrow="The inspector"
-          title={
-            <span id="inspector-heading">
-              Not a progress bar.
-              <br className="hidden sm:inline" /> A readout.
-            </span>
-          }
-          lede="One bar creeping right looks the same over 1 connection or 16. MacGet shows you the throughput curve, the actual pieces in flight, and exactly why the engine settled on the concurrency it did."
+          id="inspector-heading"
+          title="See exactly what each download is doing"
+          lede="Select a download to open the inspector: speed over time, every piece of the file, and how many connections are working on it."
         />
 
-        <MotionInView className="mt-16 grid items-start gap-6 lg:grid-cols-12">
-          <MotionItem className="lg:col-span-8">
+        <div className="mt-14 grid items-start gap-6 lg:grid-cols-12">
+          <div className="lg:col-span-8">
             <figure className="overflow-hidden rounded-card border border-line bg-surface/60 shadow-[0_40px_120px_-40px_rgba(0,0,0,0.9)]">
               <Image
                 src="/screenshots/macget-inspector.png"
@@ -79,11 +73,11 @@ export function Showcase() {
               A 5.43 GB transfer mid-flight, split into 256 pieces across 6
               connections.
             </figcaption>
-          </MotionItem>
+          </div>
 
           {/* The panel at native scale — in the full-window shot above it is too
               small to actually read, which defeats the point of showing it. */}
-          <MotionItem className="lg:col-span-4">
+          <div className="lg:col-span-4">
             <figure className="overflow-hidden rounded-card border border-line bg-surface/60 shadow-[0_40px_120px_-40px_rgba(0,0,0,0.9)]">
               <Image
                 src="/screenshots/macget-inspector-panel.png"
@@ -97,30 +91,24 @@ export function Showcase() {
             <figcaption className="mt-3 text-sm text-mute">
               The panel at native scale.
             </figcaption>
-          </MotionItem>
-        </MotionInView>
+          </div>
+        </div>
 
-        <MotionInView className="mt-14 grid gap-5 sm:grid-cols-3">
+        <dl className="mt-12 grid gap-8 border-t border-line pt-10 sm:grid-cols-3">
           {ANNOTATIONS.map((a) => (
-            <MotionItem
-              key={a.label}
-              className="rounded-card border border-line bg-white/[0.03] p-6"
-            >
-              <div className="text-xs font-medium uppercase tracking-[0.18em] text-brand-honey">
-                {a.label}
-              </div>
-              <div className="mt-2 font-mono text-lg font-semibold tracking-tight text-cream">
+            <div key={a.label}>
+              <dt className="text-sm text-mute">{a.label}</dt>
+              <dd className="mt-1 text-lg font-semibold tracking-tight text-cream">
                 {a.value}
-              </div>
-              <p className="mt-3 text-sm leading-relaxed text-cream-dim">
+              </dd>
+              <dd className="mt-2 text-sm leading-relaxed text-cream-dim">
                 {a.blurb}
-              </p>
-            </MotionItem>
+              </dd>
+            </div>
           ))}
-        </MotionInView>
+        </dl>
 
-        <MotionInView className="mt-20">
-          <MotionItem>
+        <div className="mt-16">
             <figure className="overflow-hidden rounded-card border border-line bg-surface/60 shadow-[0_40px_120px_-40px_rgba(0,0,0,0.9)]">
               <Image
                 src="/screenshots/macget-queue.png"
@@ -135,8 +123,7 @@ export function Showcase() {
               The queue itself — filterable by state, with aggregate throughput
               when nothing is selected.
             </figcaption>
-          </MotionItem>
-        </MotionInView>
+        </div>
       </div>
     </section>
   );

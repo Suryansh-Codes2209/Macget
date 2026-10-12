@@ -28,7 +28,7 @@ export const siteConfig = {
   tagline: "A native macOS download manager that doesn't fight your network.",
   heroHeadline: ["Download.", "In parallel."],
   heroSub:
-    "MacGet splits every file across up to 16 chunks, learns what each host will tolerate, and resumes across restarts — a native SwiftUI app for macOS Tahoe.",
+    "MacGet is a free, open-source download manager for Mac. It pulls each file over up to 16 connections at once, backs off when a server pushes back, and resumes after a restart.",
   minOS: "macOS Tahoe 26.4",
   version: "1.4.0",
 
@@ -62,16 +62,16 @@ export const siteConfig = {
     { label: "Features", href: "/#features" },
     { label: "Inspector", href: "/#inspector" },
     { label: "Bonding", href: "/#bonding" },
-    { label: "How it works", href: "/#how" },
     { label: "Docs", href: "/docs" },
-    { label: "Install", href: "/install" },
     { label: "Changelog", href: "/changelog" },
+    { label: "Install", href: "/install" },
   ],
 
   footerNav: [
     {
       title: "Product",
       links: [
+        { label: "Watch the tour", href: "/#film" },
         { label: "Features", href: "/#features" },
         { label: "Inspector", href: "/#inspector" },
         { label: "Connection bonding", href: "/#bonding" },
@@ -110,120 +110,121 @@ export const siteConfig = {
     },
   ],
 
-  features: [
+  /**
+   * Chapters of `public/macget-launch.mp4`, in seconds. Read off the film
+   * itself — if the video is re-cut, re-time these or the chapter rail seeks
+   * to the wrong scene.
+   */
+  film: {
+    src: "/macget-launch.mp4",
+    poster: "/macget-launch-poster.jpg",
+    duration: 61.5,
+    chapters: [
+      { at: 0, label: "The problem" },
+      { at: 9.5, label: "16 parallel chunks" },
+      { at: 15, label: "Live queue" },
+      { at: 21.5, label: "Inspector" },
+      { at: 27, label: "Throttled hosts" },
+      { at: 32, label: "Bonding" },
+      { at: 37.5, label: "Resume" },
+      { at: 43, label: "Everything else" },
+    ],
+  },
+
+  /**
+   * The three engine behaviours the page leads with. `points` are concrete
+   * facts from the engine (see CLAUDE.md ▸ The download pipeline) — keep them
+   * true rather than punchy.
+   */
+  engine: [
     {
-      title: "Up to 16 parallel chunks",
-      blurb:
-        "HTTP-Range requests split each file across as many connections as the host allows. Work-stealing hands finished workers the next outstanding piece, so one slow chunk never holds up the file.",
-      icon: "Layers",
+      id: "parallel",
+      title: "One file, up to 16 connections",
+      summary:
+        "MacGet asks the server for different byte ranges at the same time and writes each piece straight into place.",
+      points: [
+        "Files are cut into ~8 MB pieces, so a worker that finishes early takes the next one instead of waiting.",
+        "Near the end, the biggest unfinished piece is split in half so the last few megabytes don't crawl.",
+        "Servers that don't support ranges get one honest connection, not a fake speedup.",
+      ],
     },
     {
-      title: "Watch it happen, live",
-      blurb:
-        "An inspector panel charts throughput over a rolling 30-second window and draws the file as its actual pieces — cells filling in file order, the ones a worker holds pulsing. One bar creeping right looks the same whether you have 1 connection or 16; this doesn't.",
-      icon: "Gauge",
+      id: "adaptive",
+      title: "Backs off when a server pushes back",
+      summary:
+        "Downloads start at full speed. If a host starts refusing connections while still serving others, MacGet halves its worker count instead of hammering.",
+      points: [
+        "A Wi-Fi drop, where everything fails at once, is not blamed on the server.",
+        "The limit it learns for that host is remembered for 7 days, then forgotten.",
+        "You can see and clear learned limits in Settings ▸ Network.",
+      ],
     },
     {
-      title: "Combine your connections",
-      blurb:
-        "Download over Wi-Fi, Ethernet, and a USB-tethered iPhone or Android phone at the same time. Each link gets its own workers, and the faster one simply takes more pieces.",
-      icon: "Network",
+      id: "resume",
+      title: "Quit anytime. It picks up where it stopped.",
+      summary:
+        "Progress is saved per piece, so a restart, a crash or a closed lid costs you nothing already downloaded.",
+      points: [
+        "If the file changed on the server, MacGet notices (If-Range) and restarts cleanly instead of stitching two versions together.",
+        "SHA-256 or MD5 checksums are verified before the file is moved into place.",
+        "The unfinished file stays hidden next to its destination until it's complete.",
+      ],
     },
+  ],
+
+  /** The secondary feature list. One sentence each — the docs carry the rest. */
+  more: [
     {
-      title: "Adapts to throttled hosts",
-      blurb:
-        "When a host refuses connections while the rest keep delivering, the engine halves its workers instead of hammering — and a dropped Wi-Fi link, where everything fails at once, is deliberately not counted against the server. The learned cap persists for that host for 7 days, so the next download starts smart without one bad night slowing it forever.",
-      icon: "Activity",
-    },
-    {
-      title: "Resume across restarts",
-      blurb:
-        "Per-chunk progress is persisted. Quit mid-download and reopen — it picks up where it left off. If-Range validators catch a file that changed underneath you instead of corrupting it.",
-      icon: "RotateCw",
-    },
-    {
-      title: "Video and audio via yt-dlp",
-      blurb:
-        "Media links route to a bundled yt-dlp + ffmpeg extractor with a quality and container picker. Opt-in — ordinary links always download as plain HTTP files.",
+      title: "Video and audio",
+      blurb: "Paste a video page and pick quality and format. Uses the bundled yt-dlp and ffmpeg.",
+      tag: "Opt-in",
       icon: "Clapperboard",
     },
     {
-      title: "Books from open catalogs",
-      blurb:
-        "Browse and search Project Gutenberg and the Internet Archive without leaving the app, then send a book straight to the queue. Add any OPDS feed too \u2014 including your own Calibre server.",
+      title: "Free ebooks",
+      blurb: "Search Project Gutenberg, the Internet Archive or your own Calibre/OPDS server, and queue a book in one click.",
       icon: "BookOpen",
     },
     {
-      title: "BitTorrent, on your terms",
-      blurb:
-        "Magnet links and .torrent files download in the same queue as everything else. Off by default, and seeding stops at a ratio and time limit you set. MacGet never searches for or indexes torrents.",
+      title: "BitTorrent",
+      blurb: "Magnets and .torrent files in the same queue, with seeding limits you set. MacGet never searches for torrents.",
+      tag: "Off by default",
       icon: "ArrowUpDown",
     },
     {
       title: "Downloads behind a login",
-      blurb:
-        "Basic, Digest, and NTLM challenges are answered from credentials you store once. They live in the macOS Keychain, not in a config file.",
+      blurb: "Basic, Digest and NTLM credentials are stored once, in the macOS Keychain.",
       icon: "KeyRound",
     },
     {
-      title: "Capture from your browser",
-      blurb:
-        "A Chrome, Edge, Brave, and Firefox extension hands downloads to MacGet over local native messaging — cookies and referrer included, so logged-in downloads keep working.",
-      icon: "Chrome",
-    },
-    {
-      title: "Verified, not just downloaded",
-      blurb:
-        "SHA-256 and MD5 are checked at finalize, before the partial file is promoted. A mismatch fails the download and keeps the partial rather than handing you a bad file.",
-      icon: "ShieldCheck",
-    },
-    {
-      title: "Yours to schedule",
-      blurb:
-        "Global speed cap, per-download priorities, configurable timeouts and retries, HTTP/HTTPS proxy support, and auto-sort into category folders when a download lands.",
+      title: "Speed limits and priorities",
+      blurb: "A global speed cap, per-download priority, retries, timeouts and HTTP/HTTPS proxies.",
       icon: "SlidersHorizontal",
     },
     {
-      title: "MIT licensed, zero telemetry",
-      blurb:
-        "No analytics, no remote logging, no account. Your queue and settings never leave ~/Library/Application Support/Macget.",
-      icon: "Lock",
+      title: "Sorted on arrival",
+      blurb: "Finished files can move into category folders automatically, with name clashes resolved as “(2)”, “(3)”.",
+      icon: "FolderTree",
+    },
+    {
+      title: "Copy a link, get a prompt",
+      blurb: "MacGet notices a download link on your clipboard and offers to grab it.",
+      icon: "Clipboard",
+    },
+    {
+      title: "Updates itself",
+      blurb: "Sparkle checks for new versions and verifies each update's EdDSA signature before installing.",
+      icon: "RefreshCw",
     },
   ],
 
   /**
-   * The browser-capture section. `payload` mirrors the fields the extension
-   * actually sends (`BrowserExtension/chromium/background.js` → `captureItem`),
-   * so it stays a manifest rather than a marketing list. If a field is added or
-   * dropped there, change it here too.
+   * The browser extension. `payload` mirrors the fields the extension actually
+   * sends (`BrowserExtension/chromium/background.js` → `captureItem`). If a
+   * field is added or dropped there, change it here too.
    */
   extension: {
-    payload: [
-      {
-        field: "url",
-        note: "The file's own address — not the page you were reading.",
-      },
-      {
-        field: "cookie",
-        note: "Scoped to that URL's domain, so a file behind a login still downloads.",
-      },
-      {
-        field: "referer",
-        note: "Hotlink protection sees the page you came from and lets it through.",
-      },
-      {
-        field: "userAgent",
-        note: "Your browser's, verbatim. The request looks the same as the one it replaces.",
-      },
-      {
-        field: "filename",
-        note: "The name your browser resolved, not the id sitting in the URL.",
-      },
-      {
-        field: "size",
-        note: "The queue shows the real total before the first byte lands.",
-      },
-    ],
+    payload: ["url", "cookie", "referer", "userAgent", "filename", "size"],
     browsers: ["Chrome", "Edge", "Brave", "Firefox"],
   },
 
@@ -236,111 +237,83 @@ export const siteConfig = {
       { name: "Wi-Fi", kind: "en0", share: 0.58 },
       { name: "iPhone (USB)", kind: "en7", share: 0.42 },
     ],
-    devices: ["Wi-Fi", "Ethernet", "iPhone over USB", "Android over USB", "Thunderbolt / USB adapters"],
+    devices: ["Wi-Fi", "Ethernet", "iPhone over USB", "Android over USB", "USB / Thunderbolt adapters"],
     facts: [
       {
-        title: "Every link is proven, not assumed",
+        title: "No tuning",
         detail:
-          "Each interface has to reach the internet on its own before it joins — and a link drops out only after two failed probes in a row, so a busy tether that misses one check isn't kicked.",
+          "Both links pull the next piece as soon as they're free, so the faster one naturally carries more.",
       },
       {
-        title: "Same thread budget, more paths",
+        title: "A bad link only removes itself",
         detail:
-          "Bonding splits the existing 1–16 connections across links instead of adding more. No speed weighting to tune: work stealing hands the faster link more pieces.",
+          "If a server rejects your phone's connection, that link sits out and the download carries on over the others.",
       },
       {
-        title: "A bad link costs only itself",
+        title: "One switch",
         detail:
-          "If a server rejects your phone's connection, that link sits out the rest of the download while the others carry on. The server isn't blamed and the download doesn't restart.",
-      },
-      {
-        title: "Off by default, one switch to try",
-        detail:
-          "Flip it on from the toolbar's Connections popover or Settings ▸ Network. Applies to resumable HTTP(S) downloads; any proxy turns it off so it can never bypass one.",
+          "Off by default. Turn it on from the Connections button in the toolbar. Any proxy turns it off, so it never bypasses one.",
       },
     ],
   },
 
   pipeline: [
     {
-      step: "Probe",
-      detail:
-        "HEAD with a ranged-GET fallback, because some servers 405 on HEAD. Records size, ETag, Last-Modified, and whether byte ranges are honored at all.",
+      step: "Check the server",
+      detail: "Size, change markers, and whether it accepts byte ranges at all.",
     },
     {
-      step: "Plan",
-      detail:
-        "Split into pieces of ~8 MB, up to 16 workers, each chunk at least 64 KB. Clamped to whatever cap the engine already learned for this host.",
+      step: "Plan the pieces",
+      detail: "~8 MB pieces, up to 16 workers, within any limit learned for this host.",
     },
     {
-      step: "Stream",
-      detail:
-        "Parallel range requests over one shared URLSession, HTTP/3 where offered. Transient errors back off and retry; permanent ones fail fast instead of burning attempts.",
+      step: "Download in parallel",
+      detail: "Workers steal pieces, retry with backoff, and fail fast on permanent errors.",
     },
     {
-      step: "Finalize",
-      detail:
-        "Verify the checksum if one was given, then move the partial into place under a unique name — and into a category folder if auto-sort is on.",
+      step: "Verify and finish",
+      detail: "Checksum if you gave one, then move it into place under a unique name.",
     },
-  ],
-
-  stats: [
-    { label: "Parallel chunks", value: "16", caption: "max per file" },
-    { label: "Telemetry", value: "0", caption: "no analytics, no logging" },
-    { label: "License", value: "MIT", caption: "open source forever" },
   ],
 
   /**
-   * First-launch steps shown inline under the download CTA. MacGet ships
-   * un-notarized, so this is the difference between a user who expects
-   * Gatekeeper and a user who thinks the app is broken.
+   * MacGet ships un-notarized, so a DMG install meets a Gatekeeper dialog that
+   * reads like a malware alert. These steps set that expectation up front.
    */
   firstLaunch: [
-    {
-      title: "macOS will warn you once",
-      detail:
-        "“Macget can't be opened because Apple cannot check it for malicious software.” Expected — the build isn't notarized. Click Done.",
-    },
-    {
-      title: "Open Anyway",
-      detail:
-        "System Settings → Privacy & Security. Scroll to the message about Macget and click Open Anyway, then confirm.",
-    },
-    {
-      title: "That's it, forever",
-      detail:
-        "macOS remembers. Every later launch — and every Sparkle auto-update — opens normally with no prompt.",
-    },
+    "Open MacGet. macOS says it can't check it for malicious software — click Done.",
+    "Go to System Settings ▸ Privacy & Security and click Open Anyway next to Macget.",
+    "That's it. Later launches and auto-updates open normally.",
   ],
 
   faq: [
     {
       q: "Why another download manager?",
-      a: "Most either ignore Range support, or open every connection they can and get throttled for it. MacGet discovers what each host actually tolerates at runtime and adapts, using native URLSession and persisting state properly across launches.",
+      a: "Most either ignore byte-range support or open every connection they can and get throttled for it. MacGet opens as many connections as help, backs off on evidence when a host objects, and keeps its progress properly across launches.",
     },
     {
       q: "Is it safe if it isn't notarized?",
-      a: "MacGet is distributed free and un-notarized because notarization requires a paid Apple Developer account. That's a cost decision, not a security one: the source is public and auditable, the build has Hardened Runtime enabled, and every auto-update is verified against an EdDSA signature before it installs. The tradeoff is a one-time Gatekeeper prompt on first launch — the install guide walks through it.",
+      a: "Notarization needs a paid Apple Developer account, so MacGet skips it — a cost decision, not a security one. The source is public, the build uses Hardened Runtime, and every auto-update is checked against an EdDSA signature before it installs. You'll see one Gatekeeper prompt on first launch; installing with Homebrew avoids it.",
     },
     {
-      q: "Apple Silicon?",
-      a: "Yes — Apple silicon only (arm64), no Intel build. Minimum macOS is Tahoe 26.4.",
+      q: "Which Macs does it run on?",
+      a: "Apple silicon Macs on macOS Tahoe 26.4 or later. There is no Intel build.",
     },
     {
-      q: "What if a server doesn't support Range?",
-      a: "The probe detects it and falls back to a single stream. No corruption, and no pretending parallelism is happening when it isn't.",
+      q: "What if a server doesn't support byte ranges?",
+      a: "MacGet detects it before downloading and uses a single connection. No corruption, and no pretending parallelism is happening when it isn't.",
     },
     {
       q: "How do updates work?",
-      a: "Sparkle. MacGet checks a signed appcast on a schedule and can install updates itself — you don't come back here to re-download. Every update is EdDSA-signed and the signature is checked before installing, independently of Apple notarization.",
+      a: "MacGet checks a signed feed on a schedule and installs updates itself, so you never come back here to re-download. Each update's EdDSA signature is checked before it installs.",
     },
     {
       q: "Does it collect anything?",
-      a: "No. No analytics, no telemetry, no remote logging, no account, and no server of ours to send anything to. Your queue, settings, and learned host limits stay in ~/Library/Application Support/Macget. The privacy policy spells out the few cases where MacGet touches the network at all.",
+      a: "No. No analytics, telemetry, remote logging or account. Your queue, settings and learned host limits stay in ~/Library/Application Support/Macget. The privacy policy lists the few times MacGet touches the network at all.",
     },
     {
       q: "Is the app sandboxed?",
-      a: "No — App Sandbox is intentionally off, since MacGet isn't destined for the Mac App Store. Hardened Runtime is on.",
+      a: "No — MacGet isn't headed for the Mac App Store, so App Sandbox is off. Hardened Runtime is on.",
     },
   ],
 } as const;

@@ -84,9 +84,16 @@ export const siteConfig = {
     {
       title: "Documentation",
       links: [
+        // The homepage carries most of the site's authority; linking the docs
+        // from every page's footer is how they stop being "crawled, not indexed".
         { label: "Docs home", href: "/docs" },
         { label: "Installation", href: "/install" },
         { label: "Browser extension", href: "/docs/browser-extension" },
+        { label: "Video & audio downloads", href: "/docs/media-downloads" },
+        { label: "Torrents", href: "/docs/torrents" },
+        { label: "How the engine works", href: "/docs/engine-pipeline" },
+        { label: "Adaptive concurrency", href: "/docs/adaptive-concurrency" },
+        { label: "Troubleshooting", href: "/docs/troubleshooting" },
         { label: "Settings reference", href: "/docs/settings-reference" },
       ],
     },

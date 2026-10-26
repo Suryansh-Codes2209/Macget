@@ -5,7 +5,9 @@ import {
   DocsPage,
   DocsTitle,
 } from "fumadocs-ui/page";
+import { Card, Cards } from "fumadocs-ui/components/card";
 import { source } from "@/lib/source";
+import { relatedDocs } from "@/lib/related-docs";
 import { getMDXComponents } from "@/mdx-components";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { breadcrumbSchema, pageMetadata } from "@/lib/seo";
@@ -20,6 +22,7 @@ export default async function Page({ params }: PageProps) {
   if (!page) notFound();
 
   const MDXContent = page.data.body;
+  const related = relatedDocs(slug);
 
   return (
     <>
@@ -35,6 +38,21 @@ export default async function Page({ params }: PageProps) {
         <DocsDescription>{page.data.description}</DocsDescription>
         <DocsBody>
           <MDXContent components={getMDXComponents()} />
+          {related.length > 0 && (
+            <>
+              <h2 id="related">Related</h2>
+              <Cards>
+                {related.map((r) => (
+                  <Card
+                    key={r.url}
+                    href={r.url}
+                    title={r.data.title}
+                    description={r.data.description}
+                  />
+                ))}
+              </Cards>
+            </>
+          )}
         </DocsBody>
       </DocsPage>
     </>

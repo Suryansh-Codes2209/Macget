@@ -20,6 +20,15 @@
   <img src="https://img.shields.io/badge/UI-SwiftUI-blueviolet" alt="SwiftUI"/>
 </p>
 
+<p align="center">
+  <a href="https://macget.suryansh.work"><strong>Website</strong></a> ·
+  <a href="https://macget.suryansh.work/install">Install guide</a> ·
+  <a href="https://macget.suryansh.work/docs">Documentation</a> ·
+  <a href="https://macget.suryansh.work/docs/torrents">Torrents</a> ·
+  <a href="https://macget.suryansh.work/docs/browser-extension">Browser extension</a> ·
+  <a href="https://macget.suryansh.work/changelog">Changelog</a>
+</p>
+
 > **Note:** MacGet is **not affiliated with or endorsed by** Tonec Inc. or Internet Download Manager. It's an independent free alternative.
 
 ---

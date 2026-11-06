@@ -76,7 +76,7 @@ export function Hero() {
             <p className="mt-2.5 text-center text-sm text-mute">
               Homebrew skips the first-launch warning.{" "}
               <Link
-                href="/#install"
+                href="/install"
                 className="text-cream-dim underline decoration-line underline-offset-4 transition-colors hover:text-cream"
               >
                 Install options

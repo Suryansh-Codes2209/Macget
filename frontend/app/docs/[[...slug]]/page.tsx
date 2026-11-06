@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   DocsBody,
@@ -33,7 +34,24 @@ export default async function Page({ params }: PageProps) {
           { name: page.data.title, path: page.url },
         ])}
       />
-      <DocsPage toc={page.data.toc} full={page.data.full}>
+      <DocsPage
+        toc={page.data.toc}
+        full={page.data.full}
+        // The docs tree is flat, so Fumadocs' own trail would only show the page
+        // title. Render Home › Docs › Page instead, matching the BreadcrumbList above.
+        breadcrumb={{ enabled: false }}
+      >
+        {slug && slug.length > 0 && (
+          <nav aria-label="Breadcrumb" className="mb-2 text-sm text-fd-muted-foreground">
+            <ol className="flex flex-wrap items-center gap-1.5">
+              <li><Link href="/" className="hover:text-fd-foreground">Home</Link></li>
+              <li aria-hidden>›</li>
+              <li><Link href="/docs" className="hover:text-fd-foreground">Docs</Link></li>
+              <li aria-hidden>›</li>
+              <li aria-current="page" className="text-fd-primary">{page.data.title}</li>
+            </ol>
+          </nav>
+        )}
         <DocsTitle>{page.data.title}</DocsTitle>
         <DocsDescription>{page.data.description}</DocsDescription>
         <DocsBody>
@@ -52,6 +70,16 @@ export default async function Page({ params }: PageProps) {
                 ))}
               </Cards>
             </>
+          )}
+          {/* Every guide links the install page, so each one passes it some weight. */}
+          {page.url !== "/install" && (
+            <p className="mt-10 rounded-xl border border-fd-border bg-fd-card p-4 text-sm">
+              New to MacGet?{" "}
+              <Link href="/install" className="font-medium">
+                Install MacGet on your Mac
+              </Link>{" "}
+              with Homebrew or the signed DMG. It takes about a minute.
+            </p>
           )}
         </DocsBody>
       </DocsPage>

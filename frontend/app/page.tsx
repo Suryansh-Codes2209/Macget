@@ -6,6 +6,7 @@ import { Bonding } from "@/components/bonding/Bonding";
 import { Showcase } from "@/components/showcase/Showcase";
 import { HowItWorks } from "@/components/how/HowItWorks";
 import { InstallSection } from "@/components/install/InstallSection";
+import { DocsSection } from "@/components/docs/DocsSection";
 import { FAQ } from "@/components/faq/FAQ";
 import { Footer } from "@/components/footer/Footer";
 import { JsonLd } from "@/components/seo/JsonLd";
@@ -25,6 +26,7 @@ export default function HomePage() {
         <More />
         <HowItWorks />
         <InstallSection />
+        <DocsSection />
         <FAQ />
       </main>
       <Footer />

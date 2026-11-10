@@ -31,17 +31,6 @@ export const metadata: Metadata = {
   authors: [{ name: "Suryansh", url: "https://github.com/Suryansh-Codes2209" }],
   creator: "Suryansh",
   alternates: { canonical: absoluteUrl("/") },
-  keywords: [
-    "macOS download manager",
-    "multi-threaded downloader",
-    "HTTP range download",
-    "IDM alternative for Mac",
-    "yt-dlp Mac GUI",
-    "resume downloads macOS",
-    "open source download manager",
-    "SwiftUI",
-    "MacGet",
-  ],
   category: "technology",
   // Preview deployments must not compete with the canonical site in search.
   robots: isProduction

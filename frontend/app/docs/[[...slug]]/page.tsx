@@ -13,6 +13,16 @@ import { getMDXComponents } from "@/mdx-components";
 import { JsonLd } from "@/components/seo/JsonLd";
 import { breadcrumbSchema, pageMetadata } from "@/lib/seo";
 
+/*
+ * The index page keeps "Introduction" as its sidebar label (its frontmatter
+ * title), but its H1 and title tag say what the whole section is.
+ */
+const DOCS_INDEX_HEADING = "MacGet documentation";
+
+function isDocsIndex(slug?: string[]) {
+  return !slug || slug.length === 0;
+}
+
 interface PageProps {
   params: Promise<{ slug?: string[] }>;
 }
@@ -24,6 +34,7 @@ export default async function Page({ params }: PageProps) {
 
   const MDXContent = page.data.body;
   const related = relatedDocs(slug);
+  const heading = isDocsIndex(slug) ? DOCS_INDEX_HEADING : page.data.title;
 
   return (
     <>
@@ -31,7 +42,7 @@ export default async function Page({ params }: PageProps) {
         schema={breadcrumbSchema([
           { name: "Home", path: "/" },
           { name: "Docs", path: "/docs" },
-          { name: page.data.title, path: page.url },
+          ...(isDocsIndex(slug) ? [] : [{ name: page.data.title, path: page.url }]),
         ])}
       />
       <DocsPage
@@ -52,7 +63,7 @@ export default async function Page({ params }: PageProps) {
             </ol>
           </nav>
         )}
-        <DocsTitle>{page.data.title}</DocsTitle>
+        <DocsTitle>{heading}</DocsTitle>
         <DocsDescription>{page.data.description}</DocsDescription>
         <DocsBody>
           <MDXContent components={getMDXComponents()} />
@@ -97,10 +108,11 @@ export async function generateMetadata({ params }: PageProps) {
   if (!page) notFound();
 
   return pageMetadata({
-    title: page.data.title,
+    title: isDocsIndex(slug) ? DOCS_INDEX_HEADING : page.data.title,
     description:
       page.data.description ??
       "Documentation for MacGet, a native multi-threaded download manager for macOS.",
     path: page.url,
+    absoluteTitle: isDocsIndex(slug),
   });
 }

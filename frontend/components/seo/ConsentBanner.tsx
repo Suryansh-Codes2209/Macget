@@ -56,7 +56,7 @@ export function ConsentBanner() {
           href="/privacy"
           className="text-brand-amber underline underline-offset-4 hover:text-brand-honey"
         >
-          Details
+          Read the privacy policy
         </Link>
         .
       </p>

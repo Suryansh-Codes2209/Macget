@@ -13,7 +13,7 @@ import SwiftUI
 /// mode, so it uses the *dark* variant of each token below.
 ///
 /// This file is the source of truth. When a color changes here, it also has to
-/// change in `frontend/app/globals.css`, `site/index.html`, and the branding SVGs
+/// change in `app/globals.css` of the private `macget-site` repo, `site/index.html`, and the branding SVGs
 /// under `Resources/Branding/` — run `scripts/render-icons.sh` after the latter.
 enum Theme {
 

@@ -5,7 +5,7 @@
   "scripts": {
     "predev": "bun run sync-assets",
     "prebuild": "bun run sync-assets",
-    "sync-assets": "cp ../Macget/Resources/Branding/macget-icon.svg public/macget-icon.svg && cp ../Macget/Resources/Branding/macget-wordmark.svg public/macget-wordmark.svg && cp ../Macget/Resources/Branding/macget-icon.svg app/icon.svg && cp ../CHANGELOG.md content/CHANGELOG.md",
+    "sync-assets": "node scripts/sync-assets.mjs",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

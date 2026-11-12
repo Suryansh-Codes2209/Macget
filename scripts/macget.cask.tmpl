@@ -13,14 +13,16 @@ cask "macget" do
   end
 
   auto_updates true
-  depends_on macos: :tahoe
   depends_on arch: :arm64
+  depends_on macos: :tahoe
 
   app "Macget.app"
 
-  postflight do
-    system_command "/usr/bin/xattr",
-                   args: ["-dr", "com.apple.quarantine", "#{appdir}/Macget.app"]
+  postflight_steps do
+    run "/usr/bin/xattr",
+        args:           ["-dr", "com.apple.quarantine", "{{appdir}}/Macget.app"],
+        writable_paths: ["Macget.app"],
+        writable_base:  :appdir
   end
 
   zap trash: [

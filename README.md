@@ -15,6 +15,7 @@
 <p align="center">
   <a href="https://github.com/Suryansh-Codes2209/Macget/actions/workflows/ci.yml"><img src="https://github.com/Suryansh-Codes2209/Macget/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"/></a>
+  <a href="https://github.com/sponsors/Suryansh-Codes2209"><img src="https://img.shields.io/github/sponsors/Suryansh-Codes2209?logo=githubsponsors&label=sponsor&color=ea4aaa" alt="Sponsor MacGet"/></a>
   <img src="https://img.shields.io/badge/macOS-26.4%2B-black?logo=apple" alt="macOS 26.4+"/>
   <img src="https://img.shields.io/badge/swift-5.9-orange?logo=swift" alt="Swift 5.9"/>
   <img src="https://img.shields.io/badge/UI-SwiftUI-blueviolet" alt="SwiftUI"/>
@@ -253,6 +254,22 @@ The CI workflow at `.github/workflows/ci.yml` runs build + tests on every push/P
 ## Contributing
 
 Issues and PRs welcome. The `Engine/` directory is the high-stakes code — please include unit tests for any change there, and mirror the actor / `@Sendable` conventions described in [`CLAUDE.md`](CLAUDE.md).
+
+---
+
+## Support MacGet
+
+MacGet is free, MIT-licensed, and built by one developer. If it saves you time, consider
+[**sponsoring on GitHub**](https://github.com/sponsors/Suryansh-Codes2209).
+
+The first goal is the **$99/year Apple Developer Program**. That pays for **notarized**
+builds, so the one-time Gatekeeper "Open Anyway" step goes away, and it's a step toward
+listing in official Homebrew (`homebrew/cask`). Beyond that, sponsorship buys time for
+new features and for reviewing contributions.
+
+Not able to sponsor? A ⭐ star, a bug report, or a
+[good first issue](https://github.com/Suryansh-Codes2209/Macget/labels/good%20first%20issue)
+PR helps just as much.
 
 ---
 

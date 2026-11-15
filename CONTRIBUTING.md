@@ -13,6 +13,32 @@ macOS download manager, and issues + PRs are genuinely welcome.
 - **One change per PR.** Small, focused PRs get reviewed and merged faster.
 - **Open an issue first** for anything non-trivial (new features, behavior changes,
   refactors). It saves us both from wasted work.
+- Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Your first contribution
+
+New to the project (or to open source)? Start with an issue labelled
+[**good first issue**](https://github.com/Suryansh-Codes2209/Macget/labels/good%20first%20issue).
+Each one names the files involved, what "done" looks like, and the command that
+proves it works.
+
+1. **Claim it.** Comment "I'd like to work on this" on the issue. I'll assign it to
+   you so two people don't do the same work. If an assigned issue has had no
+   activity for two weeks, it's fair game again.
+2. **Ask early.** Stuck or unsure about the approach? Ask on the issue, or in
+   [Discussions](https://github.com/Suryansh-Codes2209/Macget/discussions).
+   No question is too small.
+3. **Open a draft PR** as soon as you have something, even if it's unfinished.
+   Early feedback beats a big rewrite at the end.
+
+Not every task needs a Mac running Tahoe: the browser extension
+(`BrowserExtension/`) is plain JavaScript, and its tests run anywhere with Node:
+
+```bash
+cd BrowserExtension
+node --test test/heuristics.test.js
+./build.sh && node --test test/no-media-in-chrome.test.js
+```
 
 ## Getting set up
 
@@ -56,7 +82,7 @@ architecture is documented in [`docs/architecture.md`](docs/architecture.md).
 - **Persisted state:** new fields on `Download` / `Chunk` / `AppSettings` must stay
   `Codable` **and** `Sendable`. The store does a whole-file read-modify-write, so
   don't add very large fields.
-- **Bounds:** threads/chunks are clamped to **1–20** at every layer. Keep it that
+- **Bounds:** threads/chunks are clamped to **1–16** (`Download.maxThreadCount`) at every layer. Keep it that
   way.
 - **Logging:** use `Log.app/engine/ui/net` from `Supporting/Logger+MacGet.swift`
   (subsystem `com.macget`). Don't `print`.

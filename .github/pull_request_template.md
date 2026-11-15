@@ -22,5 +22,5 @@ Closes #
 
 - [ ] Follows the conventions in [CONTRIBUTING.md](../CONTRIBUTING.md) / [CLAUDE.md](../CLAUDE.md)
 - [ ] Respects the actor / `@Sendable` model; UI mutates engine state only via engine methods
-- [ ] New persisted fields stay `Codable` + `Sendable`; threads/chunks stay clamped 1–20
+- [ ] New persisted fields stay `Codable` + `Sendable`; threads/chunks stay clamped 1–16 (`Download.maxThreadCount`)
 - [ ] No secrets, signing keys, or personal paths committed

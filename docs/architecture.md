@@ -50,7 +50,7 @@ and queue state desync if shutdown skips it.
 2. **Disk-space check** — `DiskSpaceChecker` refuses the download if the total
    exceeds 95 % of free space at the destination.
 3. **Plan chunks** — `ChunkPlanner.plan()` / `ChunkSplitter`. Threads are clamped
-   to `1...20` **and** further clamped so each chunk is ≥ 64 KB
+   to `1...16` (`Download.maxThreadCount`) **and** further clamped so each chunk is ≥ 64 KB
    (`minimumChunkBytes`). When the server doesn't support Range, it falls back to
    a single chunk.
 4. **Allocate** — `FileWriter` (actor) opens the partial file
@@ -223,7 +223,7 @@ drag-and-drop entry points.
 - New persisted state on `Download` / `Chunk` / `AppSettings` must stay `Codable`
   **and** `Sendable`. The store does a naive read-modify-write of the whole queue
   file, so avoid adding very large fields.
-- Threads/chunks are bounded to **1–20** at every layer (`Download.init` clamps,
+- Threads/chunks are bounded to **1–16** (`Download.maxThreadCount`) at every layer (`Download.init` clamps,
   `ChunkPlanner` re-clamps, `AppSettings` clamps).
 
 ---
